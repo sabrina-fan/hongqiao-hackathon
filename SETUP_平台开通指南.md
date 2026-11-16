@@ -429,6 +429,8 @@ VITE_AMAP_JS_KEY=xxxxxxxx
 
 **其余任何变量都不要加 `VITE_` 前缀**——加了就会被打进前端产物。
 
+**Jev 中转（2026-11-16 用户指定）**：单独保存在 Git 忽略的 `.env.jev.local`，变量为 `JEV_BASE_URL`、`JEV_API_KEY`、`JEV_MODEL=jev-latest` 和 `JEV_TIMEOUT_MS`；文件权限设为 600。使用原生 `/v1/systemone`，凭据只由服务端 decision transport / 本地探针读取。运行连通性探针：`node --env-file=.env.jev.local scripts/probe-jev.mjs`；加 `--suite` 会真实调用中转，运行 16 个合成请求。运行未来完整应用时需同时加载主 `.env` 与该文件；当前探针不修改现有主配置。
+
 ---
 
 ## 6. 开工自检清单

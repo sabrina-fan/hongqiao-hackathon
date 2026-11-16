@@ -99,7 +99,8 @@ PRD 的核心路径是线性的：
 | --- | --- | --- | --- |
 | 语言 | **TypeScript** | — | 全栈同语言，契约共享 |
 | Agent 运行时 | **`@earendil-works/pi-durable`** | **1.5.2 精确锁** | ✅ Experimental，见 §2.3 风险对策 |
-| 模型访问 | `@earendil-works/pi-ai` | 1.5.2 | 随 durable 精确锁进来 |
+| 文本/视觉模型访问 | `@earendil-works/pi-ai` | 1.5.2 | 随 durable 精确锁进来 |
+| 有限选项决策访问 | 网关内原生 SystemOne HTTP 适配 | `jev-latest`（用户指定） | Jev 走独立协议，共用预算、校验、记账与 Langfuse 关联 |
 | 对象运行时 | `@earendil-works/chord` | 1.5.2 | 随 durable；自带 HTTP / workers / web / terminal 客户端 |
 | 契约与校验 | **`@earendil-works/pi-schema`** | 1.5.2 | **不用 Zod**，见 §7.1 |
 | 遥测 | `@earendil-works/pi-telemetry` | 1.5.2 | 原生脱敏，见 §10.4 |
@@ -110,9 +111,9 @@ PRD 的核心路径是线性的：
 | 测试 | `fauxProvider()` + `registerStorageConformance()` + Vitest | — | 回放不烧钱；测试矩阵见 ENGINEERING §3.3 |
 | Lint / 格式化 | **oxlint + oxfmt** | 1.83.0 / 0.68.0 | 从 `heirloom-lite` 借；不用 ESLint/Prettier |
 | 浏览器 E2E | Playwright | ^1.63.0 | 地图/模型全 mock；见 ENGINEERING §3.3 |
-| 模型评测 | promptfoo | 0.124.1 | 20 张小红书图本地评测；见 ENGINEERING §3.5 |
+| 模型观测与评测 | **Langfuse** | 复用已有服务，SDK 初始化时核对兼容并锁版 | 数据集、实验、规则/人工评分；第三方图片只本地评测，见 ENGINEERING §3.5 |
 | 地图 | 高德 Web服务 REST + JS API | — | 见 §5.2、SETUP §3 |
-| 模型 | 智谱 GLM-5.3-Flash + 火山方舟 Doubao 2.1 Lite | — | 全部经网关；端点模式见 §6.1.1（standard 合规 / plan 本次选择） |
+| 模型 | GLM-5.3-Flash（视觉）+ Doubao 2.1 Lite（生成）+ Jev（有限选项决策） | Jev 用 `jev-latest` | 全部经网关；GLM/火山端点模式见 §6.1.1，Jev 中转见 §6.1.2 |
 
 **明确不用**：AI SDK（任何 `ai` / `@ai-sdk/*` 包）、`pi-agent-core`、`pi-web-ui`、`pi-protocol`、`pi-client`、`pi-session-backend-sqlite-node`、`pi-storage-sqlite-node`、`pi-coding-agent`、`pi-tui`、`pi-env`、Mastra、LangGraph、`@openai/agents`、Temporal、Zod。
 
@@ -557,10 +558,10 @@ PRD 目标：雷达中位 ≤12s。当前场景如果按 6 个模型回合走，
 | 筛选 + ETA | ≤3s | 2–3 次批量调用，并行发 |
 | 详情 top N | ≤2s | `/v5/place/detail` 一次批量（实测 ≤35，按 ≤25 分批）；opening 从 search/policy 补 |
 | 排序 + 差异化 | ≤0.1s | 纯函数 |
-| 模型 | ≤4s | **1 次意图/理由调用**；不要 6 回合 |
+| 模型 | ≤4s | 必要的 Jev 意图/偏好/理由码决策；结构化输入省分类，普通理由模板省文本生成；不要 6 回合 |
 | 渲染/SSE | ≤0.3s | 先出首选，再出备选 |
 
-落地：把 read → screen → rank → diversify 收敛成一个 `radar.evaluate` 纯函数编排（模型可调用一次），模型只做 `fast.intent` + `reason.explain`；独立 I/O 并行；每个外部调用有 timeout；超时/失败走确定性兜底并标 `estimated/unknown`。`maxTurns` 是安全阀，不是延迟预算。
+落地：把 read → screen → rank → diversify 收敛成一个 `radar.evaluate` 编排，纯筛选/排序函数保持不变。Jev 在需要时做意图/偏好理解与理由码选择，普通卡片用受控模板；复杂自由表达才调 `reason.explain`。同一 state 上的独立问题合并请求，依赖后续地图证据的问题等证据齐备再问。独立 I/O 并行；外部调用与 fallback 共用本次总 deadline，不能每跳重置；超时/失败走确定性兜底并标 `estimated/unknown`。`maxTurns` 是安全阀，不是延迟预算。
 
 ---
 
@@ -573,10 +574,13 @@ PRD 目标：雷达中位 ≤12s。当前场景如果按 6 个模型回合走，
 | 任务类 | 用途 | 主模型 | 备选 | 约束 |
 | --- | --- | --- | --- | --- |
 | `vision.extract` | 小红书截图 → POI 候选 | 智谱 `glm-5.3-flash` | 智谱 `glm-4.6v-flash`（备用 Key，429 高发）；火山 `doubao-seed-2-1-lite-260915` | ✅ 2026-11-16 实测：Coding Plan 端点接受 `thinking:{type:'disabled'}`、`max_tokens`、`response_format:{type:'json_object'}` 和强制工具调用；结构化输出走 `json_object` + pi-schema 全量校验，不依赖 `json_schema` |
-| `reason.explain` | 给已排序的候选写定性理由（不排序、不算数） | 火山 `doubao-seed-2-1-lite-260915` | 智谱 `glm-5.3-flash`（末位） | 可用 json_schema 当提示（不依赖 strict）；reason 无数字字段 |
+| `reason.explain` | 复杂自由表达的定性理由（不排序、不算数） | 火山 `doubao-seed-2-1-lite-260915` | 智谱 `glm-5.3-flash`（末位） | 常见卡片先用 `decision.reason` + 受控模板；需要自由表达时才调用；reason 无数字字段 |
 | `reason.plan` | 行程草案的润色/备选解释 | 火山 `doubao-seed-2-1-lite-260915` | 智谱 `glm-5.3-flash`（末位） | 同上；不得修改顺序/锁定项 |
-| `fast.intent` | 意图识别 / 拒绝原因分类 | 火山 `doubao-seed-2-1-lite-260915`（thinking off） | — | 低延迟优先；GLM 可关思考但约 1.2s 起，默认不进这条链 |
-| `fast.normalize` | POI 名称归一 | 同上 | — | 低延迟优先 |
+| `fast.intent` | 自由文本意图识别 / 拒绝原因分类 | Jev `jev-latest`（用户指定中转） | Doubao 2.1 Lite（网络/协议失败时） | 原生 SystemOne 协议；Chips 直接映射；unknown/含糊表达要求确认，不强制猜分类 |
+| `decision.poi_match` | 有歧义的高德候选消歧 | Jev `jev-latest` | 手工确认 / 当前匹配规则 | 仅在给定 POI ID 中选择，保留 none/needs_review |
+| `decision.preferences` | 提取环境/节奏/兴趣等有限偏好标签 | Jev `jev-latest` | 表单 / 用户确认 | 未表达字段保持 unspecified；代码映射软权重，长期保存需确认 |
+| `decision.reason` | 从已有证据支持的理由码中选择主理由 | Jev `jev-latest` | 确定性理由选择 + 模板 | 代码先限定可选理由；普通卡片可省一次文本生成 |
+| `fast.normalize` | POI 名称归一 | 火山 `doubao-seed-2-1-lite-260915`（thinking off） | — | 自由文本归一仍走生成模型；有限候选消歧走 `decision.poi_match` |
 
 > POI 匹配/去重是确定性的：`provider + provider_poi_id` 主键、名称+坐标次判、小红书抽取名走高德 `place.search_*` + 用户确认，PRD 范围内没有语义相似度功能。若将来加「相似地点推荐」这类功能，再按同一张表新增 `embed.text` 任务类即可，网关结构不变。
 
@@ -609,6 +613,46 @@ MODEL_ENDPOINT_MODE=plan        # standard | plan
 | 智谱（备用 Key） | `glm-4.6v-flash` | 同左（标准按量） | `ZHIPU_BACKUP_*`；主 Key 配额耗尽时启用，与主 Key 分开计费；429 高发 |
 | 火山 | `doubao-seed-2-1-lite-260915`（或 `ep-...`） | `doubao-seed-2-1-lite-260915` | 与 heirloom-lite env 一致；官方 Agent Plan Pi 文档写 `doubao-seed-2.1-lite`，以实测为准 |
 两个主力模型都是 1M 上下文；GLM-5.3-Flash 支持图像/视频/文本输入，Doubao 2.1 Lite 也支持视觉理解。模型 ID 与 Base URL 一律走配置，不写死在业务代码里。
+
+### 6.1.2 TypeSafe AI Jev：有限选项语义决策 🔷
+
+**Jev 是 TypeSafe AI 的决策模型**，不是 Ajv 校验库。它根据 `state` 回答类型化问题：Choice 从给定选项选一项，Score 输出有描述档位上的概率分布与期望分数，Noul 返回肯定答案的概率。类型合法与判断正确是两件事；概率/置信度必须用本项目标注数据校准，不能当事实凭证。
+
+**接入选择（2026-11-16 用户指定）：通过用户提供的中转使用 `jev-latest`。** `JEV_BASE_URL` / `JEV_API_KEY` / `JEV_MODEL` 保存在 Git 忽略的 `.env.jev.local`，凭据不进源码。该选择覆盖此前固定 `jev-1.14.0` 的建议；记录请求别名与响应中的实际模型名，若中转只回显 `jev-latest`，实际解析版本标为未知，不自行推定。
+
+按业务流程分配：
+
+| 优先级 | 任务类 / 使用点 | 输入 → 输出 | 落点与边界 |
+| --- | --- | --- | --- |
+| 优先接入 | `fast.intent` | 自由文本 + 当次上下文 → 意图/拒绝原因 | 替代这类任务的生成式分类；反馈 Chips 直接映射；不确定时确认；代码执行 `constraints.apply_rejection` |
+| 优先接入 | `decision.poi_match` | 抽取名/城市/地址线索 + 高德候选 → 候选 ID / 无匹配 / 待确认 | 辅助 `import.match` 同名门店消歧；先做精确规则匹配，仍有歧义才调用；wishlist 写入仍需用户确认 |
+| 优先评估 | `decision.preferences` | “想安静坐会儿”等表达 → 环境/节奏/兴趣等预定义偏好标签 | 代码映射软权重；未表达字段保持 unspecified；长期记忆须单独确认；不从“累”擅自推出不可步行等硬约束 |
+| 优先评估 | `decision.reason` | 已验证事实 + 用户偏好 + 允许理由码 → 主理由码 | 代码先排除无证据支持的理由，再由 Jev 选最相关项；模板产出卡片一句话，常见路径可省一次 `reason.explain` 文本生成 |
+| 后续评估 | `decision.preference_fit` | 已通过硬筛的 top K + 偏好 → 有锚点描述的匹配评分 | 作为软评分特征交给 `rank_by_weights`；不覆盖时间/预算/预约；`score` 是概率加权期望、可为小数，不把它当整数枚举 |
+| 后续评估 | `decision.experience_type` | POI 类别/描述 → 休息/漫步/文化等体验标签 | 补充规则映射无法覆盖的语义标签，供差异化；saved/new 等来源标签由代码确定；不推断营业/预约状态 |
+| 后续评估 | Langfuse 自定义 evaluator | 输入证据 + 输出理由/提案 → 支持度/匹配度评分 | 实验脚本调用 Jev 后回传 Langfuse；用于质量评测，不参与生产放行，仍需人工标注基准 |
+
+推荐调用方式：
+
+1. 结构化表单/反馈 Chips 直接进入应用函数；自由文本才调用 `fast.intent`，可在同一请求中同时提取彼此独立的偏好标签。
+2. 应用查询高德并完成硬筛；只有存在语义歧义/偏好判断时才调用 Jev。地点评分、体验标签、每个候选的理由选择可共享事实 state，但各问题独立。
+3. 编排层调用 decision transport，结果作为纯函数排序/差异化的输入；`screen` / `rank_by_weights` 本体不发模型网络请求。
+4. 卡片优先使用受控理由码与模板；复杂自由表达再调用 `reason.explain`。替换现有语义调用，不把 Jev 与生成模型无条件串联两次。
+
+**确定性边界**：ETA、时间窗口、价格计算、预约资格、硬约束闸门、幂等/乐观锁、用户授权和最终写入保持纯函数/事务校验。任意地点名抽取、长文本解释仍由现有视觉/生成模型承担，Jev 的有限选项选择不负责生成未知地点名。
+
+**图片扩展仅作后续候选**：官方 `jev-1.14.0` 支持实验性的 Box，可尝试把已抽取的地名/证据定位成确认 UI 的高亮框。须另测中转图像协议、文字框精度与缺失目标；Box 在目标不存在时仍会返回坐标，不能单独当“确有此证据”。当前截图抽取链仍只用 GLM/Doubao。
+
+接入与验证：
+
+- 原生请求为 `POST /v1/systemone`、`state + questions`；在现有模型网关内加独立 decision transport，不引入 AI SDK，也不伪装成 Chat Completions provider。
+- 同一次请求可问多个问题，但各问题独立判断；有依赖的结论由代码组合或分次请求，不能假设问题之间会互相引用答案。
+- 用 pi-schema 校验响应结构、问答 ID、候选成员关系、概率范围与 Score 的合法区间；低置信、上下文不适用或网络失败时进入确认/现有路径。拒绝阈值由标注集确定，不全局硬编码一个“可靠”分数。
+- 独立 timeout、预算、用量记账；与现有网关共用请求关联 ID，模型别名/实际版本、延迟、成本、fallback 状态统一记录到 Langfuse。
+- 优先做意图与 POI 消歧对照；记录包含网络、解析、fallback 的端到端 p50/p95、准确率、错误动作率、需确认率与成本。有限输出预期降低生成开销，尚未实测的比较不写成“一定更快”。
+- 小规模协议/合成样例探针见 `scripts/probe-jev.mjs` 与 `evals/jev-smoke-cases.mjs`；本地结果在 Git 忽略的 `testdata/jev-probe/`，不能替代真实样本上的准入评测。
+
+**2026-11-16 中转小样例实测**：`/v1/models` 与 `/v1/systemone` 均返回 200；请求与响应模型名均为 `jev-latest`，解析版本未知。固定套件的 16 个请求全部 HTTP 200，p50 **908ms**、p95 **3348ms**（本机经中转的完整请求，含读取响应）；14 个 Choice 请求的判断和检查均通过。2 个 Score 的高低方向符合样例，但 `score=2.99/0.01` 与返回概率加权值 `3/0` 相差约 0.01，触发严格一致性检查，探针退出码为 1；需确认中转数值精度行为后再启用连续评分。合成小样例不代表生产准确率，也未与同输入 Doubao 做速度对照。
 
 ### 6.2 九步中间件链 🔷
 
@@ -714,7 +758,8 @@ for (const provider of [zhipu, ark]) models.setProvider(provider);
 
 - `vision.extract` → GLM，默认不传 `reasoningEffort`（thinking off；图片 + `json_object` 20 张实测 p50 ≈4.3s，强制工具约 6s）；schema/闸门判失败时同一请求升到 `'max'` 重试一次。备用 Key 的 `glm-4.6v-flash` 429 高发且结构化输出未验证；Doubao 视觉兜底不传 `reasoningEffort`（实测图 + `json_object` 约 2.6–3.2s）。
 - `reason.explain` / `reason.plan` → Doubao，默认不传 `reasoningEffort`（思考关闭，省延迟）；GLM 末位兜底时传 `'max'`，先把请求跑通。
-- `fast.intent` / `fast.normalize` → Doubao，不传 `reasoningEffort`；GLM 虽可关思考，但实测 1.2s 起，默认不进这两个任务类。
+- `fast.intent` → Jev 原生 decision transport，不适用 Chat `compat` 或 `reasoningEffort`；网络/协议失败的 Doubao 备选不传 `reasoningEffort`。含糊表达走用户确认。
+- `fast.normalize` → Doubao，不传 `reasoningEffort`；自由文本归一仍需要生成模型。GLM 默认不进这条链。
 - 跨提供方重试时，`reasoningEffort` 按**目标提供方**重新映射，不沿用上一个提供方的值。
 
 其余还要验：`supportsMidConvoSystemMessages`（durable 会在对话中途插 system message 改工具集，两家认不认）、`supportsUsageInStreaming` 的实际行为。
@@ -733,13 +778,15 @@ pi-ai 原生支持 **Cross-Provider Handoffs**：同一段对话换提供方时�
 - **A（本项目）**：网关对每个上游暴露一个 model ID，runtime 在兜底时切 model；pi-ai 负责消息转换。
 - **B**：网关内部自己实现 fallback 与消息转换，pi-ai 仍只看到一个 provider。
 
-本项目有 2 个主上游（智谱另有可选备用 Key），A 方案的兜底链是真实的，不是摆设：
+文本/视觉有智谱、火山两个主上游（智谱另有可选备用 Key），通过 A 方案做 handoff。Jev 使用独立 decision transport，只接收相关 state 与有限问题，不沿用 Chat 的对话转换；下面分别列出任务级兜底：
 
 | 任务类 | 兜底链 | 约束 |
 | --- | --- | --- |
 | `vision.extract` | GLM-5.3-Flash（首选，`json_object`）→ Doubao 2.1 Lite | 图片只发 GLM/Doubao；两个都不通时 `NoModelAvailable` |
 | `reason.explain` / `reason.plan` | Doubao 2.1 Lite → GLM-5.3-Flash（末位） | 每一跳都要能按目标提供方重新映射思考参数；GLM 末位用 `reasoningEffort: 'max'` |
-| `fast.intent` / `fast.normalize` | Doubao 2.1 Lite（thinking off） | GLM 可关思考但约 1.2s 起，默认不进这条链 |
+| `fast.intent` | Jev `jev-latest` → Doubao 2.1 Lite（仅网络/协议失败） | Jev 用独立 decision transport；unknown/含糊结果走确认，不强制换模型猜答案；fallback 共用剩余 deadline |
+| `fast.normalize` | Doubao 2.1 Lite（thinking off） | 自由文本归一；GLM 默认不进这条链 |
+| `decision.poi_match` / `decision.preferences` / `decision.reason` | Jev `jev-latest` | 失败交还应用端走手工确认/结构化输入/确定性理由模板，不默认追加一次生成调用 |
 
 > **`ZHIPU_BACKUP_*` 是可选的同提供方备用 Key，不在默认兜底链里。** 2026-11-16 实测 `glm-4.6v-flash` 连续返回 429（code 1305「该模型当前访问量过大」），只适合在主 Key 配额耗尽时尝试，且必须设短超时；遇 429 立即落到 Doubao，不要重试成主路径。
 
@@ -1349,6 +1396,9 @@ PRD 的验收场景。逐层走一遍，验证架构闭合。
 - 火山 Agent Plan Pi 接入（`/api/plan/v3`）：https://docs.volcengine.com/docs/ark/agent-plan-personal-pi?lang=zh
 - 火山 Coding Plan 套餐概览（不可用于 API 调用）：https://docs.volcengine.com/docs/ark/coding-plan-personal-plan-overview?lang=zh
 - 火山方舟模型列表（`doubao-seed-2-1-lite-260915`）：https://docs.volcengine.com/docs/ark/model-list?lang=zh
+- Langfuse 评测与 CI：https://langfuse.com/docs/evaluation/overview · https://langfuse.com/docs/evaluation/experiments/experiments-ci-cd
+- TypeSafe Jev 模型与 API：https://docs.typesafe.ai/models · https://docs.typesafe.ai/api
+- TypeSafe Choice / confidence / 能力边界：https://docs.typesafe.ai/primitives/choice · https://docs.typesafe.ai/confidence · https://docs.typesafe.ai/model-jaggedness.md
 - 高德 Web服务 API：https://lbs.amap.com/api/webservice/guide/api/direction
 - pi-durable 1.5.2 包源码（`dist/harness/generation.js`，`dist/documents.d.ts`，`dist/types.d.ts`）：核对 `onYield`/`terminate`、doc scope、`Tx` API、transcript 存储通道
 - chord 1.5.2（`dist/delta/draft.d.ts`）：`Draft<T>` 是事务内可变视图，doc 写入靠改 draft，不是 `tx.set()`
@@ -1358,6 +1408,9 @@ PRD 的验收场景。逐层走一遍，验证架构闭合。
 
 ## 附：修订记录
 
+- **2026-11-16（Langfuse 与 Jev 范围）**
+  - 用户决定模型观测与评测统一用已有 Langfuse；移除 promptfoo 选型，规则/人工评分先行，实验脚本负责发布门禁。
+  - 补充 TypeSafe AI Jev 候选边界：自由文本意图、POI 候选消歧、偏好软评分、Langfuse 自定义 evaluator；待标注集对照后决定是否接入，硬约束与最终写入仍由代码执行。
 - **2026-11-16（探针全量）**
   - 高德实测更正：`/v5/place/detail` 批量上限远超官方文档（35/35 唯一 id 全返回，实现按 ≤25 分批）；`/v3/distance` 传 101 个 origins 静默截断到 100；步行 >5km 接口不拦（应用侧判 `WALK_TOO_FAR`）；步行 A↔B 同值；个人开发者 QPS 约 5/s。
   - 高德营业/预约覆盖：search 的 `opentime_today` 约 5/12 POI 有值、`cost` 全缺；detail business 约 4/10 带 `opentime_today`；预约字段（`ticket_ordering` 等）12 个 POI 全无——营业时间主源 search/policy，预约只能策展表。
