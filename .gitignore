@@ -4,6 +4,5 @@
 node_modules/
 dist/
 data/
-testdata/
 .DS_Store
 *.log

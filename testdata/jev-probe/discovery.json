@@ -1,0 +1,52 @@
+{
+  "recordedAt": "2026-11-16T11:50:01.338Z",
+  "endpoint": "https://apicdn.xycai.us",
+  "requestedModel": "jev-latest",
+  "models": {
+    "status": 200,
+    "elapsedMs": 1220,
+    "contentType": "application/json; charset=utf-8",
+    "upstreamError": {
+      "code": "",
+      "message": ""
+    },
+    "count": 3,
+    "jevModels": [
+      "jev-1.13.0",
+      "jev-1.14.0",
+      "jev-latest"
+    ]
+  },
+  "native": {
+    "status": 200,
+    "elapsedMs": 750,
+    "contentType": "application/json",
+    "upstreamError": {
+      "code": "",
+      "message": ""
+    },
+    "returnedModel": "jev-latest",
+    "topLevelKeys": [
+      "answers",
+      "model",
+      "usage"
+    ],
+    "answer": {
+      "type": "choice",
+      "choice": "too_far",
+      "confidence": 1,
+      "probabilities": {
+        "too_far": 1,
+        "too_expensive": 0,
+        "not_interested": 0,
+        "unknown": 0
+      }
+    },
+    "expected": "too_far",
+    "correct": true,
+    "usage": {
+      "input_tokens": 424,
+      "output_tokens": 53
+    }
+  }
+}

@@ -1,0 +1,706 @@
+{
+  "recordedAt": "2026-11-16T11:55:28.964Z",
+  "kind": "handwritten-synthetic-smoke-checks",
+  "endpoint": "https://apicdn.xycai.us",
+  "requestedModel": "jev-latest",
+  "returnedModels": [
+    "jev-latest"
+  ],
+  "plannedRequests": 16,
+  "completedRequests": 16,
+  "passed": 14,
+  "httpSucceeded": 16,
+  "latencyMs": {
+    "all": {
+      "min": 731,
+      "p50": 908,
+      "p95": 3348,
+      "max": 3348
+    },
+    "successful": {
+      "min": 731,
+      "p50": 908,
+      "p95": 3348,
+      "max": 3348
+    }
+  },
+  "usage": {
+    "inputTokens": 8185,
+    "outputTokens": 868,
+    "requestsWithoutUsage": 0
+  },
+  "byTask": {
+    "decision.intent": {
+      "total": 6,
+      "passed": 6,
+      "latencyMs": {
+        "min": 731,
+        "p50": 783,
+        "p95": 3348,
+        "max": 3348
+      }
+    },
+    "decision.poi_match": {
+      "total": 4,
+      "passed": 4,
+      "latencyMs": {
+        "min": 908,
+        "p50": 960,
+        "p95": 1686,
+        "max": 1686
+      }
+    },
+    "decision.reason": {
+      "total": 3,
+      "passed": 3,
+      "latencyMs": {
+        "min": 804,
+        "p50": 818,
+        "p95": 1843,
+        "max": 1843
+      }
+    },
+    "decision.preferences": {
+      "total": 1,
+      "passed": 1,
+      "latencyMs": {
+        "min": 832,
+        "p50": 832,
+        "p95": 832,
+        "max": 832
+      }
+    },
+    "decision.preference_fit": {
+      "total": 2,
+      "passed": 0,
+      "latencyMs": {
+        "min": 828,
+        "p50": 828,
+        "p95": 1811,
+        "max": 1811
+      }
+    }
+  },
+  "limitations": [
+    "Synthetic smoke checks do not establish production accuracy or calibrated confidence.",
+    "No baseline-provider calls were made; this report does not establish a comparative speedup.",
+    "Latency is measured from this machine through the configured relay, including response-body receipt.",
+    "An alias echoed by the relay does not establish the underlying resolved model version."
+  ],
+  "results": [
+    {
+      "id": "intent-too-far",
+      "task": "decision.intent",
+      "status": 200,
+      "elapsedMs": 3348,
+      "contentType": "application/json",
+      "upstreamError": {
+        "code": "",
+        "message": ""
+      },
+      "returnedModel": "jev-latest",
+      "usage": {
+        "input_tokens": 484,
+        "output_tokens": 63
+      },
+      "answers": {
+        "intent": {
+          "type": "choice",
+          "choice": "too_far",
+          "confidence": 1,
+          "probabilities": {
+            "too_far": 1,
+            "too_expensive": 0,
+            "no_walking": 0,
+            "not_interested": 0,
+            "unknown": 0
+          },
+          "expected": {
+            "choice": "too_far"
+          },
+          "valid": true,
+          "issues": [],
+          "matches": true
+        }
+      },
+      "correct": true
+    },
+    {
+      "id": "intent-price",
+      "task": "decision.intent",
+      "status": 200,
+      "elapsedMs": 943,
+      "contentType": "application/json",
+      "upstreamError": {
+        "code": "",
+        "message": ""
+      },
+      "returnedModel": "jev-latest",
+      "usage": {
+        "input_tokens": 486,
+        "output_tokens": 65
+      },
+      "answers": {
+        "intent": {
+          "type": "choice",
+          "choice": "too_expensive",
+          "confidence": 1,
+          "probabilities": {
+            "too_far": 0,
+            "too_expensive": 1,
+            "no_walking": 0,
+            "not_interested": 0,
+            "unknown": 0
+          },
+          "expected": {
+            "choice": "too_expensive"
+          },
+          "valid": true,
+          "issues": [],
+          "matches": true
+        }
+      },
+      "correct": true
+    },
+    {
+      "id": "intent-no-walking",
+      "task": "decision.intent",
+      "status": 200,
+      "elapsedMs": 731,
+      "contentType": "application/json",
+      "upstreamError": {
+        "code": "",
+        "message": ""
+      },
+      "returnedModel": "jev-latest",
+      "usage": {
+        "input_tokens": 479,
+        "output_tokens": 65
+      },
+      "answers": {
+        "intent": {
+          "type": "choice",
+          "choice": "no_walking",
+          "confidence": 0.98,
+          "probabilities": {
+            "too_far": 0,
+            "too_expensive": 0,
+            "no_walking": 0.98,
+            "not_interested": 0,
+            "unknown": 0.02
+          },
+          "expected": {
+            "choice": "no_walking"
+          },
+          "valid": true,
+          "issues": [],
+          "matches": true
+        }
+      },
+      "correct": true
+    },
+    {
+      "id": "intent-interest",
+      "task": "decision.intent",
+      "status": 200,
+      "elapsedMs": 1855,
+      "contentType": "application/json",
+      "upstreamError": {
+        "code": "",
+        "message": ""
+      },
+      "returnedModel": "jev-latest",
+      "usage": {
+        "input_tokens": 482,
+        "output_tokens": 65
+      },
+      "answers": {
+        "intent": {
+          "type": "choice",
+          "choice": "not_interested",
+          "confidence": 1,
+          "probabilities": {
+            "too_far": 0,
+            "too_expensive": 0,
+            "no_walking": 0,
+            "not_interested": 1,
+            "unknown": 0
+          },
+          "expected": {
+            "choice": "not_interested"
+          },
+          "valid": true,
+          "issues": [],
+          "matches": true
+        }
+      },
+      "correct": true
+    },
+    {
+      "id": "intent-unspecified",
+      "task": "decision.intent",
+      "status": 200,
+      "elapsedMs": 762,
+      "contentType": "application/json",
+      "upstreamError": {
+        "code": "",
+        "message": ""
+      },
+      "returnedModel": "jev-latest",
+      "usage": {
+        "input_tokens": 472,
+        "output_tokens": 62
+      },
+      "answers": {
+        "intent": {
+          "type": "choice",
+          "choice": "unknown",
+          "confidence": 0.99,
+          "probabilities": {
+            "too_far": 0,
+            "too_expensive": 0,
+            "no_walking": 0,
+            "not_interested": 0.01,
+            "unknown": 0.99
+          },
+          "expected": {
+            "choice": "unknown"
+          },
+          "valid": true,
+          "issues": [],
+          "matches": true
+        }
+      },
+      "correct": true
+    },
+    {
+      "id": "intent-instruction-as-data",
+      "task": "decision.intent",
+      "status": 200,
+      "elapsedMs": 783,
+      "contentType": "application/json",
+      "upstreamError": {
+        "code": "",
+        "message": ""
+      },
+      "returnedModel": "jev-latest",
+      "usage": {
+        "input_tokens": 505,
+        "output_tokens": 62
+      },
+      "answers": {
+        "intent": {
+          "type": "choice",
+          "choice": "unknown",
+          "confidence": 1,
+          "probabilities": {
+            "too_far": 0,
+            "too_expensive": 0,
+            "no_walking": 0,
+            "not_interested": 0,
+            "unknown": 1
+          },
+          "expected": {
+            "choice": "unknown"
+          },
+          "valid": true,
+          "issues": [],
+          "matches": true
+        }
+      },
+      "correct": true
+    },
+    {
+      "id": "poi-branch",
+      "task": "decision.poi_match",
+      "status": 200,
+      "elapsedMs": 960,
+      "contentType": "application/json",
+      "upstreamError": {
+        "code": "",
+        "message": ""
+      },
+      "returnedModel": "jev-latest",
+      "usage": {
+        "input_tokens": 604,
+        "output_tokens": 49
+      },
+      "answers": {
+        "match": {
+          "type": "choice",
+          "choice": "poi_a",
+          "confidence": 0.99,
+          "probabilities": {
+            "poi_a": 0.99,
+            "poi_b": 0,
+            "none": 0,
+            "needs_review": 0.01
+          },
+          "expected": {
+            "choice": "poi_a"
+          },
+          "valid": true,
+          "issues": [],
+          "matches": true
+        }
+      },
+      "correct": true
+    },
+    {
+      "id": "poi-wrong-city",
+      "task": "decision.poi_match",
+      "status": 200,
+      "elapsedMs": 1686,
+      "contentType": "application/json",
+      "upstreamError": {
+        "code": "",
+        "message": ""
+      },
+      "returnedModel": "jev-latest",
+      "usage": {
+        "input_tokens": 577,
+        "output_tokens": 48
+      },
+      "answers": {
+        "match": {
+          "type": "choice",
+          "choice": "none",
+          "confidence": 0.99,
+          "probabilities": {
+            "poi_a": 0,
+            "poi_b": 0,
+            "none": 0.99,
+            "needs_review": 0.01
+          },
+          "expected": {
+            "choice": "none"
+          },
+          "valid": true,
+          "issues": [],
+          "matches": true
+        }
+      },
+      "correct": true
+    },
+    {
+      "id": "poi-ambiguous",
+      "task": "decision.poi_match",
+      "status": 200,
+      "elapsedMs": 1080,
+      "contentType": "application/json",
+      "upstreamError": {
+        "code": "",
+        "message": ""
+      },
+      "returnedModel": "jev-latest",
+      "usage": {
+        "input_tokens": 571,
+        "output_tokens": 49
+      },
+      "answers": {
+        "match": {
+          "type": "choice",
+          "choice": "needs_review",
+          "confidence": 1,
+          "probabilities": {
+            "poi_a": 0,
+            "poi_b": 0,
+            "none": 0,
+            "needs_review": 1
+          },
+          "expected": {
+            "choice": "needs_review"
+          },
+          "valid": true,
+          "issues": [],
+          "matches": true
+        }
+      },
+      "correct": true
+    },
+    {
+      "id": "poi-description-injection",
+      "task": "decision.poi_match",
+      "status": 200,
+      "elapsedMs": 908,
+      "contentType": "application/json",
+      "upstreamError": {
+        "code": "",
+        "message": ""
+      },
+      "returnedModel": "jev-latest",
+      "usage": {
+        "input_tokens": 630,
+        "output_tokens": 49
+      },
+      "answers": {
+        "match": {
+          "type": "choice",
+          "choice": "poi_a",
+          "confidence": 1,
+          "probabilities": {
+            "poi_a": 1,
+            "poi_b": 0,
+            "none": 0,
+            "needs_review": 0
+          },
+          "expected": {
+            "choice": "poi_a"
+          },
+          "valid": true,
+          "issues": [],
+          "matches": true
+        }
+      },
+      "correct": true
+    },
+    {
+      "id": "reason-saved",
+      "task": "decision.reason",
+      "status": 200,
+      "elapsedMs": 818,
+      "contentType": "application/json",
+      "upstreamError": {
+        "code": "",
+        "message": ""
+      },
+      "returnedModel": "jev-latest",
+      "usage": {
+        "input_tokens": 489,
+        "output_tokens": 43
+      },
+      "answers": {
+        "reason": {
+          "type": "choice",
+          "choice": "saved_fit",
+          "confidence": 1,
+          "probabilities": {
+            "saved_fit": 1,
+            "short_detour": 0,
+            "basic_fit": 0
+          },
+          "expected": {
+            "choice": "saved_fit"
+          },
+          "valid": true,
+          "issues": [],
+          "matches": true
+        }
+      },
+      "correct": true
+    },
+    {
+      "id": "reason-detour",
+      "task": "decision.reason",
+      "status": 200,
+      "elapsedMs": 1843,
+      "contentType": "application/json",
+      "upstreamError": {
+        "code": "",
+        "message": ""
+      },
+      "returnedModel": "jev-latest",
+      "usage": {
+        "input_tokens": 484,
+        "output_tokens": 44
+      },
+      "answers": {
+        "reason": {
+          "type": "choice",
+          "choice": "short_detour",
+          "confidence": 0.49,
+          "probabilities": {
+            "saved_fit": 0,
+            "short_detour": 0.66,
+            "basic_fit": 0.34
+          },
+          "expected": {
+            "choice": "short_detour"
+          },
+          "valid": true,
+          "issues": [],
+          "matches": true
+        }
+      },
+      "correct": true
+    },
+    {
+      "id": "reason-no-extra-evidence",
+      "task": "decision.reason",
+      "status": 200,
+      "elapsedMs": 804,
+      "contentType": "application/json",
+      "upstreamError": {
+        "code": "",
+        "message": ""
+      },
+      "returnedModel": "jev-latest",
+      "usage": {
+        "input_tokens": 483,
+        "output_tokens": 43
+      },
+      "answers": {
+        "reason": {
+          "type": "choice",
+          "choice": "basic_fit",
+          "confidence": 1,
+          "probabilities": {
+            "saved_fit": 0,
+            "short_detour": 0,
+            "basic_fit": 1
+          },
+          "expected": {
+            "choice": "basic_fit"
+          },
+          "valid": true,
+          "issues": [],
+          "matches": true
+        }
+      },
+      "correct": true
+    },
+    {
+      "id": "preference-multiple-independent-questions",
+      "task": "decision.preferences",
+      "status": 200,
+      "elapsedMs": 832,
+      "contentType": "application/json",
+      "upstreamError": {
+        "code": "",
+        "message": ""
+      },
+      "returnedModel": "jev-latest",
+      "usage": {
+        "input_tokens": 558,
+        "output_tokens": 127
+      },
+      "answers": {
+        "setting": {
+          "type": "choice",
+          "choice": "indoor",
+          "confidence": 1,
+          "probabilities": {
+            "indoor": 1,
+            "outdoor": 0,
+            "unspecified": 0
+          },
+          "expected": {
+            "choice": "indoor"
+          },
+          "valid": true,
+          "issues": [],
+          "matches": true
+        },
+        "pace": {
+          "type": "choice",
+          "choice": "quiet_rest",
+          "confidence": 1,
+          "probabilities": {
+            "quiet_rest": 1,
+            "active_exploration": 0,
+            "unspecified": 0
+          },
+          "expected": {
+            "choice": "quiet_rest"
+          },
+          "valid": true,
+          "issues": [],
+          "matches": true
+        },
+        "budget": {
+          "type": "choice",
+          "choice": "unspecified",
+          "confidence": 1,
+          "probabilities": {
+            "low_cost": 0,
+            "premium": 0,
+            "unspecified": 1
+          },
+          "expected": {
+            "choice": "unspecified"
+          },
+          "valid": true,
+          "issues": [],
+          "matches": true
+        }
+      },
+      "correct": true
+    },
+    {
+      "id": "fit-score-high",
+      "task": "decision.preference_fit",
+      "status": 200,
+      "elapsedMs": 828,
+      "contentType": "application/json",
+      "upstreamError": {
+        "code": "",
+        "message": ""
+      },
+      "returnedModel": "jev-latest",
+      "usage": {
+        "input_tokens": 438,
+        "output_tokens": 17
+      },
+      "answers": {
+        "fit": {
+          "type": "score",
+          "score": 2.99,
+          "confidence": 1,
+          "probabilities": {
+            "0": 0,
+            "1": 0,
+            "2": 0,
+            "3": 1
+          },
+          "expected": {
+            "minScore": 2.5
+          },
+          "valid": false,
+          "issues": [
+            "score differs from probability-weighted level mean"
+          ],
+          "matches": true
+        }
+      },
+      "correct": false
+    },
+    {
+      "id": "fit-score-low",
+      "task": "decision.preference_fit",
+      "status": 200,
+      "elapsedMs": 1811,
+      "contentType": "application/json",
+      "upstreamError": {
+        "code": "",
+        "message": ""
+      },
+      "returnedModel": "jev-latest",
+      "usage": {
+        "input_tokens": 443,
+        "output_tokens": 17
+      },
+      "answers": {
+        "fit": {
+          "type": "score",
+          "score": 0.01,
+          "confidence": 1,
+          "probabilities": {
+            "0": 1,
+            "1": 0,
+            "2": 0,
+            "3": 0
+          },
+          "expected": {
+            "maxScore": 0.5
+          },
+          "valid": false,
+          "issues": [
+            "score differs from probability-weighted level mean"
+          ],
+          "matches": true
+        }
+      },
+      "correct": false
+    }
+  ]
+}
