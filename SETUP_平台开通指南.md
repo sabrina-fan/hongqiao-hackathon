@@ -478,13 +478,13 @@ VITE_AMAP_JS_KEY=xxxxxxxx
 
 > ⚠️ **跳板机通常是 SSH/隧道入口，不是应用服务器。** `heirloom-lite` 的运维文档把阿里云跳板用于连接后面的生产机；把公开 Web 服务直接跑在堡垒机上会增加攻击面，也可能违反该项目的运维约束。开工前必须确认：是部署在跳板机本机，还是经跳板部署到后面的生产机/新机器？两种都要先拿 owner 授权，并确认资源配额、端口和持久盘。
 >
-> 如果跳板机不让装 Node 22，用 Docker 镜像固定 Node `>=22.19.0`；但 `DATA_DIR` 与 `OBJECT_STORE_DIR` 仍必须挂持久卷，且只能有一个写者。
+> 如果跳板机不让装 Node 24，用 Docker 镜像固定 Node `>=24.18.0 <25`；但 `DATA_DIR` 与 `OBJECT_STORE_DIR` 仍必须挂持久卷，且只能有一个写者。
 
 架构对部署的要求不是「无状态」：
 
 - **单写进程**：只有这一个应用进程持有 SQLite 写连接，同时提供 HTTP API 与 SSE。不要横向起多个副本共享同一个库文件，也不要让第二个进程写。
 - **本地持久状态确实存在**：SQLite 文件（每个匿名用户一个，含会话/doc/transcript）和上传图片的对象存储都在应用侧。`DATA_DIR` 与 `OBJECT_STORE_DIR` 必须落在**持久盘**，否则重启/重新发布即丢数据（VERIFY V9）。
-- **Node 版本硬要求**：`pi-durable@1.5.2` 与 `pi-ai@1.5.2` 的 `engines.node` 都是 **`>=22.19.0`**。跳板机上的 Node 低于这个版本，先装 22.19+（推荐 24 LTS；用户级 nvm 或 NodeSource 均可），不要用系统自带的旧 Node 硬跑。
+- **Node 版本硬要求**：本项目统一 **Node 24 线**（`.nvmrc` 写 `24`，`engines >=24.18.0 <25`；pi-durable/pi-ai 自身只要求 `>=22.19.0`，本项目取更严的 24 线）。跳板机上的 Node 不在该区间就先装 24（用户级 nvm 或 NodeSource 均可），不要用系统自带的旧 Node 硬跑。
 - **PWA 与 SSE** 需要 HTTPS 和长连接；反向代理对 SSE 关掉缓冲（`proxy_buffering off`）。
 
 #### 上机前先问跳板机 owner（不要直接改共享服务）
@@ -560,7 +560,7 @@ sudo systemctl status nextstop --no-pager
 
 #### 如果走 Docker（跳板机已有 Docker 时优先）
 
-`heirloom-lite` 本身用 Docker，跳板机/生产机大概率已有 Docker；这时把 Node 24 LTS（最低 22.19+）固定在镜像里，不污染宿主机：
+`heirloom-lite` 本身用 Docker，跳板机/生产机大概率已有 Docker；这时把 Node 24（`>=24.18.0 <25`）固定在镜像里，不污染宿主机：
 
 ```yaml
 # /opt/nextstop/docker-compose.yml

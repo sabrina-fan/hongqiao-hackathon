@@ -10,7 +10,7 @@
 - **`pi-durable` 锁 `1.5.2` 精确版本**；它是当前单进程 + SQLite + TypeScript 约束下最合适的运行时，不是“绝对最好”。
 - **1.5.2 的 durable 本体与 1.5.1 代码相同**：tarball 只差 `CHANGELOG.md` 和 `package.json` 的版本/依赖号；1.5.2 是整线同步发布。
 - **不用 main**：main 是 `[Unreleased]`，含破坏性 API 与 DB schema 变更，且仓库里没有 `dist/`。
-- **从 `heirloom-lite` 借**：oxlint + oxfmt、改动文件格式化、Vitest + fast-check、Playwright、skip 门禁、gitleaks/audit、QA/acceptance 入口。
+- **从 `heirloom-lite` 借**：oxlint + oxfmt、改动文件格式化、Vitest + fast-check、skip 门禁、gitleaks/audit、QA/acceptance 入口。浏览器验收按用户 2026-11-17 决定使用 ego-lite（`ego-browser` CLI）。
 - **模型观测与评测统一用 Langfuse**（2026-11-16 用户决定）：复用已有服务，数据集、实验、评分与调用观测共用一套；不引入 promptfoo。
 - **不借**：NestJS/MySQL/Redis 栈、43 文件 eval 矩阵、全仓 Stryker、baseline allowlist、anti-slop 插件原样。
 
@@ -76,7 +76,7 @@
 
 | 层 | 工具 | 版本 |
 | --- | --- | --- |
-| 运行时 | Node | 推荐 24 LTS；最低 `>=22.19.0` |
+| 运行时 | Node | **统一 24 线**：`.nvmrc` 写 `24`，engines `>=24.18.0 <25`（pi-durable/pi-ai 自身只要求 `>=22.19.0`，本项目取更严的 24 线） |
 | 包管理 | pnpm | `11.9.0` |
 | 语言 | TypeScript | `5.9.3` |
 | Lint | oxlint / `@oxlint/plugins` | `1.83.0` |
@@ -85,7 +85,7 @@
 | 属性测试 | fast-check | `4.10.2` |
 | HTTP 测试 | supertest | `7.1.4`（可选；Hono 可用 `app.request()`） |
 | 变异测试 | Stryker | `9.6.1` |
-| 浏览器 E2E | Playwright | `^1.63.0` |
+| 浏览器 E2E | ego-lite / `ego-browser` CLI | 使用本机已安装并连接的桌面浏览器 |
 | 模型观测与评测 | Langfuse（已有服务 + 官方 JS/TS SDK） | 初始化时核对现有服务与 SDK 兼容并精确锁版 |
 | 密钥扫描 | gitleaks | 外部 CLI |
 
@@ -96,11 +96,11 @@
 | **oxlint + oxfmt** | 直接用；`correctness: error`；TS/unicorn/oxc/vitest 插件；不用 ESLint/Prettier |
 | **改动文件格式化** | 复制 `scripts/format-changed.mjs`，范围限定 `apps/server`、`apps/web`、`packages`、`scripts`、`e2e` |
 | **Vitest + fast-check** | 单测 + 集成两个 project；核心纯函数用 fast-check 测不变量 |
-| **Playwright** | PWA 主流程；Amap JS 和模型全部 `page.route` mock；移动视口 390×844 |
+| **ego-lite** | `pnpm test:e2e` 经 `ego-browser nodejs` 操作已启动的本地应用；390×844 页面、断线和重试，报告与截图存 `test-results/ego-*/`；不依赖浏览器测试 SDK |
 | **Langfuse** | 复用已有观测/评测服务；官方 SDK 运行 `vision.extract` / `reason.*` / `fast.*` 数据集实验；20 张小红书图仅本地，不上传原图/原文到 Langfuse |
-| **skip 门禁** | 复制 `check-test-skips.mjs`：`.only` 直接失败；skip 超 baseline 失败；解析不到摘要也失败 |
+| **skip 门禁** | `check-test-skips.mjs`：拒绝 only / skip / todo / 条件跳过；零用例、非成功或无法解析的 JSON 报告都失败 |
 | **gitleaks + audit** | CI 每次跑 `secrets:scan`、`audit:prod`；`.env.example` 和测试桩进 allowlist |
-| **QA / acceptance** | `pnpm qa` 串 lint/format/typecheck/test/build/e2e；验收要求 `ACCEPTANCE_CONFIRM_WRITES=1`，默认拒绝写 |
+| **QA / acceptance** | `pnpm qa` 串 lint/format/typecheck/test/build/ego-lite 验收；本地需先启动应用并连接桌面浏览器。未来真实写入验收另需 `ACCEPTANCE_CONFIRM_WRITES=1` |
 | **baseline lint** | 新项目基线设为 0；只有引入遗留代码时才建 baseline |
 | **Stryker** | 只对 `packages/core` 纯函数跑；每周/手动，不进 PR 必跑 |
 | **全仓 `oxfmt .`** | ❌ 会产生大量无关 churn；用 changed-file 脚本 |
@@ -125,33 +125,25 @@
 
 ### 3.1 `package.json`
 
-```json
-{
-  "engines": { "node": ">=22.19.0" },
-  "packageManager": "pnpm@11.9.0",
-  "scripts": {
-    "build": "pnpm -r build",
-    "lint": "oxlint --deny-warnings",
-    "lint:fix": "oxlint --fix",
-    "format": "node scripts/format-changed.mjs",
-    "format:check": "node scripts/format-changed.mjs --check",
-    "typecheck": "pnpm -r typecheck",
-    "test": "node scripts/check-test-skips.mjs",
-    "test:unit": "vitest run --project unit",
-    "test:integration": "vitest run --project integration",
-    "test:e2e": "playwright test",
-    "test:model": "node evals/run-model-evals.mjs",
-    "test:model:local": "node evals/run-model-evals.mjs --local",
-    "qa": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm build && pnpm test:e2e",
-    "secrets:scan": "gitleaks git --redact --config .gitleaks.toml .",
-    "audit:prod": "pnpm audit --prod --audit-level high"
-  }
-}
+当前命令以根 [`package.json`](./package.json) 为准，启动说明见 [`README.md`](./README.md)。本地 `pnpm qa` 依次执行 lint、改动文件格式检查、类型检查、单元/集成测试、构建和 ego-lite 浏览器验收，需先启动应用并连接桌面浏览器。托管 Linux CI 执行代码检查、构建、审计与密钥扫描；浏览器验收另在本机执行。
+
+**脚手架与目标分开**：目前已实现健康 API、Web 外壳、共享契约、Jev 意图传输和 SQLite 适配。下文完整测试矩阵是业务开发目标；`kill -9` 恢复、accept 幂等、导入/雷达端到端和真实模型质量尚未由脚手架证明。Langfuse 实验入口尚未接通，会明确非零退出；Stryker 与真实写入验收脚本在对应业务落地后接入。
+
+- `.nvmrc` 写 `24`；`engines` 锁 `>=24.18.0 <25`，本地与部署机统一 Node 24 线，不留 22 分支。所有第三方依赖精确锁版（不用 `^`/`~`），提交 lockfile。
+- `pnpm test` 先做 AST 跳过检查，再一次运行 Vitest 的 unit / integration 两个 project 并校验 JSON 报告；CI 不直接跑 `vitest` 绕过门禁。
+- 模型评测和 Stryker 不进 `qa`，避免每次提交烧钱/变慢。
+
+**Monorepo 布局（pnpm workspace）**：
+
+```text
+apps/server        # 应用端：HTTP/SSE、闸门、导入流水线、Harness 持有方（单写者进程）
+apps/web           # React + Vite PWA；只经 HTTP/SSE 与应用端说话
+packages/core      # 共享 pi-schema 契约 + 纯函数；不依赖 durable、HTTP、SQLite 或模型网关
+packages/model-gateway  # 当前：任务路由表、pi-ai 注册入口、Jev 意图传输；provider/fallback/预算/观测链待接入
+scripts/ evals/ e2e/ testdata/
 ```
 
-- `.nvmrc` 写 `24`；`engines` 保持 `>=22.19.0`，部署机 22.19+ 也能启动。
-- `pnpm test` 内部串 `test:unit` + `test:integration`；CI 不要直接跑 `vitest` 绕过门禁。
-- 模型评测和 Stryker 不进 `qa`，避免每次提交烧钱/变慢。
+`packages/core` 是唯一被 server/web 共用的包——契约与纯函数放这里，server 与 web 各自只依赖它，不互相 import；`packages/model-gateway` 只在 server 侧使用，密钥不出这个包。
 
 ### 3.2 lint / 格式化
 
@@ -179,18 +171,19 @@
 | 属性 | fast-check | 不返回锁定/排除项；排序单调；时间窗口非负；行程不重叠 | 每次提交 |
 | 集成 | Vitest + 真 SQLite + `fauxProvider()` | 原子提交、崩溃续跑、`requestId` 幂等、doc 历史、SSE 重连 | 每次提交 |
 | 契约 | pi-schema + prompt/schema 契约 | 工具名/字段名一致；非法参数回 `invalid_arguments` | 每次提交 |
-| E2E | Playwright | 导入 → 确认 → 雷达 → 三选一 → 接受/拒绝 → 离线 | 每个 PR |
+| E2E | ego-lite / `ego-browser` | 当前：页面、断线、重试；业务目标：雷达 → 闸门 → 接受写入，再接导入/拒绝/离线 | 每个 PR 本地验收 |
 | 模型 | Langfuse 数据集实验 + 自定义规则/人工评分 | 视觉抽取准确率/召回率、理由证据支持、意图分类、延迟/成本 | 每日/手动 |
 | 变异 | Stryker | 核心纯函数测试能否杀死变异 | 每周 |
 | 安全 | gitleaks + audit | 密钥、生产依赖高危 | 每个 PR |
 | 验收 | `scripts/acceptance.mjs` | 真实 API + 模型 + 独立数据目录 | 发布前 |
 
-**必测 10 条**：非法 `candidates.propose` 参数 → `invalid_arguments`；`prepareArguments` 修复；闸门打回 ≤2 次；`kill -9` 后续跑；同 `requestId` 幂等；删除用户连 WAL/SHM 清干净；高德批量方向；拒绝重排 0 次地图调用；前端产物无服务端 Key；PWA 离线只显示通过闸门的 proposal。
+**业务闭环必测项**：非法 `candidates.propose` 参数 → `invalid_arguments`；`prepareArguments` 修复；闸门打回 ≤2 次；`kill -9` 后续跑；同 `requestId` 幂等；**过期/他 session 的 `validated` 不得被 GET/SSE/accept 套用，accept 在事务内核对绑定**；`kind=empty` 过闸门且前端空态正常；删除用户连 WAL/SHM + 客户端缓存清干净；**删单 trip 不动其它 trip 的收藏/偏好/共享引用**；高德批量方向；拒绝重排 0 次地图调用；前端产物无服务端 Key；PWA 离线只显示通过闸门的 proposal。
 
 ### 3.4 CI
 
-- PR：`install --frozen-lockfile` → lint → format:check → typecheck → unit → integration → build → e2e → gitleaks/audit。
-- PR 不跑真实模型；用 `fauxProvider()` 和 Playwright mock。
+- 托管 Linux CI：`install --frozen-lockfile` → lint → format:check → typecheck → unit → integration → build → gitleaks/audit。
+- 本机桌面验收：先启动 Web/API 并连接 ego-lite，再运行 `pnpm test:e2e`；浏览器步骤失败、报告缺失或未完成全部断言均不通过。截图另做视觉确认；CI 绿不代表浏览器已验收。
+- PR 自动测试不调用真实模型；模型响应由 mock fetch / `fauxProvider()` 提供。ego-lite 验收连接真实本地 API，故障分支用 CDP 仅阻断该页面的健康请求。
 - `model-eval` 手动/定时运行 Langfuse 实验，设预算上限；实验脚本显式断言阈值并在失败时退出非零，失败不阻塞合并、阻塞发布。仅在 Langfuse 记录结果不算门禁通过。
 - Node 24 + pnpm 11；缓存 pnpm store。
 
@@ -217,8 +210,8 @@
 
 执行与门禁：
 
-- 工程初始化时实现 `evals/run-model-evals.mjs`；通过 Langfuse 官方 SDK 组织实验，任务调用真实应用网关/解析路径，共用同一套思考策略、修复和兜底；脚本是评测入口，不是另一套平台。
-- `test:model` 用合成/公开授权数据；`test:model:local` 加载 `testdata/xhs-suzhou/`。第三方图仍仅在本地评测，不提交 Git、不打包前端，也不上传到 Langfuse；实验只记录 fixture 标识、版本与汇总分数。
+- `evals/run-model-evals.mjs` 已提供明确失败的占位入口，尚未接通 Langfuse。模型准入前须通过官方 SDK 组织实验，任务调用真实应用网关/解析路径，共用思考策略、修复和兜底；脚本是评测入口，不是另一套平台。
+- `test:model` 用合成/公开授权数据；`test:model:local` 加载 `testdata/xhs-suzhou/`。第三方图已获授权随仓库入库；仍仅本地评测、不打包前端产物，也**不上传 Langfuse 原图/原文**；实验只记录 fixture 标识、版本与汇总分数。
 - 截图实验走 SDK；初始化时核对已有 Langfuse 服务与 SDK 的兼容性、媒体支持并锁版，不假设 UI experiments 可以运行图片数据集。
 - 每次实验关联数据集版本、提示词版本、应用 commit、实际模型版本；统计 p50/p95、失败率、修复率和全部调用成本。
 - 发布门禁由实验脚本断言质量/延迟/预算阈值，失败或无法取得必需实验结果时退出非零；凭据缺失不能静默跳过后仍放行。普通 PR 保持 mock 测试。

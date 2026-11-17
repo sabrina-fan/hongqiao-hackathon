@@ -2,6 +2,7 @@
 
 定稿日期：2026-11-15
 评审修订：2026-11-16 —— 闸门移到应用端（proposal doc）、批量 ETA 方向更正、补齐导入/数据模型/API/进程模型/对象存储/删除/预约与停留时长数据源、延迟预算。修订记录见文末。
+评审修订：2026-11-17 —— proposal/candidate_pool/eta_snapshot 改为按 radar session 键控的 doc family，验证证明绑定 session/proposal 修订/快照版本/trip 修订；提案结果改 `kind=empty|recommendations` 判别联合；删除分级（单 trip 引用清理 vs 全删用户关库清文件+客户端缓存）；提案轮次由运行时收窄工具面并拒绝混合批次；模型输入与存储输出 schema 分离；`compile().validate()` 更正；testdata 入库；Node 24 统一与 pnpm monorepo 脚手架。修订记录见文末。
 适用 PRD：`NextStop_旅行机会雷达_完整PRD_V1.0_2026-11-15.md`
 
 ## 0. 文档地图与标记约定
@@ -28,12 +29,14 @@
 
 ### 1.1 判据本身 🔷
 
-**「新增一个能力，需不需要改控制流？」**
+**「新增一个能力时，能否复用既有循环，由模型选择何时调用？」** 这是衡量扩展性的工程目标，不能单独作为架构正确性的二元判据。
 
-- 需要改 → 这是 **AI-added**（在传统架构上贴了个模型）。
-- 不需要改 → 这是 **AI-first**。
+具体到本项目：接入「查营业时间」「查人均消费」「查排队情况」等信息能力时，优先注册能力并复用循环。如果新增数据改变硬约束、输出契约或用户交互，应同步修改闸门、契约和前端。模型选择何时调用能力，应用端始终裁决是否允许展示与写入。
 
-具体到本项目：新增「查营业时间」「查人均消费」「查排队情况」时，**只注册一个能力**，不改循环、不改闸门、不改前端渲染逻辑。模型自己决定什么时候调它。
+两个不许误读的地方：
+
+- **判据管的是「新增能力」，不是「新增不变量」。** 新增一条硬约束（例如「接受前必须复核 ETA 新鲜度」）本来就该改闸门——闸门是不变量的家，为不变量更新闸门是正常演进，不构成 AI-added。「永不改闸门/控制流」不是判据，也不该当判据用。
+- **固定编排不等于 AI-added。** `radar.evaluate` 把一串确定性步骤打包成一次能力调用压延迟（§5.7），编排顺序由代码固定是合理的工程取舍；判据约束的是「模型能决定调什么、什么时候调」，不要求每个原子步骤都各占一个模型回合。
 
 这条判据是**可证伪的**，不是口号。验收方式见 §5.4。
 
@@ -53,7 +56,7 @@
 
 - read：查灵感库、查行程、查历史、查 POI
 - compute：调用确定性能力拿结果
-- propose：产出「三选一」提案；可写中间快照与提案 doc（`candidate_pool` / `eta_snapshot` / `proposal` / `rejections`）
+- propose：产出最多三项的提案；仅通过窄工具写**本 radar session 键控**的中间快照与提案（`candidate_pool` / `eta_snapshot` / `proposal`，均为 key=session_id 的 doc family 成员）；**不能**写 `radar_session.validated` 等应用端字段。`rejections` 是带 session/trip 引用的用户级事件集合，由应用端处理用户反馈后写入。
 - **用户状态 commit：写入行程、锁定行程项、触发导航 —— 一律由应用端在闸门通过后执行。**
 
 这不是靠提示词约束，是靠**能力注册边界**约束：写入类能力只以应用端函数存在；即使注册成工具，也设 `callers: ["tools"]` 且不进 `modelTools` 白名单，**模型在协议层就看不到它们**。应用端直接调用能力函数，不受 `callers` 约束——`callers` / `modelTools` 只约束模型与嵌套工具。
@@ -89,6 +92,8 @@ PRD 的核心路径是线性的：
 
 依赖方向也决定了构建顺序：**先建能力层 + 闸门 + 雷达求解，导入是后接的入口**。（这是依赖关系，不是排期。）
 
+**第一个端到端验证闭环**：已确认真实 POI（手工添加/策展数据提供，不依赖导入流水线）→ 雷达 → 应用端闸门校验 → 用户接受 → 应用端写入。这条闭环不含视觉抽取与 POI 匹配，先证明「雷达—闸门—写入」主干正确；**闭环跑通后再接导入链路**。全部 P0 保留，变的只是验证顺序（ENGINEERING §3.3 E2E 同序）。
+
 ---
 
 ## 2. 选型结论
@@ -110,7 +115,7 @@ PRD 的核心路径是线性的：
 | HTTP | chord 自带；不够再上 Hono | — | 先不引入 |
 | 测试 | `fauxProvider()` + `registerStorageConformance()` + Vitest | — | 回放不烧钱；测试矩阵见 ENGINEERING §3.3 |
 | Lint / 格式化 | **oxlint + oxfmt** | 1.83.0 / 0.68.0 | 从 `heirloom-lite` 借；不用 ESLint/Prettier |
-| 浏览器 E2E | Playwright | ^1.63.0 | 地图/模型全 mock；见 ENGINEERING §3.3 |
+| 浏览器 E2E | **ego-lite（`ego-browser` CLI）** | 本机已安装版本 | 桌面浏览器验收，连接本地真实 Web/API；见 ENGINEERING §3.3 |
 | 模型观测与评测 | **Langfuse** | 复用已有服务，SDK 初始化时核对兼容并锁版 | 数据集、实验、规则/人工评分；第三方图片只本地评测，见 ENGINEERING §3.5 |
 | 地图 | 高德 Web服务 REST + JS API | — | 见 §5.2、SETUP §3 |
 | 模型 | GLM-5.3-Flash（视觉）+ Doubao 2.1 Lite（生成）+ Jev（有限选项决策） | Jev 用 `jev-latest` | 全部经网关；GLM/火山端点模式见 §6.1.1，Jev 中转见 §6.1.2 |
@@ -224,7 +229,7 @@ agent-core 只覆盖前六行。**其余全部要手写**——而那些恰好�
 
 **那三个 SQLite 包尤其别装**：durable **自带**五种存储后端，不需要外部后端包。
 
-**Web UI 自己写**，通过 `harness.watch()` / `observeCommits()` / `watchDoc()` 只读订阅（§8.3）。远程通信需要时用 **chord 自带的 HTTP / web 客户端**，不用 `pi-protocol` / `pi-client`。
+**Web UI 自己写**。应用端通过 `harness.watch()` / `observeCommits()` / `watchDoc()` 订阅状态，再通过 HTTP/SSE 只读推给浏览器（§8.3）；浏览器不持有 Harness。远程 RPC 需要时可用 chord 自带的 HTTP / web 客户端，不用 `pi-protocol` / `pi-client`。当前脚手架只实现 Node HTTP 健康接口，尚未接入 SSE 或 chord RPC。
 
 ### 2.6 我们自己写的只剩这些 🔷
 
@@ -234,7 +239,7 @@ agent-core 只覆盖前六行。**其余全部要手写**——而那些恰好�
 | --- | --- | --- |
 | 高德能力封装（POI / 批量 ETA / 坐标 / 画线） | §5.1–5.2 | 薄适配 + 纯函数 |
 | `candidates.screen` 确定性筛选 | §5.1 | **纯函数**，本项目最核心的业务逻辑 |
-| `radar.evaluate` 一次编排（recall→screen→detail→rank→diversify） | §5.7 | **纯函数编排**，并行 I/O |
+| `radar.evaluate` 一次编排（recall→screen→detail→rank→diversify） | §5.7 | 应用端固定编排：I/O 适配 + 确定性纯函数 |
 | `candidates.rank_by_weights` 加权排序 | §5.1 | **纯函数** |
 | `time.compute_deadline` 时间预算 | §5.1 | **纯函数** |
 | 闸门不变量规则（白名单 / 不凑三 / 无数字 / 锁定项） | §9.1–9.2 | 应用端 `checkProposal` **纯函数**（可选 `onYield` 打回） |
@@ -393,7 +398,7 @@ agent-core 只覆盖前六行。**其余全部要手写**——而那些恰好�
 | **`geo.batch_walk_eta`** | **origins[]（≤100）+ destination + mode** → ETA[] | model | **1 次 REST** | `/v3/distance`；**方向固定 origins→destination**，不能一次算 current→N 候选（§5.2） |
 | `geo.route` | 两点 → 折线 | app only / tools | 1 次 REST（贵） | **仅用于画线**，绝不用于可行性判断 |
 | `geo.convert` | WGS-84 / 百度 / mapbar → GCJ-02 | app / model | 1 次 REST（≤40 对） | ✅ 官方只支持**转入高德坐标**，不支持 GCJ-02 → WGS-84；批量上限 40 |
-| **`candidates.recall`** | wishlist + 可选 nearby + constraints → pool | model | 0～1 次 REST | 合并收藏与附近、按 provider+poi_id 去重、写 `candidate_pool` |
+| **`candidates.recall`** | wishlist + 可选 nearby + constraints → pool | model | 0～1 次 REST | 合并收藏与附近、按 provider+poi_id 去重、写本 session 的 `candidate_pool` |
 | `place.estimate_stay` | category / poi → `{min,max}` | model | 0 | **纯函数**；标 `estimated`，不伪装实测 |
 | `policy.lookup` | poi_id → booking / opening / source / status | model | 0 | 读策展策略表；`verified` / `unknown` / `stale` |
 | `trip.read` | conversation → 行程 + 锁定项 | model | 0 | 读 doc |
@@ -404,7 +409,7 @@ agent-core 只覆盖前六行。**其余全部要手写**——而那些恰好�
 | `candidates.rank_by_weights` | feasible[] + 权重 → 排序 | model | 0 | **纯函数** |
 | `candidates.diversify` | ranked[] + 类别 → diversified[] | model | 0 | **纯函数**；MMR/类别约束 |
 | **`radar.evaluate`** | 池 + 约束 + 时间窗 → feasible + ranked + evidence | model | 0–1 搜索 + 3 批 + N 次 detail | **一次编排**（recall→screen→top-N detail→rank→diversify）；只为压延迟，不写用户状态，只更新快照 |
-| `candidates.propose` | diversified[] → 三选一提案 | model | 0 | **写 `nextstop.proposal` doc**；返回 `terminate: true` |
+| `candidates.propose` | diversified[] → 三选一提案 | model | 0 | **写本 session 的 `nextstop.proposal` family 成员**；返回 `terminate: true`；提案阶段独占工具面（§9.2） |
 | `constraints.apply_rejection` | rejection + constraints → constraints' | model / app | 0 | **纯函数**；"太远"降阈值，"不想走路"换模式（使 ETA 快照失效） |
 | `itinerary.draft` | wishlist + date + locked + ETAs → stops | model / app | 0～N | 贪心排序 + 锁定；`reason.plan` 只润色 |
 | `import.parse` / `import.match` / `import.confirm` | batch → candidates / places | app only | vision + N 次搜索 | 见 §5.5 |
@@ -428,7 +433,7 @@ candidates.screen({
 }) → {
   feasible: [],
   excluded: [{ poi_id, reason_code }],
-  eta_snapshot: {  // 存进 nextstop.eta_snapshot
+  eta_snapshot: {  // 存进本 session 的 nextstop.eta_snapshot family 成员
     by_leg: { to_candidate: [], to_next: [], origin_to_next: [] },
     direction: { to_candidate: "reverse|forward" },
     fetched_at,
@@ -497,15 +502,15 @@ const screen = defineTool({
 
 ### 5.4 AI-first 验收方式 🔷
 
-新增一个能力（例如「查排队情况」）时，检查是否**只**做了这三件事：
+新增不改变既有硬约束与交互契约的信息能力时，目标是复用既有循环：
 
-1. 写一个纯函数 + 一个 `defineTool`
-2. `registry.install(defineExtension({ name: 'queue', tools: [queueTool] }))`
-3. 完成
+1. 实现能力：I/O 走适配层，确定性计算用纯函数，并给 `defineTool` 明确的输入/输出契约。
+2. `registry.install(defineExtension({ name: 'queue', tools: [queueTool] }))`，由模型在授权工具面内选择何时调用。
+3. 用真实调用与闸门测试确认扩展生效，检查是否意外改变了其他能力。
 
-**不许改**：循环逻辑、闸门规则、前端渲染分支、其他能力。
+新增硬约束、字段或交互时，应同步更新闸门、契约和渲染；不能为了「只注册工具」而漏掉校验。`radar.evaluate` 固定组合 I/O 与纯函数以压低延迟，也符合这个目标。
 
-✅ Pi 原生支持这个验收：Registry **运行中可换**，会话只存扩展**名字**，新工作用新状态。所以「加能力不改控制流」不是我们的自律，是运行时的机制。
+✅ Pi 支持 Registry 运行中替换，为能力扩展提供机制；它不保证任意新能力都无需改应用代码。
 
 ### 5.5 导入流水线 🔷
 
@@ -650,7 +655,7 @@ MODEL_ENDPOINT_MODE=plan        # standard | plan
 - 用 pi-schema 校验响应结构、问答 ID、候选成员关系、概率范围与 Score 的合法区间；低置信、上下文不适用或网络失败时进入确认/现有路径。拒绝阈值由标注集确定，不全局硬编码一个“可靠”分数。
 - 独立 timeout、预算、用量记账；与现有网关共用请求关联 ID，模型别名/实际版本、延迟、成本、fallback 状态统一记录到 Langfuse。
 - 优先做意图与 POI 消歧对照；记录包含网络、解析、fallback 的端到端 p50/p95、准确率、错误动作率、需确认率与成本。有限输出预期降低生成开销，尚未实测的比较不写成“一定更快”。
-- 小规模协议/合成样例探针见 `scripts/probe-jev.mjs` 与 `evals/jev-smoke-cases.mjs`；本地结果在 Git 忽略的 `testdata/jev-probe/`，不能替代真实样本上的准入评测。
+- 小规模协议/合成样例探针见 `scripts/probe-jev.mjs` 与 `evals/jev-smoke-cases.mjs`；本地结果在 `testdata/jev-probe/`（已获授权随仓库入库），不能替代真实样本上的准入评测。
 
 **2026-11-16 中转小样例实测**：`/v1/models` 与 `/v1/systemone` 均返回 200；请求与响应模型名均为 `jev-latest`，解析版本未知。固定套件的 16 个请求全部 HTTP 200，p50 **908ms**、p95 **3348ms**（本机经中转的完整请求，含读取响应）；14 个 Choice 请求的判断和检查均通过。2 个 Score 的高低方向符合样例，但 `score=2.99/0.01` 与返回概率加权值 `3/0` 相差约 0.01，触发严格一致性检查，探针退出码为 1；需确认中转数值精度行为后再启用连续评分。合成小样例不代表生产准确率，也未与同输入 Doubao 做速度对照。
 
@@ -836,10 +841,12 @@ const PoiSchema = obj({
 | --- | --- | --- |
 | 工具参数 | ✅ `Tool.parameters` 是 JSON Schema；Harness 在 `execute()` 前用 pi-ai `validateToolArguments` 校验并 coerce（字符串数字、单值转数组等）。失败变成 `invalid_arguments` 工具错误，模型可重试 | 用 pi-schema 定义 `candidates.propose`、`vision.extract` 等工具参数；必要时用 `prepareArguments` 做确定性修复 |
 | 工具返回值 | ✅ `structuredOutputSchema` 校验工具返回的 `structuredOutput`，给嵌套工具/程序调用；**不是**模型文本 | 只有程序要读工具结果时才用 |
-| 模型自由文本 | ❌ 不自动解析、不自动校验、不自动修复 | `JSON.parse` → pi-schema `compile().parse()` → 业务闸门；语法失败最多 1 次修复 |
+| 模型自由文本 | ❌ 不自动解析、不自动校验、不自动修复 | `JSON.parse` → pi-schema `compile().validate()` → 业务闸门；语法失败最多 1 次修复 |
 | provider 侧 `json_schema` | ⚠️ pi-ai 有 `constrainedSampling: { type:"json_schema" }`，但 custom endpoint 默认 `supportsStrictMode:false`；`require` 直接失败，`prefer` 静默降级 | 不把它当闸门；本项目显式 `constrainedSampling:false`，校验在应用侧 |
 
 **关键设计：能走工具调用就不要让模型吐 JSON 文本。** `candidates.propose` 用工具参数 schema，pi-durable 在 `execute()` 前校验；非法参数直接回 `invalid_arguments`，模型下一轮可改。应用侧 `checkProposal` 继续校验业务不变量（不是类型校验）。只有 `vision.extract` 这种「一次抽取、不写状态」的路径才走 `json_object` + 本地 schema + 一次修复。
+
+⚠️ **校验 API 用 `compile().validate()`，不是 `compile().parse()`**（1.5.2 包类型已核对）：`compile(schema)` 返回的 `Validator` 只有 `check()` / `errors()` / `validate()`——`validate()` 原样校验，不克隆、不填默认值、不做隐式转换。`parse()` 只存在于 `compile(schema, {coerce: true})` 的 `CoercingValidator` 上，会先 coercion（数字字符串→number、单值→数组等）。**本项目不启用隐式 coercion**：模型自报的松散类型按失败处理，不由校验层悄悄「修好」。工具参数路径的 coerce 是 Harness `validateToolArguments` 自己的事，与这条无关。
 
 **heirloom-lite 的做法（对照，不照抄）：**
 
@@ -897,73 +904,64 @@ type Wgs84 = string & { readonly __coord: 'wgs84' };   // GPS 原始 / 国际标
 
 ### 7.5 提案契约：闸门的唯一输入 🔷
 
-`nextstop.proposal` doc 是应用端闸门、前端渲染、推荐历史共用的 typed 契约；**模型的最终答案不是契约**。
+**权威字段定义在 [`packages/core/src/contracts.ts`](./packages/core/src/contracts.ts)**；这里说明边界，不再维护另一套独立 schema。模型输入与服务端结果分别校验，模型最终答案不作为契约。
 
-```ts
-const PickSchema = obj({
-  poi_id: PoiIdSchema,                 // 品牌类型
-  role: StringEnum(['best', 'alternative'] as const),
-  experience_type: StringEnum(['saved', 'new', 'rest', 'indoor', 'walk'] as const),
-  reason_code: StringEnum([...]),      // 可枚举的排序理由
-  reason_text: str({ maxLength: 160 }),// 定性；不许放数字字段
-  travel_to_min: num(),                // 能力层填
-  stay_min_estimate: num(),            // 能力层填
-  travel_to_next_min: num(),           // 能力层填
-  buffer_min: num(),
-  evidence: arr(EvidenceSchema),
-});
+| 契约 | 当前脚手架的形状与责任 |
+| --- | --- |
+| `ModelProposalInputSchema` | `{ best, alternatives }`；每项仅 `{ poi_id, reason_code, reason_text }`，最多两个备选。模型不提供时间、证据或版本。 |
+| `RecommendationPickSchema` | `{ choice, travel_to_min, travel_to_next_min, stay_min_estimate, buffer_min, evidence }`；`choice` 为模型可提供的定性字段，其余由服务端能力与策略注入。没有下一站时 `travel_to_next_min=null`。 |
+| `BindingSchema` | `{ session_id, proposal_id, proposal_revision, pool_revision, eta_revision, trip_id, trip_revision }`；全部由服务端生成。无绑定行程时只允许 `trip_id=null, trip_revision=0`；有行程时必须有 ID 和正整数修订号。 |
+| `RadarOutcomeSchema` | `kind:'recommendations'` 带 binding、best、alternatives；`kind:'empty'` 只带 binding 与 `reason_code:'NO_FEASIBLE_OPTION'`，不含 best。 |
 
-const ProposalSchema = obj({
-  proposal_id: str(),
-  session_id: str(),
-  revision: num(),
-  best: PickSchema,
-  alternatives: arr(PickSchema, { maxItems: 2 }),  // 绝不凑三个
-  excluded: arr(obj({ poi_id: str(), reason_code: StringEnum([...]) })),
-});
-```
-
-- **数字不在模型侧生成**：`travel_*` / `stay_*` / `buffer` 由能力层填；`reason_text` 只放定性描述。闸门不需要用正则抓数字，结构上就没有「模型编时间」的位置。
+- **空结果由应用端确定性生成**：可行集为空时不调用模型凑首选。`empty` 是正常业务响应；只有 `recommendations` 才需要 best。尚未生成结果用 `outcome:null`，与「已计算且无候选」区分。
+- 模型输入是闭合对象，额外的 `binding`、时间与证据字段会被拒绝。`reason_text` 仍可能包含虚构数值或断言，因此完整业务闸门还必须检查理由与证据；不能仅靠字段分离保证文本真实。
+- 当前 `evidence` 只表达高德 ETA 的估算来源与采集时间，不代表开放/预约政策已验证。完整证据、排除原因、体验类别与历史展示在业务闭环中扩充权威 schema；这部分尚未实现。
+- `candidates.propose` 的工具注册、服务端 `buildProposal`、完整 `checkProposal` 与 GET/SSE/accept 都是下文的设计目标。当前仅有共享契约、绑定检查和会话隔离持久化适配，不能据此宣称业务闸门已上线。
 - `obj()` 默认闭合；禁用 `multipleOf` / `uniqueItems` / `contains` / `patternProperties` / `propertyNames`（§7.3）。
-- `candidates.propose` 在同一个 commit 里写 proposal doc 并返回 `terminate: true`；应用端读 doc 跑 `checkProposal`（§9.2），前端只渲染通过闸门的 doc。
-- `reason_text` 仍做一次轻量断言（不含时间/价格/距离的阿拉伯数字或「分钟/元/公里」），但它是**兜底**，不是主约束。
 
 ---
 
 ## 8. 状态与存储
 
-### 8.1 两个快照 Document 🔷
+### 8.1 快照与提案：按 radar session 键控的 doc family 🔷
+
+**业务实现目标：`candidate_pool` / `eta_snapshot` / `proposal` 都使用 `defineDocFamily`，key = `session_id`。** 雷达每开一次 session 就有自己的池、ETA 快照与提案，验证证明不能跨 session 或修订复用（§9.2）。✅ 1.5.2 有 `defineDocFamily`：family 成员用 `tx.doc(token, conversationId, key, seed)` 访问，`initial(seed)` 只在成员缺席时运行。
+
+**当前脚手架**在 [`apps/server/src/runtime/documents.ts`](./apps/server/src/runtime/documents.ts) 实现 `nextstop.radar_result` family（key=session_id），成员是 `{outcome:null|RadarOutcome, validated:null|ProposalBinding}`。这是契约与持久化的最小落点，尚未拆出下列候选池/ETA/提案工具文档，也未注册任何模型工具。下列代码和表格为后续业务设计；`ProposalState` 的语义为 `{outcome: RadarOutcome|null}`。
 
 ```ts
-const CandidatePool = defineDoc<CandidatePoolState>({
+const CandidatePool = defineDocFamily<CandidatePoolState, SessionId>({
   kind: 'nextstop.candidate_pool',
   version: 1,
+  family: true,
   scope: 'conversation',
   history: 'rewindable',        // ← 支持 snapshotAsOf() 回放
   fork: 'current',
-  initial: () => ({ pois: [], evidence: [] }),
+  initial: (session_id) => ({ session_id, revision: 0, pois: [], evidence: [] }),
   checkpointWhen: () => false,
 });
 
-const EtaSnapshot = defineDoc<EtaState>({
+const EtaSnapshot = defineDocFamily<EtaState, SessionId>({
   kind: 'nextstop.eta_snapshot',
   version: 1,
+  family: true,
   scope: 'conversation',
   history: 'rewindable',
   fork: 'current',
-  initial: () => ({ byOrigin: {}, fetched_at: null }),
+  initial: (session_id) => ({ session_id, revision: 0, byOrigin: {}, fetched_at: null }),
   checkpointWhen: () => false,
 });
 ```
 
 ```ts
-const Proposal = defineDoc<ProposalState>({
+const Proposal = defineDocFamily<ProposalState, SessionId>({
   kind: 'nextstop.proposal',
   version: 1,
+  family: true,
   scope: 'conversation',
   history: 'rewindable',
   fork: 'current',
-  initial: () => ({ proposal_id: null, session_id: null, revision: 0, best: null, alternatives: [], excluded: [] }),
+  initial: () => ({ outcome: null }), // 尚未计算；真实 empty 结果仍须完整 binding
   checkpointWhen: () => false,
 });
 ```
@@ -976,8 +974,10 @@ const Proposal = defineDoc<ProposalState>({
 | `nextstop.trips` family（key=trip_id） | conversation | 行程 + `ItineraryStop` + 锁定项 + `revision`；多行程不新建 conversation |
 | `nextstop.import_batch` family（key=batch_id） | conversation | 导入状态机、逐图进度、candidate_place、确认结果 |
 | `nextstop.source_asset` family（key=asset_id） | conversation | 对象存储 key、OCR 摘要、retention、删除状态 |
-| `nextstop.radar_session` family（key=session_id） | conversation | 一次雷达输入、状态、revision、快照引用 |
-| `nextstop.proposal` | conversation singleton | 当前提案；闸门输入、前端渲染、推荐历史 |
+| `nextstop.radar_session` family（key=session_id） | conversation | 一次雷达输入、状态、revision、快照引用；`validated` 证明（应用端字段，见 §9.2） |
+| `nextstop.candidate_pool` family（key=session_id） | conversation | 本 session 的候选池 + 证据；闸门 POI 白名单来源 |
+| `nextstop.eta_snapshot` family（key=session_id） | conversation | 本 session 的 `by_leg` ETA 快照 + `fetched_at` |
+| `nextstop.proposal` family（key=session_id） | conversation | 本 session 的当前提案；闸门输入、前端渲染、推荐历史 |
 | `nextstop.rejections` | conversation singleton | 拒绝事件 + reason_code + 当次/长期作用域 |
 | `nextstop.preferences` | conversation singleton | 软评分权重 + 长期偏好（显式同意） |
 | `policy.json` | **应用侧只读 JSON**（不是 doc） | 策展的预约/开放策略表；全局一份，`policy.lookup` 读取，不随用户数据删除 |
@@ -1079,7 +1079,7 @@ durable 有「延迟持久化」优化，但**只对「除已有 doc 外什么�
 | `SavedPlace` | `wishlist.places[]` 的状态字段 | 多来源指向同一 Place；来源删除不自动删 Place |
 | `ItineraryStop` | `trips` 内的 `stops[]` | `is_locked` / `origin=radar\|import` / `status` |
 | `RadarSession` | `nextstop.radar_session` family（key=session_id） | 输入、状态、revision、快照引用 |
-| `Recommendation` | `nextstop.proposal` + `eta_snapshot` | 排名/证据/排除原因/时间构成 |
+| `Recommendation` | `nextstop.proposal` + `eta_snapshot`（均 key=session_id） | 排名/证据/排除原因/时间构成 |
 | `PreferenceEvent` | `nextstop.rejections` + `nextstop.preferences` | `scope=current_trip\|long_term`，长期需确认 |
 | `AuditEvent` | `nextstop.audit` family（key=event_id） | 关键写入；脱敏；可选 ring buffer |
 | （策展）预约/开放策略 | 应用侧只读 `policy.json` | `source` + `verified_at`；不是用户数据，不随用户删除 |
@@ -1100,14 +1100,14 @@ durable 有「延迟持久化」优化，但**只对「除已有 doc 外什么�
 | `POST` | `/api/v1/trips/{id}/draft` | 生成草案；返回 draft revision |
 | `POST` | `/api/v1/trips/{id}/lock` | 锁定/解锁；乐观锁 revision |
 | `POST` | `/api/v1/radar/sessions` | 启动雷达；返回 session_id |
-| `GET` | `/api/v1/radar/sessions/{id}` | 当前状态 + 通过闸门的 proposal |
-| `GET` | `/api/v1/radar/sessions/{id}/events` | **SSE**：status/proposal.updated/import.progress/error |
+| `GET` | `/api/v1/radar/sessions/{id}` | 当前状态 + 通过闸门且**绑定本 session** 的 proposal（含 `kind=empty` 空态） |
+| `GET` | `/api/v1/radar/sessions/{id}/events` | **SSE**：status/proposal.updated/import.progress/error；`proposal.updated` 携带验证证明绑定（§9.2） |
 | `POST` | `/api/v1/radar/sessions/{id}/reject` | 拒绝原因；服务端 `constraints.apply_rejection` 后重排 |
-| `POST` | `/api/v1/radar/sessions/{id}/accept` | 用户确认；`Idempotency-Key`；写 trip + 返回导航入口 |
+| `POST` | `/api/v1/radar/sessions/{id}/accept` | 用户确认；`Idempotency-Key`；**事务内核对** session_id + proposal revision + 快照版本 + trip revision，防陈旧接受（§9.2/§9.4）；写 trip + 返回导航入口 |
 | `DELETE` | `/api/v1/trips/{id}` | 删除行程（含图片/派生数据，见 §10.6） |
 | `DELETE` | `/api/v1/me/data` | 删除当前匿名用户全部数据 |
 
-约定：请求/响应带 schema 版本与 `request_id`；写操作带 `Idempotency-Key`；失败码沿用 PRD（`VALIDATION_ERROR` / `POI_AMBIGUOUS` / `ROUTE_UNAVAILABLE` / `NO_FEASIBLE_OPTION` / `PROVIDER_RATE_LIMIT` / `CONSENT_REQUIRED`）。**SSE 只推通过闸门的 proposal**；未通过闸门的模型输出不进入前端。
+约定：请求/响应带 schema 版本与 `request_id`；写操作带 `Idempotency-Key`；失败码沿用 PRD（`VALIDATION_ERROR` / `POI_AMBIGUOUS` / `ROUTE_UNAVAILABLE` / `NO_FEASIBLE_OPTION` / `PROVIDER_RATE_LIMIT` / `CONSENT_REQUIRED`）。**SSE 只推通过闸门且属于本 session 的 proposal**；未通过闸门的模型输出不进入前端。GET/SSE/accept 读取的都是 `proposal` family 里 `key={id}` 的成员，绝不把别的 session 或旧 revision 的 `validated` 结果当成当前结果下发。
 
 ---
 
@@ -1119,8 +1119,10 @@ durable 有「延迟持久化」优化，但**只对「除已有 doc 外什么�
 
 | 不变量 | 校验方式 |
 | --- | --- |
-| **提案来源唯一** | 只校验 `nextstop.proposal` doc；最终答案/`structuredOutput` 不作为契约 |
-| **POI 白名单** | 提案里每个 `poi_id` 必须在 `candidate_pool` 快照里存在，且 `provider_poi_id` 能对上 |
+| **提案来源唯一** | 只校验 `nextstop.proposal` family 中 `key=session_id` 的成员；最终答案/`structuredOutput` 不作为契约 |
+| **提案归属本会话** | `proposal.outcome.binding.session_id` 必须等于当前 radar session；`candidate_pool`/`eta_snapshot` 也只读本 session 的 family 成员——旧 session 的提案、快照、`validated` 一律不认 |
+| **POI 白名单** | 提案里每个 `poi_id` 必须在本 session 的 `candidate_pool` 快照里存在，且 `provider_poi_id` 能对上 |
+| **空结果是合法判别分支** | `kind=empty` 不要求 `best`，确定性确认可行集为空并校验 binding / reason_code；`kind=recommendations` 才要求 `best` + ≤2 备选。排除明细契约待扩充 |
 | **绝不凑三个** | 1 个最佳 + **最多** 2 个备选；可行集不足就少给，`maxItems: 2` |
 | **理由里不许出现数字** | 结构上 `reason_text` 没有数字字段；数值由能力层填；再做一次「分钟/元/公里/阿拉伯数字」文本断言作为兜底 |
 | **数值来源可追溯** | `travel_*` / `stay_*` / `buffer` 必须来自 `eta_snapshot` / `place.estimate_stay`，且带 `fetched_at` |
@@ -1130,42 +1132,50 @@ durable 有「延迟持久化」优化，但**只对「除已有 doc 外什么�
 | **证据状态诚实** | `unknown` 不得当 `verified` 展示；`stale` 必须在 UI 可见 |
 | **预约/开放策略** | `policy.lookup` 为 `required` 且用户无凭证 → 不得推荐「直接入内」；`unknown` 不得当 `not_required` |
 | **ETA 新鲜度** | 接受前若 `eta_snapshot` 超过 TTL 或模式变化 → 重查或显式提示「未重新校验」 |
+| **验证证明绑定** | `radar_session.validated` 记录 `{session_id, proposal_id, proposal_revision, pool_revision, eta_revision, trip_id, trip_revision}`；GET/SSE/accept 只认与当前提案完全匹配的证明 |
 | **不执行支付/订位/联系第三方** | 本阶段一律不执行（PRD 硬约束） |
 | **导航与行程插入需用户确认** | 见 §9.3；app 执行，模型不可见写入工具 |
 
 ### 9.2 闸门落点：应用端 + `proposal` doc 🔷（取代 `onYield` 主路径）
 
-**主路径不是 `onYield`。** 闸门是应用端的一个纯函数，输入是 `nextstop.proposal` doc，不是模型的最终答案。
+**主路径不是 `onYield`。** 闸门是应用端的一个纯函数，输入是本 session 的 `nextstop.proposal` family 成员，不是模型的最终答案。
 
 ```
-模型调 candidates.propose
-  → 同一个 commit 里写 nextstop.proposal doc
+应用端收窄 modelTools 到只剩 candidates.propose（见下「单工具轮是运行时约束」）
+  → 模型调 candidates.propose
+  → 同一个 commit 里写 nextstop.proposal[key=session_id]
   → 工具返回 control: { terminate: true }（单独一轮），run 结束
-  → 应用端读 proposal doc
+  → 应用端读本 session 的 proposal / candidate_pool / eta_snapshot 成员
   → checkProposal(proposal, pool, trip, eta)   // 纯函数
-       ├─ 合格 → SSE 推给前端 / 等用户确认
+       ├─ 合格 → radar_session.validated = 验证证明（§9.1）→ SSE 推前端 / 等用户确认
        └─ 不合格 → submit 修复指令（≤2 次）
                    或 确定性兜底（screen → rank → diversify，不经模型润色）
 ```
 
 ```ts
-// 工具只写提案，不写行程
+// 工具只写提案，不写行程；参数里没有任何数值/证据/版本字段（§7.5 输入 schema）
 const propose = defineTool({
   name: 'candidates_propose',
-  parameters: ProposalInputSchema,
-  structuredOutputSchema: ProposalSchema,
+  parameters: ModelProposalInputSchema, // 只有 best / alternatives；空集由应用端处理
+  structuredOutputSchema: RadarOutcomeSchema, // 服务端注入后的结果
   replay: 'safe',
   execute: async (args, api, ctx) => {
-    const proposal = buildProposal(args);           // 纯函数
-    await api.commit(async (tx) => {
-      // ✅ 1.5.2 的 Tx 没有 set()：doc 是 Draft<T>，在事务内原地改字段，提交时由 chord 追踪
-      const draft = await tx.doc(Proposal, api.conversationId);
-      Object.assign(draft, proposal);
+    // buildProposal 在服务端注入 travel_*/stay_*/buffer/evidence 与
+    // proposal_id/session_id/revision——模型自报的一律不采用
+    const proposal = await api.commit(async (tx) => {
+      // 伪代码：只用 tx 读取本 session 的池/ETA/trip，核对预期修订后构造结果。
+      // 不在 commit 回调内调用 harness 读 API，避免读写队列相互等待。
+      const current = await readProposalInputs(tx, api.conversationId, sessionId);
+      const result = buildProposal(args, current);
+      // ✅ 1.5.2 的 Tx 没有 set()：修改 Draft<T>。
+      const draft = await tx.doc(Proposal, api.conversationId, sessionId, sessionId);
+      draft.outcome = result;
+      return result;
     }, ctx);
     return {
       output: [{ type: 'text', text: '提案已写入，等待应用端校验。' }],
       structuredOutput: proposal,
-      details: { proposal_id: proposal.proposal_id },
+      details: { proposal_id: proposal.binding.proposal_id },
       control: { terminate: true },
     };
   },
@@ -1173,7 +1183,7 @@ const propose = defineTool({
 
 // 应用端闸门（不是 hook）
 export function checkProposal(
-  proposal: ProposalState,
+  proposal: RadarOutcome,
   pool: CandidatePoolState,
   trip: TripState,
   eta: EtaState,
@@ -1181,6 +1191,8 @@ export function checkProposal(
 ```
 
 ⚠️ **`terminate` 是整轮语义**：同一轮里**每个**工具结果都要求 `terminate` 才结束；混合批次会继续跑。所以 `candidates.propose` 必须单独占一轮，不能和其他工具并行调用。
+
+🔷 **单工具轮必须由运行时强制，不能只靠提示词。** 提案阶段把 `modelTools` 收窄到**只剩** `candidates.propose`；这只收窄工具面，不能保证模型恰好调用一次，也不能阻止它返回未声明的工具名。实现时必须在**整轮批次执行前**检查：恰好一次 propose 才执行；长度不为 1 或出现其他工具名则整批拒绝，不执行任何成员。单次 `beforeTool` 钩子不能代替整批检查；接入 pi-durable 时须验证具体批次拦截点。若发布版缺少该扩展点，就在模型传输适配层拒绝非法批次，不能只用单工具白名单宣称已保证。当前脚手架尚未接入这条执行路径。`radar_session.validated` 仍只由应用端 commit 写入，没有模型可见工具能更新它。
 
 **应用端何时读 doc**：应用端 `submit()` 拿到 `Submission`，`await submission.wait(ctx)`；terminate 结束 run 后 promise 落定，再读 `nextstop.proposal`。**不要靠轮询 doc 猜 run 是否结束**；SSE 只负责把进度推给前端。run 失败/中止则不读旧 proposal，按 §9.4 兜底。
 
@@ -1203,10 +1215,12 @@ export function checkProposal(
 
 #### 闸门的输入/输出
 
-- 输入：`proposal` doc、`candidate_pool`、`trips.locked`、`eta_snapshot`、`policy` 证据。
+- 输入：本 session 的 `proposal` / `candidate_pool` / `eta_snapshot` family 成员、`trips.locked`、`policy` 证据。
 - 输出：`Violation[]`；每条形如 `{ code, poi_id?, field?, repair_hint }`。
-- 合格：应用端把 `nextstop.radar_session` 标 `validated`，SSE 推 `proposal.updated`；用户确认后 app 执行写入。**proposal doc 本身只由模型写，验证状态不写回 proposal。**
+- 合格：应用端在 `nextstop.radar_session[key=session_id]` 写 `validated` **证明**——绑定 `{session_id, proposal_id, proposal_revision, pool_revision, eta_revision, trip_id, trip_revision}`，SSE 推 `proposal.updated`（携带该绑定）；用户确认后 app 执行写入。**validated 只由应用端 commit 写入，模型工具面没有任何入口。提案通过受限工具或应用端确定性兜底生成；验证证明与模型输入保持分离。**
 - 不合格：应用端 `submit` 一条修复指令（带 `requestId`），或直接走确定性兜底；**不把未通过闸门的 proposal 推给前端**。
+- **GET / SSE / accept 不得套用旧证明**：`validated` 只对 `{session_id, proposal_revision, 快照版本, trip_revision}` 完全匹配的当前提案有效；任一维度变了（新 session、修复出新 revision、快照重取、trip 被改）证明即作废，必须重新过闸门。
+- **接受在事务内防陈旧**：`POST /accept` 在同一个 commit 里核对——`radar_session.validated` 与当前 proposal revision 匹配、`eta_snapshot` 未过期且 mode 未变、`trip.revision` 与请求期望一致；不匹配则拒绝（`VALIDATION_ERROR` 或显式「提案已变化，请重新确认」），不写半个行程。
 
 ### 9.3 用户确认放在 agent 之外 🔷（已定为设计，不是未决项）
 
@@ -1228,7 +1242,8 @@ SSE 推给前端（不写入）
 
 **保证「模型碰不到行程与用户数据写入」的机制**：
 
-- 模型**可以**写中间快照与方案态：`candidate_pool`、`eta_snapshot`、`proposal`、`radar_session` 状态、`rejections`。这些不是行程，也不越过闸门。
+- 模型**可以**通过窄工具写本 session 的中间快照与方案态：`candidate_pool`、`eta_snapshot`、`proposal`（均 key=session_id），以及明确开放的进度字段。用户拒绝事件与长期偏好由应用端处理确认后写入；不向模型开放通用 doc 写入接口。
+- 模型**不能**写 `radar_session.validated` 等应用端字段：`validated` 证明只由应用端 commit 写入，模型工具面没有任何入口（§9.2）。
 - 模型**不能**写 `trip` / `wishlist` / 锁定项 / 用户凭据 / 策展 `policy`：这些是应用端函数，默认不注册成工具；模型在协议层看不到。
 - 即使注册，也设 `callers: ["tools"]` 且不进 `modelTools` 白名单。✅ `modelTools` 只能收窄不能扩宽（`tools` 决定什么根本启用）。
 - `proposal` doc 只是数据；模型没有 `trip.write` 的调用路径。
@@ -1240,8 +1255,8 @@ SSE 推给前端（不写入）
 - **幂等键**：应用端为每次用户动作生成 `requestId`，`submit({..., requestId})`。✅ 同 id 返回同一 submission，重启后 `harness.submission(id)` 重取。
 - **提案幂等**：`proposal.proposal_id` + `session_id` + `revision`；同一个 `requestId` 的修复不能生成两个 proposal。应用端读 doc 时以 `revision` 去重。
 - **工具内幂等**：`api.memo()` 未发布 → 需要外部副作用幂等时，**把键存进 doc，在 commit 里读**。（当前设计里写入都在 agent 之外，所以这条压力很小。）
-- **乐观锁**：`trip` doc 带 `revision`，写入时比对。✅ 所有写入经 `commit(tx => ...)` 原子提交，天然串行化。
-- **接受/确认幂等**：`POST /radar/sessions/{id}/accept` 与 `/import-batches/{id}/confirm` 必须带 `Idempotency-Key`；app 在同一个 commit 里写 trip + 记录 key，重复请求返回同一结果（PRD TC-11）。
+- **乐观锁**：`trip` doc 带 `revision`，写入时比对。✅ `commit(tx => ...)` 原子串行提交；串行化只防止提交相互穿插，不能消除陈旧读取。应用端仍须在同一事务内读取并核对所有预期修订，验证成功证明也必须绑定实际参与校验的快照。
+- **接受/确认幂等**：`POST /radar/sessions/{id}/accept` 与 `/import-batches/{id}/confirm` 必须带 `Idempotency-Key`；app 在同一个 commit 里写 trip + 记录 key，重复请求返回同一结果（PRD TC-11）。accept 同时在事务内核对验证证明绑定（§9.2）：`session_id` + proposal `revision` + 快照版本 + `trip.revision` 全部匹配才写，任一不匹配拒绝——旧提案/旧 trip revision 的「接受」不会被当成当前接受。
 - **修复循环**：app 的 `submit` 修复最多 2 次，次数存 `radar_session`；每次带新的 `requestId`；超限走确定性兜底，不再调模型。
 - **会话忙**：✅ `whenBusy: "reject"` 时重复提交抛 `ConversationBusy`；应用端要处理这个错误并给用户明确反馈，不要静默重试。
 
@@ -1297,13 +1312,23 @@ const SAFE_PATH = /^\/v[345]\/[a-z0-9/_-]+$/;
 - **存哪里**：原图与规范化副本存对象存储；Demo 用本地持久卷，生产用 S3/OSS。`source_asset` doc 只存 `object_key`、`content_type`、`bytes`、`fetched_at`、`retention_deadline`、`deleted_at`。
 - **key 规则**：`source/{conversation_id}/{batch_id}/{asset_id}.{ext}`；规范化副本 `.../normalized.jpg`。key 不进日志、不下发前端（前端用应用端代理或短签名 URL）。
 - **留存**：原图默认 7 天（Demo 可更短），OCR 摘要 30 天，提案/ETA 快照随 conversation 保留；策略可配置。PRD D-07 的 TTL 在这里落。
-- **删除**：`DELETE /trips/{id}` 与 `DELETE /me/data` 由应用端执行：
-  1. 停止/取消进行中的 radar run；
-  2. `retireDoc` 对应 trip / import_batch / source_asset / proposal / eta / wishlist / rejections / preferences；
-  3. 删除对象存储的原图/规范化副本；
-  4. **`DELETE /me/data` 还要关闭该用户的 Session 并删除其 SQLite 文件**（`data/users/{guest_id}.sqlite*`，含 WAL/SHM）——transcript 里也有用户输入，只 retire doc 清不干净；
+- **删除分两级，语义不同，别用同一套流程**：
+
+  **`DELETE /trips/{id}`（删一个旅行）= 按引用清理，不关库、不删文件：**
+  1. 停止/取消该 trip 进行中的 radar run；
+  2. `retireDoc` 该 `trips[key=trip_id]` 成员与其独占派生数据：该 trip 的 `radar_session` / `proposal` / `candidate_pool` / `eta_snapshot` family 成员、该 trip 专属 `import_batch` / `source_asset` 及对应对象存储原图/规范化副本；
+  3. **按引用计数/引用检查清理**：只删「只被这个 trip 引用」的对象；`wishlist` 里经用户确认的 Place、`nextstop.preferences`、长期 `rejections`、别的 trip 的 family 成员与共享引用**一律不动**——一个地点被多个行程/收藏引用时，删一个 trip 不波及其它；
+  4. 客户端缓存同步清：前端删该 trip 的本地缓存条目（SW cache / IndexedDB / 离线快照中该 trip 的部分），不整库清；
+  5. 重复删除幂等返回成功。
+
+  **`DELETE /me/data`（删当前匿名用户全部数据）= 整户清理，这才关库删文件：**
+  1. 停止该用户所有进行中的 run；
+  2. 删除对象存储里 `source/{conversation_id}/` 前缀下全部原图/规范化副本；
+  3. **关闭该用户的 Session，再删除整个 SQLite 文件**（`data/users/{guest_id}.sqlite*`，含 WAL/SHM）——transcript 里也有用户输入，只 retire doc 清不干净；
+  4. **客户端缓存清理是硬性要求**：前端清掉该用户的 SW cache、IndexedDB、localStorage 中全部 NextStop 数据并注销登录态 cookie 映射——否则离线缓存里还留着已「删除」的行程/提案；
   5. 写一条脱敏 audit（不含图片内容/精确坐标）；若 audit 在该用户库里，随文件一起删除；
   6. 重复删除幂等返回成功。
+
 - **不删除**：应用侧 `policy.json`（全局策展数据，非用户数据）。删除失败要报告给用户，不假装成功（PRD FR-12）。
 
 ### 10.7 PWA 与离线 🔷
@@ -1349,7 +1374,7 @@ PRD 的验收场景。逐层走一遍，验证架构闭合。
 - **拒绝重排 0 次地图调用**只在「不感兴趣 / 太远 / 价格已知的太贵」成立；「不想走路」换模式必须重查（§8.2）。
 - 模型**从未**写入行程或触发导航；提案在 doc，闸门在应用端（§1.3、§9.2、§9.3 成立）。
 - 时间计算是纯函数；数值字段由能力层填，模型只写定性理由（§1.2、§7.5 成立）。
-- 若可行集只有 1 个，就只给 1 个，**不凑三个**（§9.1 成立）。
+- 若可行集只有 1 个，就只给 1 个，**不凑三个**；可行集为空时走 `kind=empty` 分支，同样是过闸门的合法产出（§7.5、§9.1 成立）。
 - 前端只渲染通过闸门的 proposal doc；中间答案/未校验输出不进 UI（§4.2、§9.2 成立）。
 
 ---
@@ -1408,6 +1433,12 @@ PRD 的验收场景。逐层走一遍，验证架构闭合。
 
 ## 附：修订记录
 
+- **2026-11-17（评审修订二）**
+  - `candidate_pool` / `eta_snapshot` / `proposal` 从 conversation 单例改为 `defineDocFamily`（key=session_id）；`radar_session.validated` 为仅应用端可写的证明，绑定 session_id + proposal revision + 快照版本 + trip revision；GET/SSE/accept 不套用旧证明，accept 在事务内核对防陈旧接受。
+  - 提案结果改 `kind=empty|recommendations` 判别联合：空结果是一等合法产出，不要求 `best`；模型输入 schema（ID/理由码/文字）与存储输出 schema（数值/证据/ID/版本由服务端注入）分离。
+  - 删除分级：`DELETE /trips/{id}` 按引用清理（不动其他 trip 的收藏/偏好/共享引用）；`DELETE /me/data` 才关 Session 删整库（含 WAL/SHM）并要求客户端缓存清理。
+  - 提案单工具轮由运行时强制：提案阶段 `modelTools` 收窄到只剩 `candidates.propose`，运行时拒绝混合批次，不再仅靠提示词。
+  - 更正：AI-first 判据不约束「新增不变量」（硬约束本就要改闸门），固定 `radar.evaluate` 编排是延迟优化不算违反；`compile().parse()` 更正为 `compile().validate()`（不启用隐式 coercion）；testdata 已获授权入库；Jev `fast.intent` 为意图首选（结构化 Chips 0 调用），首验证闭环为真实 POI→雷达→闸门→接受；工具链统一 Node 24（`>=24.18.0 <25`）+ pnpm monorepo（apps/server、apps/web、packages/core、packages/model-gateway）。
 - **2026-11-16（Langfuse 与 Jev 范围）**
   - 用户决定模型观测与评测统一用已有 Langfuse；移除 promptfoo 选型，规则/人工评分先行，实验脚本负责发布门禁。
   - 补充 TypeSafe AI Jev 候选边界：自由文本意图、POI 候选消歧、偏好软评分、Langfuse 自定义 evaluator；待标注集对照后决定是否接入，硬约束与最终写入仍由代码执行。

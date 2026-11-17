@@ -1,0 +1,98 @@
+import { capabilitiesValidator, readyValidator } from '@nextstop/core';
+import type { Capabilities } from '@nextstop/core';
+import { useEffect, useState } from 'react';
+
+type Connection =
+  | { kind: 'loading' }
+  | { kind: 'ready'; capabilities: Capabilities }
+  | { kind: 'failed' };
+
+export function App() {
+  const [connection, setConnection] = useState<Connection>({ kind: 'loading' });
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    let disposed = false;
+    setConnection({ kind: 'loading' });
+    async function check() {
+      try {
+        const [ready, response] = await Promise.all([
+          fetch('/health/ready', { signal: controller.signal }),
+          fetch('/health/capabilities', { signal: controller.signal }),
+        ]);
+        if (!ready.ok || !response.ok) throw new Error('Service unavailable');
+        const readiness: unknown = await ready.json();
+        const capabilities: unknown = await response.json();
+        if (!readyValidator.check(readiness) || !capabilitiesValidator.check(capabilities)) {
+          throw new Error('Invalid service response');
+        }
+        if (!disposed) setConnection({ kind: 'ready', capabilities });
+      } catch {
+        if (!disposed) setConnection({ kind: 'failed' });
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    void check();
+    return () => {
+      disposed = true;
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [attempt]);
+
+  return (
+    <main>
+      <header>
+        <a className="brand" href="/" aria-label="下一站首页">
+          <span className="brand-mark" aria-hidden="true">
+            ↗
+          </span>{' '}
+          下一站
+        </a>
+        <span className="preview">工程预览</span>
+      </header>
+      <section className="intro">
+        <p className="eyebrow">NEXTSTOP / 现在去哪</p>
+        <h1>
+          给旅途中的空档，
+          <br />
+          找一个合适的下一站。
+        </h1>
+        <p className="lead">把收藏、可用时间和下一项固定安排放在一起，做出有依据的出行选择。</p>
+      </section>
+      <section className="panel" aria-labelledby="service-heading">
+        <div className="panel-heading">
+          <h2 id="service-heading">开发服务</h2>
+          <span className="tag">Scaffold</span>
+        </div>
+        <p role="status" className={`connection ${connection.kind}`}>
+          <span className="dot" aria-hidden="true" />
+          {connection.kind === 'loading'
+            ? '正在检查连接…'
+            : connection.kind === 'ready'
+              ? '服务连接正常'
+              : '连接失败，请确认后端已启动'}
+        </p>
+        <p>当前已提供应用骨架与共享契约。雷达推荐、多图导入和行程写入将在后续闭环中接入。</p>
+        {connection.kind === 'ready' && (
+          <p className="detail">
+            雷达接口：{connection.capabilities.radar ? '已开放' : '待接入'} · 导入接口：
+            {connection.capabilities.imports ? '已开放' : '待接入'}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={() => setAttempt((value) => value + 1)}
+          disabled={connection.kind === 'loading'}
+        >
+          重新检查连接 <span aria-hidden="true">↻</span>
+        </button>
+      </section>
+      <footer>
+        NextStop · 苏州首站 <span>每一次推荐，都从真实证据开始。</span>
+      </footer>
+    </main>
+  );
+}

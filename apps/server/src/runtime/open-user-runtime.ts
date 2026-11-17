@@ -1,0 +1,63 @@
+import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
+import { createRegistry, Harness } from '@earendil-works/pi-durable';
+import type { Conversation } from '@earendil-works/pi-durable';
+import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
+import { compile } from '@earendil-works/pi-schema';
+import { IdentifierSchema } from '@nextstop/core';
+import { createModels } from '@nextstop/model-gateway';
+import { mkdir } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+
+const identifier = compile(IdentifierSchema);
+const openPaths = new Set<string>();
+
+export type UserRuntime = {
+  harness: Harness;
+  conversation: Conversation;
+  close(): Promise<void>;
+};
+
+export async function openUserRuntime(input: {
+  dataDir: string;
+  userId: string;
+}): Promise<UserRuntime> {
+  if (!identifier.check(input.userId)) throw new Error('Invalid server-assigned user identifier');
+  const directory = resolve(input.dataDir, 'users');
+  const file = join(directory, `${input.userId}.sqlite`);
+  if (openPaths.has(file)) throw new Error('This user already has an active SQLite writer');
+  openPaths.add(file);
+  let storage: Awaited<ReturnType<typeof openNodeSqliteStorage>> | undefined;
+  let harness: Harness | undefined;
+  try {
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+    storage = await openNodeSqliteStorage(file);
+    harness = await Harness.open(
+      storage,
+      {
+        models: createModels(),
+        registry: createRegistry(),
+        identity: { attribution: null },
+      },
+      BACKGROUND_CONTEXT,
+    );
+    const conversation = await harness.root(BACKGROUND_CONTEXT);
+    const opened = harness;
+    let closing: Promise<void> | undefined;
+    return {
+      harness: opened,
+      conversation,
+      close() {
+        closing ??= opened.close(BACKGROUND_CONTEXT).finally(() => openPaths.delete(file));
+        return closing;
+      },
+    };
+  } catch (error) {
+    try {
+      if (harness) await harness.close(BACKGROUND_CONTEXT);
+      else if (storage) await storage.close(BACKGROUND_CONTEXT);
+    } finally {
+      openPaths.delete(file);
+    }
+    throw error;
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "@nextstop/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --include '../../packages/*/dist/**' --env-file-if-exists=../../.env --env-file-if-exists=../../.env.jev.local src/main.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "start": "node --env-file-if-exists=../../.env --env-file-if-exists=../../.env.jev.local dist/main.js"
+  },
+  "dependencies": {
+    "@earendil-works/chord": "1.5.2",
+    "@earendil-works/pi-ai": "1.5.2",
+    "@earendil-works/pi-durable": "1.5.2",
+    "@earendil-works/pi-schema": "1.5.2",
+    "@nextstop/core": "workspace:*",
+    "@nextstop/model-gateway": "workspace:*"
+  }
+}

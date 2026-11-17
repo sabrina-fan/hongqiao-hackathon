@@ -140,7 +140,7 @@ pi-ai 的 `constrainedSampling` 走的是**左边那列**。所以：
 ### 2.4 ✅ 其他硬约束
 
 - **开启结构化输出时 `max_tokens` 要给足** —— 设置后可能导致 JSON 字符串被截断，产生无效 JSON。本项目统一用 `max_tokens`（pi-ai `maxTokensField: 'max_tokens'`），但按任务类给足额度；**截断不 repair，直接判失败**。
-- **智谱/火山不支持 `tool_choice: "required"`** —— 非思考模式下无法保证一定调用工具，思考模式下直接不支持。→ 不能靠强制工具调用来保证模型走 `submit_proposal`，要靠闸门 + `onYield` 打回。
+- **智谱/火山不支持 `tool_choice: "required"`** —— 非思考模式下无法保证一定调用工具，思考模式下直接不支持。→ 不能靠强制工具调用来保证模型走 `candidates.propose`；提案阶段由应用端把 `modelTools` 收窄到只剩该工具并拒绝混合批次（运行时约束，非提示词），合格性由应用端闸门判定（ARCH §9.2）。
 - JSON Object 模式要求提示词含 "JSON" 关键词，否则 400：`'messages' must contain the word 'json' in some form`。JSON Schema 模式无此要求。
 - 官方自己建议：JSON Object 模式的输出**必须**下游校验（点名 Ajv / jsonschema），失败走重试或大模型改写。→ 与我们的闸门设计一致。
 
@@ -323,7 +323,8 @@ const arkCompat = {
 **仍需验的只是应用端细节**（不是 Pi 能力）：
 - `/accept`、`/confirm` 的 `Idempotency-Key` 是否只写一次（PRD TC-11）；
 - `trip` 的 `revision` 乐观锁在多标签页下的冲突处理；
-- 删除/撤销（`DELETE /trips/{id}`、`trip.undo`）是否覆盖已写入的 doc 与对象存储。
+- **accept 在事务内核对验证证明绑定**（session_id + proposal revision + 快照版本 + trip revision，ARCH §9.2）；旧 session/旧 revision 的 `validated` 不得被 GET/SSE/accept 套用；
+- 删除/撤销（`DELETE /trips/{id}`、`trip.undo`）是否覆盖已写入的 doc 与对象存储；删单 trip 不波及其它 trip 的收藏/偏好（ARCH §10.6）。
 
 **不做的方案**：B 自定义 task + `sleepUntil` 轮询；C 等 Signals 发布。记录为未来简化点。
 
@@ -339,7 +340,7 @@ const arkCompat = {
 
 **已知**：它是 Linux ECS，原则上能跑长驻 Node 进程；但以下全部**未上机确认**：
 - OS 发行版与版本；是否有 root / sudo；是否允许装 systemd 服务。
-- Node 版本。`pi-durable@1.5.2` 与 `pi-ai@1.5.2` 的 `engines.node` 都是 **`>=22.19.0`**；低于这个版本必须先装 22 LTS。
+- Node 版本。`pi-durable@1.5.2` 与 `pi-ai@1.5.2` 的 `engines.node` 都是 **`>=22.19.0`**；**本项目取更严的 Node 24 线（`>=24.18.0 <25`，`.nvmrc` 写 `24`）**——跳板机不在该区间就先装 24。
 - 持久盘挂载点与容量；`/opt` 是否在系统盘上。
 - 可用端口/域名；Nginx 是否共用；能否加 `server` 块而不动默认 server。
 - 出网是否放行智谱/火山/高德。
@@ -419,7 +420,7 @@ const arkCompat = {
 
 **已有事实**：✅ 多模态输入会自动降级为 `json_object`（V4），所以 `vision.extract` 的 schema 不会生效，输出必须全量校验。**图片只发 GLM-5.3-Flash / Doubao 2.1 Lite；视觉模型不通时 `NoModelAvailable`。**
 
-**素材（2026-11-16 已备）**：`testdata/xhs-suzhou/`，20 张小红书苏州游玩/打卡笔记图片；来源与原始笔记链接见 `testdata/xhs-suzhou/manifest.json`。仅本地评测，不进入 Git/构建产物。
+**素材（2026-11-16 已备）**：`testdata/xhs-suzhou/`，20 张小红书苏州游玩/打卡笔记图片；来源与原始笔记链接见 `testdata/xhs-suzhou/manifest.json`。已获授权随仓库入库；仅本地评测，不进入构建产物，不上传 Langfuse 原图/原文。
 
 **✅ 全量实测（2026-11-16，GLM-5.3-Flash + Coding Plan + `response_format: json_object` + thinking off，串行 +0.8s 间隔）**：
 
@@ -499,20 +500,28 @@ const arkCompat = {
 
 ---
 
-## 5. 🟡 高德（文档已查一部分，账号仍需实测）
+## 5. 高德验证状态（2026-11-17 重排：已实测与待验分开）
+
+**✅ 已实测（明细见 V10 / V11）：**
+
+| 项 | 实测结论 |
+| --- | --- |
+| `/v3/distance` 方向 | N origins → 1 destination；两 destination 直返 `INVALID_PARAMS` |
+| `/v3/distance` origins 上限 | 100 返回 100 条；101 静默截断到 100 |
+| `type=3` 步行距离上限 | 接口不拦（~97km 也返回）；超 5km 由应用侧判 `WALK_TOO_FAR` |
+| 步行反向对称 | A→B 与 B→A 同值；仍只标 `estimated` + `reverse` |
+| `/v5/place/detail` 批量上限 | 实测 ≤35 个唯一 id 全返回；实现按 ≤25 分批 |
+| `show_fields=business` 覆盖 | `opentime_today` 约 5/12、`cost` 全缺、`rating` 大多有；缺失标 `unknown` |
+| `/v5/place/around` 半径上限 | 0–50000m，超上限按默认 5000；page_size 1–25 |
+| 坐标转换批量上限 | 官方上限 40；只支持转入 GCJ-02，无反向 |
+| 逐条 `info` | 部分失败时顶层仍成功，必须逐条判 `results[].info` |
+| QPS | 实测约 5/s；所有高德调用带限速器 + 退避 |
+
+**🟡 仍需现场实测：**
 
 | 项 | 怎么验 | 影响 |
 | --- | --- | --- |
-| 个人/企业配额具体数字 | 控制台配额页截图 | 批量 ETA 的调用预算（雷达一次 3 批，见 §5.2） |
-| `/v3/distance` 是 **N origins → 1 destination** | 一次传两个 destination 看是否只认一个 | 雷达要 1→N，不能一次算完；见 V10 |
-| `/v3/distance` origins ≤100 | 传 100 个 origins 实打 | 候选池分批上限 |
-| `/v3/distance` type=3 步行仅 5km | 传一个 >5km 的 origin | 超距返回什么，要不要降级驾车 |
-| 步行反向是否近似对称 | A→B 与 B→A 各打一次比对 | 反向 ETA 只能标 `estimated`，见 V10 |
-| `/v5/place/detail` 批量上限 | 一次传 10 个 id 看是否全返回 | top N 一次查完；detail 不含 opentime（见 V11） |
-| `show_fields=business` 字段覆盖 | 20 个真实 POI 看 `opentime_today/cost/rating` | 营业时间只从 search 返回；证据状态 `verified/unknown` |
-| `/v5/place/around` 半径上限 | 传 50000/50001 看返回 | ✅ 0–50000m，超上限按默认 5000；page_size 1–25 |
-| 坐标转换批量上限 | 一次传 40 对看返回 | ✅ 官方上限 40；只支持转入 GCJ-02，无反向 |
-| 逐条 `info` 而非只看顶层 `status` | 批量里混一个非法坐标 | 部分失败的处理 |
+| 个人/企业配额具体数字 | 控制台配额页截图 | 批量 ETA 的调用预算（雷达一次 3 批，见 ARCH §5.2） |
 | Web服务 key vs Web端 key | 用错 key 打 REST | `INVALID_USER_SCODE` |
 
 ---

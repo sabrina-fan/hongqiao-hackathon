@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm format:check --all
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      # ego-lite acceptance runs locally with a connected desktop browser.
+      # This hosted Linux job covers code checks; it does not claim browser coverage.
+      - run: pnpm audit:prod
+      - run: pnpm secrets:check-env
+      - name: Scan repository files for secrets
+        shell: bash
+        run: |
+          docker run --rm --network none -v "$PWD:/repo:ro" ghcr.io/gitleaks/gitleaks:v8.28.0 dir /repo --redact --config /repo/.gitleaks.toml

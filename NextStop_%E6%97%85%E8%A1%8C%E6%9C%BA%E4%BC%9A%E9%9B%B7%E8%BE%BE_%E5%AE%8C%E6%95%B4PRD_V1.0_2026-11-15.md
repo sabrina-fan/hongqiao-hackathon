@@ -551,7 +551,7 @@ P0：黑客松核心闭环必须具备；P1：正式产品首期或黑客松有�
 | **规则与排序引擎**     | TypeScript 确定性纯函数                                  | 时间硬约束、预约判断、候选去重、优先级与多样性           |
 | **数据存储**           | SQLite 单写进程 + 持久卷 + 图片对象存储                   | 行程、POI 引用、来源、推荐日志与反馈；敏感字段按最少保存 |
 
-> **模型接入（2026-11-16 定）：** 本次按用户选择使用 **plan 模式**：智谱 Coding Plan + 火山 Agent Plan，配置与 `heirloom-lite` 生产 env 一致。官方条款不允许后端 API 调用，账号风险由部署者承担；`MODEL_ENDPOINT_MODE=standard` 可切回合规路径（详见 ARCH §6.1.1、VERIFY V16）。视觉主模型 GLM-5.3-Flash，文本/意图主模型 Doubao 2.1 Lite。模型 ID 与 `heirloom-lite` 对齐。部署目标是 `heirloom-lite` 跳板机（阿里云 ECS/Linux），见 SETUP §7.1。
+> **模型接入（2026-11-16 定）：** 本次按用户选择使用 **plan 模式**，配置与 `heirloom-lite` 生产 env 一致；套餐条款风险与一键切回见 ARCH §6.1.1、VERIFY V16，此处不再复述。视觉主模型 GLM-5.3-Flash，文本生成/理由主模型 Doubao 2.1 Lite；**意图识别与有限选项决策首选 TypeSafe Jev（`fast.intent` / `decision.*`）**——结构化 Chips 表单直接进应用函数（0 次模型调用），仅自由文本才调 `fast.intent`，Doubao 只在网络/协议失败时兜底（详见 ARCH §6.1.2）。部署目标是 `heirloom-lite` 跳板机（阿里云 ECS/Linux），见 SETUP §7.1。
 
 ## 9.2 核心工具签名（建议契约）
 
@@ -573,7 +573,7 @@ IMPORT_UPLOADED → PARSING → NEEDS_REVIEW → CONFIRMED → ITINERARY_READY�
 
 ## 9.4 输出 JSON 结构建议
 
-> **字段以实现契约为准**：下面的结构表达产品语义；实际 `nextstop.proposal` 的字段名、枚举与校验规则见 ARCH §7.5 `ProposalSchema`（例如 `type` 对应 `experience_type`，`why` 对应 `reason_text` 且不得含数字）。
+> **字段以实现契约为准**：下面是完整产品目标的示意，不是当前 API。脚手架权威定义为 `packages/core/src/contracts.ts` 的 `ModelProposalInputSchema` / `RadarOutcomeSchema`，说明见 ARCH §7.5。结果为 `kind:"recommendations"|"empty"` 判别联合：无可行候选时由应用端生成 `empty`，不要求 `best`，属正常响应。排除明细、体验类型、开放/预约证据和业务 API 将随业务闭环扩充；当前定性理由位于 `best.choice.reason_text`。
 
 > {  
 > "session_id": "uuid",  
@@ -634,6 +634,8 @@ IMPORT_UPLOADED → PARSING → NEEDS_REVIEW → CONFIRMED → ITINERARY_READY�
 - 行程版本化 revision，接受推荐使用乐观锁和幂等键，避免重复插入。
 
 - 用户可删除旅行与上传图片；正式上线需定义供应商、备份与派生记录的删除 SLA；Demo 不应宣称达到未经测试的自动删除承诺。
+
+- **删除单个旅行 ≠ 删除全部数据**：删一个旅行按引用清理——只删该行程与其独占派生数据（该行程的雷达会话/提案/快照、专属导入批次与图片），不动其他行程的收藏、偏好与共享引用；只有「删除我的全部数据」才关闭并删除整库文件（含 WAL/SHM）及客户端缓存（详见 ARCH §10.6）。
 
 ## 10.3 状态枚举
 
@@ -816,6 +818,8 @@ PWA 安装需要 HTTPS、有效 manifest 等；不同平台对安装、后台能
 | **45–48h** | 演示脚本、截图/录屏、冒烟检查                 | 苏州场景从导入到导航完整跑通                    |
 
 **范围不按时间压缩（2026-11-16 评审决定）**：P0 功能全部保留——多图识别、AI 行程草案、雷达、拒绝重排、导航都做，时间只影响交付顺序与打磨深度，不作为砍功能的理由。若时间确实不够，按 §15.3 的 G1–G5 闸门顺序推进，先把数据、解析、决策、端到端四道闸门跑通；不得用固定 fixture 冒充真实工具结果（§14.4）。
+
+**第一个验证闭环（2026-11-17 修订）**：已确认真实 POI（手工添加/策展数据，不依赖导入流水线）→ 机会雷达 → 应用端闸门校验 → 用户接受 → 行程写入。先证明「雷达—闸门—写入」主干正确，再接多图导入与 POI 匹配；全部 P0 保留，变的只是验证顺序（ARCH §1.4）。上表时间窗按交付顺序读，不要求导入先于雷达完成验证。
 
 ## 15.3 关键里程碑与 Go / No-Go
 

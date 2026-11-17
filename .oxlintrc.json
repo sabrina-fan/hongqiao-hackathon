@@ -1,0 +1,43 @@
+{
+  "plugins": ["typescript", "unicorn", "oxc", "vitest"],
+  "categories": { "correctness": "error" },
+  "rules": {
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "ignoreRestSiblings": true }],
+    "no-console": ["error", { "allow": ["warn", "error"] }]
+  },
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "coverage/**",
+    "testdata/**",
+    "test-results/**"
+  ],
+  "overrides": [
+    {
+      "files": ["scripts/**/*.mjs", "evals/**/*.mjs", "e2e/**/*.mjs"],
+      "rules": { "no-console": "off" }
+    },
+    {
+      "files": ["apps/web/src/**/*.{ts,tsx}"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              "node:*",
+              "node:*/**",
+              "@nextstop/server",
+              "@nextstop/server/**",
+              "@nextstop/model-gateway",
+              "@nextstop/model-gateway/**",
+              "@earendil-works/pi-durable",
+              "@earendil-works/pi-durable/**",
+              "@earendil-works/pi-ai",
+              "@earendil-works/pi-ai/**"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
