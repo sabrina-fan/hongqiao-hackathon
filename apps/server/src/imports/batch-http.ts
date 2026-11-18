@@ -265,24 +265,28 @@ export function createBatchHandler(
       });
       return send(response, 202, storage);
     }
-    const batch = await withUser(userId, (runtime) =>
-      updateBatchItem({
+    const batch = await withUser(userId, async (runtime) => {
+      let deleteImageFiles = false;
+      const updated = await updateBatchItem({
         runtime,
         id,
         imageId,
         revision,
-        async update(item) {
+        update(item) {
           if (item.kind === 'saved') throw new HttpFault('IMPORT_CONFIRMED');
           if (route.action === 'skip') {
             const reviewed = reviewedItem(item);
             if (!reviewed) throw new HttpFault('IMPORT_INVALID_CHOICE');
             return { ...storedImage(reviewed), kind: 'skipped' };
           }
-          if (item.kind !== 'invalid') await images.remove(userId, imageId);
+          deleteImageFiles = item.kind !== 'invalid';
           return null;
         },
-      }),
-    );
+      });
+      // A rolled-back removal still references both copies of the screenshot.
+      if (deleteImageFiles) await images.remove(userId, imageId);
+      return updated;
+    });
     return send(response, 200, batch);
   };
 }

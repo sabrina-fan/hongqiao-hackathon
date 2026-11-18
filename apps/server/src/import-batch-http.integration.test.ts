@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { importBatchValidator, wishlistValidator, type ImportBatch } from '@nextstop/core';
 import { expect, it, vi } from 'vitest';
 import { createApp } from './app.js';
@@ -14,6 +15,13 @@ const png = await readFile(new URL('../test/import-synthetic.png', import.meta.u
 const alternate = await readFile(
   new URL('../../web/public/prototype/assets/nav-library.png', import.meta.url),
 );
+
+async function batchOf(response: Response, status = 200): Promise<ImportBatch> {
+  expect(response.status).toBe(status);
+  const body: unknown = await response.json();
+  assert(importBatchValidator.check(body));
+  return body;
+}
 
 it('shows partial results for eight images, retries only the failed image and keeps both duplicate POI sources', async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'nextstop-import-batch-'));
@@ -27,6 +35,8 @@ it('shows partial results for eight images, retries only the failed image and ke
     const call = calls;
     if (call === 3) throw new Error('Controlled vision outage');
     if (call === 4) await partial;
+    if (call === 5)
+      return { kind: 'text', name: '地图故障测试地点', excerpt: '合成攻略', confidence: 'high' };
     return call <= 2
       ? { kind: 'text', name: poi.name, excerpt: `攻略片段 ${call}`, confidence: 'high' }
       : { kind: 'unrecognized' };
@@ -36,7 +46,10 @@ it('shows partial results for eight images, retries only the failed image and ke
     cookieSecret: 'test-only-import-batch-signing-value',
     map: createAmap({
       key: 'fixture',
-      fetcher: async () => Response.json({ status: '1', info: 'OK', pois: [poi] }),
+      fetcher: async (input) =>
+        new URL(input).searchParams.get('keywords') === '地图故障测试地点'
+          ? new Response(null, { status: 503 })
+          : Response.json({ status: '1', info: 'OK', pois: [poi] }),
     }),
     vision,
   });
@@ -60,12 +73,6 @@ it('shows partial results for eight images, retries only the failed image and ke
         'images',
         new File([image === 3 ? alternate : png], `攻略-${image}.png`, { type: 'image/png' }),
       );
-    }
-    async function batchOf(response: Response, status = 200): Promise<ImportBatch> {
-      expect(response.status).toBe(status);
-      const body: unknown = await response.json();
-      assert(importBatchValidator.check(body));
-      return body;
     }
     const created = await batchOf(
       await fetch(base + '/import-batches', { method: 'POST', headers, body: form }),
@@ -104,6 +111,7 @@ it('shows partial results for eight images, retries only the failed image and ke
     });
     const [first, second, failed, ...others] = progress.items;
     assert(first && second && failed && others[0]);
+    expect(failed).toMatchObject({ kind: 'failed', reason: 'vision' });
     const image = `/items/${first.import_id}/image`;
     expect((await fetch(url + image, { headers: stranger })).status).toBe(404);
     expect((await fetch(url + image, { headers })).status).toBe(200);
@@ -113,6 +121,21 @@ it('shows partial results for eight images, retries only the failed image and ke
       const batch = await read();
       expect(batch.items.some(({ kind }) => kind === 'processing')).toBe(false);
       return batch;
+    });
+    expect(finished.items.map(({ kind }) => kind)).toEqual([
+      'ready',
+      'ready',
+      'failed',
+      'ready',
+      'failed',
+      'ready',
+      'ready',
+      'ready',
+    ]);
+    expect(finished.items[4]).toMatchObject({
+      kind: 'failed',
+      reason: 'map',
+      review: { match: { kind: 'map_unavailable' } },
     });
     expect(vision).toHaveBeenCalledTimes(8);
     expect(
@@ -250,6 +273,131 @@ it('shows partial results for eight images, retries only the failed image and ke
     expect((await submit()).status).toBe(400);
   } finally {
     release();
+    await new Promise<void>((resolve) => app.close(() => resolve()));
+    await rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+it('preserves saved and pending image sources when a batch write rolls back', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'nextstop-import-rollback-'));
+  const app = createApp({
+    dataDir,
+    cookieSecret: 'test-only-import-batch-signing-value',
+    map: createAmap({
+      key: 'fixture',
+      fetcher: async () => Response.json({ status: '1', info: 'OK', pois: [poi] }),
+    }),
+    vision: async () => ({ kind: 'text', name: poi.name, excerpt: '合成攻略', confidence: 'high' }),
+  });
+  try {
+    app.listen(0, '127.0.0.1');
+    await once(app, 'listening');
+    const address = app.address();
+    assert(address && typeof address !== 'string');
+    const base = `http://127.0.0.1:${address.port}/api/v1`;
+    const guest = await fetch(base + '/sessions', { method: 'POST' });
+    const cookie = guest.headers.get('set-cookie')?.split(';')[0];
+    assert(cookie);
+    const headers = { cookie };
+    const form = new FormData();
+    for (const name of ['已保存来源.png', '待确认来源.png']) {
+      form.append('images', new File([png], name, { type: 'image/png' }));
+    }
+    const created = await batchOf(
+      await fetch(base + '/import-batches', { method: 'POST', headers, body: form }),
+      202,
+    );
+    const url = `${base}/import-batches/${created.batch_id}`;
+    const read = async () => batchOf(await fetch(url, { headers }));
+    const post = (path: string, body: unknown) =>
+      fetch(url + path, {
+        method: 'POST',
+        headers: { ...headers, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const ready = await vi.waitFor(async () => {
+      const batch = await read();
+      expect(batch.items.map(({ kind }) => kind)).toEqual(['ready', 'ready']);
+      return batch;
+    });
+    const [first, pending] = ready.items;
+    assert(first && pending);
+    const saved = await batchOf(
+      await post('/confirm', {
+        revision: ready.revision,
+        new_count: 1,
+        selections: [{ import_id: first.import_id, poi_id: poi.id }],
+      }),
+    );
+    const wishlist = async () => {
+      const response = await fetch(base + '/wishlist', { headers });
+      expect(response.status).toBe(200);
+      const body: unknown = await response.json();
+      assert(wishlistValidator.check(body));
+      return body.places;
+    };
+    const before = await wishlist();
+    expect(before).toMatchObject([{ sources: [{ import_id: first.import_id }] }]);
+    const image = (path: string) => fetch(path, { headers });
+    const storedUrl = `${base}/imports/${first.import_id}/image`;
+    const pendingUrl = `${url}/items/${pending.import_id}/image`;
+    const readImage = async (path: string) => {
+      const response = await image(path);
+      assert.equal(response.status, 200, path);
+      return Buffer.from(await response.arrayBuffer());
+    };
+    const storedBytes = await readImage(storedUrl);
+    const pendingBytes = await readImage(pendingUrl);
+
+    const users = join(dataDir, 'users');
+    const files = (await readdir(users)).filter((name) => name.endsWith('.sqlite'));
+    const [sqliteFile] = files;
+    assert(files.length === 1 && sqliteFile);
+    const database = join(users, sqliteFile);
+    const pendingFiles = join(
+      dataDir,
+      'import-images',
+      sqliteFile.slice(0, -'.sqlite'.length),
+      pending.import_id,
+    );
+    const sqlite = (sql: string) => {
+      using db = new DatabaseSync(database);
+      db.exec(sql);
+    };
+    // Fail the actual batch revision write after the transaction callback has run.
+    sqlite(`CREATE TRIGGER fail_batch_save BEFORE INSERT ON document_revisions
+      WHEN NEW.document_id IN (SELECT id FROM documents WHERE kind = json_quote('nextstop.import_batch'))
+      BEGIN SELECT RAISE(ABORT, 'controlled batch save failure'); END`);
+
+    expect(
+      (
+        await post('/confirm', {
+          revision: saved.revision,
+          new_count: 0,
+          selections: [{ import_id: pending.import_id, poi_id: poi.id }],
+        })
+      ).status,
+    ).toBe(500);
+    expect(await read()).toEqual(saved);
+    expect(await wishlist()).toEqual(before);
+    expect(await readImage(storedUrl)).toEqual(storedBytes);
+    expect(await readImage(pendingUrl)).toEqual(pendingBytes);
+
+    const remove = () => post(`/items/${pending.import_id}/remove`, { revision: saved.revision });
+    expect((await remove()).status).toBe(500);
+    expect(await read()).toEqual(saved);
+    expect(await wishlist()).toEqual(before);
+    expect(await readImage(storedUrl)).toEqual(storedBytes);
+    expect(await readImage(pendingUrl)).toEqual(pendingBytes);
+    expect(await readFile(join(pendingFiles, 'original'))).toEqual(png);
+
+    sqlite('DROP TRIGGER fail_batch_save');
+    expect((await batchOf(await remove())).items).toEqual(saved.items.slice(0, 1));
+    expect((await image(pendingUrl)).status).toBe(404);
+    expect(await stat(pendingFiles, { throwIfNoEntry: false })).toBeUndefined();
+    expect(await wishlist()).toEqual(before);
+    expect(await readImage(storedUrl)).toEqual(storedBytes);
+  } finally {
     await new Promise<void>((resolve) => app.close(() => resolve()));
     await rm(dataDir, { recursive: true, force: true });
   }
