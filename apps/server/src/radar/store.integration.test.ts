@@ -330,7 +330,8 @@ describe('雷达用例与真实 SQLite', () => {
     const evidence = makeEvidence();
     const view = await createRadar({ runtime, request, evidence, now, startedAt: clock - 55_000 });
     expect(view.outcome.kind).toBe('recommendations');
-    expect(Date.parse(view.valid_until)).toBe(clock + 5000);
+    // Five seconds of slack, including the exact latest start.
+    expect(Date.parse(view.valid_until)).toBe(clock + 5001);
     const { binding } = view.outcome;
     expect(
       await faultCode(

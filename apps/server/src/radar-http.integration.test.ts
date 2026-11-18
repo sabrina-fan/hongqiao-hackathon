@@ -970,6 +970,23 @@ describe('radar through HTTP and per-guest SQLite', () => {
     expect(tight.status).toBe(201);
     expect(await tight.json()).toMatchObject({ outcome: { kind: 'empty' } });
   });
+  it('keeps an exactly fitting single candidate valid through its latest start', async () => {
+    const cookie = await guest();
+    // Legacy single-candidate search uses 10 minutes walking, 20 staying and 10 buffer.
+    const view = await propose(cookie, 40);
+    expect(view).toMatchObject({
+      outcome: { kind: 'recommendations' },
+      window: { remaining_min: 0 },
+      valid_until: new Date(clock + 1).toISOString(),
+    });
+    expect((await accept(cookie, view, 'at-latest-start')).status).toBe(200);
+
+    const next = await propose(cookie, 40);
+    clock += 1;
+    await expectFault(await accept(cookie, next, 'after-latest-start'), 409, 'PROPOSAL_STALE');
+    expect(await trip(cookie)).toMatchObject({ revision: 1, stops: [{ poi_id: destination.id }] });
+  });
+
   it('allows a verified 73-minute plan in 75 minutes and rejects it in 72', async () => {
     const cookie = await guest();
     const created = await post(
