@@ -171,6 +171,10 @@ it('shows partial results for eight images, retries only the failed image and ke
         city: '苏州',
         name: poi.name,
         address: poi.address,
+        note: '',
+        visit: 'unvisited',
+        schedule: 'unscheduled',
+        evidence: 'unknown',
         sources: [first, second].map(({ import_id }, index) => ({
           kind: 'image',
           import_id,
@@ -196,6 +200,16 @@ it('shows partial results for eight images, retries only the failed image and ke
     expect(skipped.items.find(({ import_id }) => import_id === next.import_id)?.kind).toBe(
       'skipped',
     );
+    const savedPlacePath = `${base}/wishlist/amap/${poi.id}`;
+    expect(
+      (
+        await fetch(savedPlacePath, {
+          method: 'PATCH',
+          headers: { ...headers, 'content-type': 'application/json' },
+          body: JSON.stringify({ visit: 'visited', note: '留到下次苏州行' }),
+        })
+      ).status,
+    ).toBe(200);
     const merged = await batchOf(
       await post('/confirm', {
         revision: skipped.revision,
@@ -206,6 +220,7 @@ it('shows partial results for eight images, retries only the failed image and ke
     expect(merged.items[2]?.kind).toBe('saved');
     const places = await wishlist();
     expect(places).toHaveLength(1);
+    expect(places[0]).toMatchObject({ visit: 'visited', note: '留到下次苏州行' });
     expect(places[0]?.sources.map(({ import_id }) => import_id)).toEqual([
       first.import_id,
       second.import_id,

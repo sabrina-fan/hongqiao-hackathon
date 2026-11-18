@@ -1,6 +1,8 @@
 import {
   acceptReceiptValidator,
   placeSearchValidator,
+  radarContextValidator,
+  radarHistoryValidator,
   radarViewValidator,
   tripDetailValidator,
   tripListValidator,
@@ -31,7 +33,7 @@ export function isCancellation(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
-async function request(
+export async function request(
   path: string,
   init: RequestInit,
   signal?: AbortSignal,
@@ -140,6 +142,14 @@ export async function searchPlaces(query: string, signal?: AbortSignal) {
     signal,
   );
   return body.places;
+}
+
+export function getRadarContext(signal?: AbortSignal) {
+  return requestJson('/api/v1/radar/context', {}, radarContextValidator.check, signal);
+}
+
+export function getRadarHistory(signal?: AbortSignal) {
+  return requestJson('/api/v1/radar/history', {}, radarHistoryValidator.check, signal);
 }
 
 export function createRadarSession(input: RadarRequest, signal?: AbortSignal): Promise<RadarView> {

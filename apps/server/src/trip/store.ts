@@ -62,12 +62,25 @@ export async function activeTripDocument(
   return tx.doc(Trips, conversationId, key, key);
 }
 
-export async function getTrip({ runtime }: { runtime: UserRuntime }): Promise<TripView | null> {
+export async function readActiveTrip(runtime: UserRuntime) {
   const [current] = await readKeys(runtime);
-  const trip = await readTrip(runtime, current ?? LEGACY_KEY);
+  return readTrip(runtime, current ?? LEGACY_KEY);
+}
+
+export async function getTrip({ runtime }: { runtime: UserRuntime }): Promise<TripView | null> {
+  const trip = await readActiveTrip(runtime);
   if (!trip) return null;
   const { trip_id, revision, stops } = trip;
   return { trip_id, revision, stops };
+}
+
+export async function readScheduledPoiIds(runtime: UserRuntime): Promise<ReadonlySet<string>> {
+  const ids = new Set<string>();
+  for (const key of [...(await readKeys(runtime)), LEGACY_KEY]) {
+    const trip = await readTrip(runtime, key);
+    for (const stop of trip?.stops ?? []) ids.add(stop.poi_id);
+  }
+  return ids;
 }
 
 function detail(trip: StoredTrip): TripDetail {

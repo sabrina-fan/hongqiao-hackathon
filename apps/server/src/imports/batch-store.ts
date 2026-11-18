@@ -195,7 +195,7 @@ export function confirmBatch(runtime: UserRuntime, id: string, input: ConfirmBat
         imageType: item.image_type,
       };
     });
-    await writeBatchChoices({ tx, scope: runtime.conversation.id, choices, newCount: new_count });
+    await writeBatchChoices({ runtime, tx, choices, newCount: new_count });
     for (const [index, item] of batch.items.entries()) {
       if (item.kind !== 'invalid' && selected.has(item.import_id))
         batch.items[index] = { ...storedImage(item), kind: 'saved' };

@@ -10,9 +10,17 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createApp } from '../src/app.ts';
 import { createAmap } from '../src/radar/amap.ts';
 
+const fixedWindow = process.argv.includes('--fixed-next-stop');
+const now = fixedWindow ? () => Date.parse('2026-11-18T08:00:00Z') : Date.now;
+const fixedPoint = '120.642,31.314';
 const catalog = [
   { id: 'qa-origin', name: '验收起点', address: '测试街一号', location: '120.10,31.10' },
-  { id: 'qa-stop', name: '验收书店', address: '测试街二号', location: '120.11,31.11' },
+  {
+    id: 'qa-stop',
+    name: '验收书店',
+    address: '测试街二号',
+    location: fixedWindow ? '120.636,31.306' : '120.11,31.11',
+  },
 ];
 function mapResponse(url) {
   let data;
@@ -22,9 +30,15 @@ function mapResponse(url) {
     data = {
       pois: catalog.filter((row) => url.searchParams.get('id').split('|').includes(row.id)),
     };
+  } else if (url.pathname === '/v3/assistant/coordinate/convert') {
+    data = { locations: '120.633087,31.309861' };
+  } else if (url.pathname === '/v3/geocode/geo') {
+    data = { geocodes: [{ location: fixedPoint, level: '门牌号', adcode: '320508' }] };
   } else if (url.pathname === '/v3/distance') {
+    const duration =
+      url.searchParams.get('destination') === fixedPoint ? '900' : fixedWindow ? '480' : '420';
     data = {
-      results: [{ origin_id: '1', dest_id: '1', distance: '600', duration: '420', info: 'OK' }],
+      results: [{ origin_id: '1', dest_id: '1', distance: '600', duration, info: 'OK' }],
     };
   } else throw new Error('Unexpected fixture map endpoint');
   return Response.json({ status: '1', info: 'OK', ...data });
@@ -34,7 +48,8 @@ const directory = await mkdtemp(join(tmpdir(), 'nextstop-browser-'));
 const server = createApp({
   dataDir: directory,
   cookieSecret: randomBytes(32).toString('hex'),
-  map: createAmap({ key: 'unused', fetcher: mapResponse }),
+  map: createAmap({ key: 'unused', fetcher: mapResponse, now }),
+  now,
 });
 let web;
 async function close() {

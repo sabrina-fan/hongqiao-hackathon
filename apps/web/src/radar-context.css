@@ -1,0 +1,56 @@
+.radar-hint {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.radar-history-link {
+  text-align: center;
+  margin: 0 0 16px;
+}
+
+.radar-route-preview {
+  margin: 10px 0;
+}
+
+.radar-route-points {
+  min-height: 130px;
+  position: relative;
+  isolation: isolate;
+  border: 1px solid #cadde4;
+  border-radius: 16px;
+  background-color: #e9f3f5;
+  background-image:
+    linear-gradient(white 1px, transparent 1px), linear-gradient(90deg, white 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+
+.radar-route-point {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 20px;
+  background: white;
+  color: #13294f;
+  border-radius: 50%;
+  outline: 2px solid #3773a6;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.radar-route-preview figcaption {
+  padding: 6px 2px 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.radar-route-preview ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 22px;
+  margin: 4px 0 0;
+  padding-left: 20px;
+}
