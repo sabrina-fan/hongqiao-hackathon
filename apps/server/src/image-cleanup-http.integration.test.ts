@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   anonymousDataValidator,
+  ERASE_BINDING_HEADER,
+  eraseBindingValidator,
   importBatchValidator,
   importReviewValidator,
   tripDetailValidator,
@@ -56,6 +58,19 @@ async function checkedJson<T>(
   const body: unknown = await response.json();
   assert(check(body), response.url);
   return body;
+}
+
+async function eraseGuest(base: string, cookie: string) {
+  const settings = await fetch(`${base}/me/data?include=pending_deletions`, {
+    headers: { cookie },
+  });
+  assert.equal(settings.status, 200);
+  const binding = settings.headers.get(ERASE_BINDING_HEADER);
+  assert(eraseBindingValidator.check(binding));
+  return fetch(`${base}/me/data`, {
+    method: 'DELETE',
+    headers: { cookie, [ERASE_BINDING_HEADER]: binding },
+  });
 }
 
 async function expectError(response: Response, status: number, code: string) {
@@ -334,7 +349,7 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
         assert.equal((await foreignDelete(foreignPath)).status, 204);
         assert.deepEqual(imageRemovals(), targetDirectories);
         await expectPending(pendingDeletion);
-        assert.equal((await foreignDelete('/me/data')).status, 204);
+        assert.equal((await eraseGuest(base, foreignCookie)).status, 204);
       }
       const copies = fault === 'before unlink' ? ['normalized', 'original'] : ['normalized'];
       expect((await readdir(target.directory)).sort()).toEqual(copies);
@@ -360,11 +375,7 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
           404,
           'IMPORT_NOT_FOUND',
         );
-        const eraseForeign = await fetch(`${base}/me/data`, {
-          method: 'DELETE',
-          headers: { cookie: foreignCookie },
-        });
-        assert.equal(eraseForeign.status, 204);
+        assert.equal((await eraseGuest(base, foreignCookie)).status, 204);
         const otherForm = new FormData();
         otherForm.append('images', new File(['not a screenshot'], 'invalid.png'));
         const otherBatch = await checkedJson(

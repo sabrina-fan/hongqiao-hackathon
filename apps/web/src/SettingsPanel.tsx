@@ -1,4 +1,3 @@
-import type { SettingsData, SettingsView } from '@nextstop/core';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError } from './api.js';
 import {
@@ -19,9 +18,6 @@ type ConfirmationTarget =
       shared: number;
     });
 
-const emptyData: SettingsData = { trips: [], places: [], uploads: [] };
-const eraseAll = { kind: 'all' } satisfies DeleteTarget;
-const resumeErase = { kind: 'all', recoveryOnly: true } satisfies DeleteTarget;
 const deletionNotice = {
   all: '已删除全部匿名数据。',
   trip: '已删除此旅行。',
@@ -80,9 +76,13 @@ export function SettingsPanel({
   dataRevision: number;
   onFeedbackChanged: () => void;
 }) {
-  const [settings, setSettings] = useState<SettingsView | null>(null);
-  const recoveringErase = settings !== null && 'kind' in settings;
-  const data = recoveringErase ? null : settings;
+  const [settings, setSettings] = useState<Awaited<ReturnType<typeof readSettingsData>> | null>(
+    null,
+  );
+  const view = settings?.view ?? null;
+  const eraseBinding = settings?.eraseBinding ?? null;
+  const recoveringErase = view !== null && 'kind' in view;
+  const data = recoveringErase ? null : view;
   const [attempt, setAttempt] = useState(0);
   const [target, setTarget] = useState<ConfirmationTarget | null>(null);
   const [pending, setPending] = useState<'export' | 'delete' | 'feedback' | null>(null);
@@ -128,6 +128,10 @@ export function SettingsPanel({
     setNotice('');
   }
 
+  function confirmAccountErase() {
+    if (eraseBinding) confirm({ kind: 'all', eraseBinding, recoveryOnly: recoveringErase });
+  }
+
   function dismissConfirmation() {
     if (confirmationExpired || actionError) {
       if (confirmationExpired || (target?.kind === 'all' && !recoveringErase)) setSettings(null);
@@ -165,13 +169,8 @@ export function SettingsPanel({
         }
         setTarget(null);
         setNotice(deletionNotice[target.kind]);
-        if (target.kind === 'all') {
-          setSettings(emptyData);
-          setReadError('');
-        } else {
-          setSettings(null);
-          setAttempt((value) => value + 1);
-        }
+        setSettings(null);
+        setAttempt((value) => value + 1);
       },
       '删除未能确认。可重试同一次删除。',
     );
@@ -208,6 +207,9 @@ export function SettingsPanel({
             {notice}
           </p>
         )}
+        {settings && !eraseBinding && (
+          <p className="note">当前服务无法验证整户删除，请稍后重试。</p>
+        )}
         {recoveringErase && (
           <section
             className="settings-group settings-content settings-cleanup"
@@ -218,8 +220,8 @@ export function SettingsPanel({
             <button
               type="button"
               className="settings-danger"
-              disabled={!available || busy || target !== null}
-              onClick={() => confirm(resumeErase)}
+              disabled={!available || busy || target !== null || !eraseBinding}
+              onClick={confirmAccountErase}
             >
               继续删除全部匿名数据
             </button>
@@ -484,8 +486,8 @@ export function SettingsPanel({
             <button
               type="button"
               className="settings-danger settings-erase"
-              disabled={!available || busy || (!settings && !readError)}
-              onClick={() => confirm(eraseAll)}
+              disabled={!available || busy || !eraseBinding}
+              onClick={confirmAccountErase}
             >
               删除全部匿名数据
             </button>

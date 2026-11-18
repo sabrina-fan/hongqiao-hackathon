@@ -1,10 +1,14 @@
+import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import {
+  ERASE_BINDING_HEADER,
   ERASE_RECOVERY_HEADER,
   ERASE_RECOVERY_QUERY,
   RETIRED_BATCH_REMOVALS_QUERY,
+  eraseBindingValidator,
   type SettingsView,
 } from '@nextstop/core';
+import type { createGuestSessions } from '../guest-session.js';
 import { HttpFault, send } from '../http.js';
 import { createImportImages } from '../imports/images.js';
 import type { createUserAccess } from '../radar/user-access.js';
@@ -12,7 +16,7 @@ import { eraseSource, eraseTrip, exportData, readSettingsData } from './store.js
 
 type Route =
   | { kind: 'export' | 'read' }
-  | { kind: 'erase'; recoveryOnly: boolean }
+  | { kind: 'erase'; recoveryOnly: boolean; binding: string | string[] | undefined }
   | { kind: 'settings'; includeRetiredBatchRemovals: boolean; includeEraseRecovery: boolean }
   | { kind: 'trip' | 'source'; id: string };
 
@@ -29,7 +33,11 @@ export function privacyRoute({ method, headers }: IncomingMessage, url: URL): Ro
   if (method === 'GET' && path === '/api/v1/me/export') return { kind: 'export' };
   if (method !== 'DELETE') return null;
   if (path === '/api/v1/me/data')
-    return { kind: 'erase', recoveryOnly: headers[ERASE_RECOVERY_HEADER] === '1' };
+    return {
+      kind: 'erase',
+      recoveryOnly: headers[ERASE_RECOVERY_HEADER] === '1',
+      binding: headers[ERASE_BINDING_HEADER],
+    };
   const source = /^\/api\/v1\/imports\/(imp-[a-f0-9-]{36})$/.exec(path)?.[1];
   if (source) return { kind: 'source', id: source };
   const trip = /^\/api\/v1\/trips\/([A-Za-z0-9_-]{1,100})$/.exec(path)?.[1];
@@ -42,22 +50,28 @@ export async function handlePrivacy({
   userId,
   dataDir,
   withUser,
-  clearCookie,
+  sessions,
 }: {
   route: Route;
   response: ServerResponse;
   userId: string | null;
   dataDir: string;
   withUser: ReturnType<typeof createUserAccess>;
-  clearCookie: () => string;
+  sessions: Pick<ReturnType<typeof createGuestSessions>, 'clear' | 'eraseBinding'>;
 }) {
   const images = createImportImages(dataDir);
   if (route.kind === 'erase') {
-    // A confirmation opened for a revoked guest must never erase a replacement guest.
-    if (route.recoveryOnly && (!userId || !(await withUser.isRevoked(userId))))
+    // The request Cookie is shared across tabs, but the confirmation belongs to the guest read by Settings.
+    if (
+      !userId ||
+      !eraseBindingValidator.check(route.binding) ||
+      !timingSafeEqual(Buffer.from(route.binding), Buffer.from(sessions.eraseBinding(userId)))
+    )
       throw new HttpFault('SESSION_REQUIRED');
-    if (userId) await withUser.erase(userId, () => images.removeAll(userId));
-    response.setHeader('set-cookie', clearCookie());
+    if (route.recoveryOnly && !(await withUser.isRevoked(userId)))
+      throw new HttpFault('SESSION_REQUIRED');
+    await withUser.erase(userId, () => images.removeAll(userId));
+    response.setHeader('set-cookie', sessions.clear());
     return send(response, 204);
   }
   if (!userId) throw new HttpFault('SESSION_REQUIRED');
@@ -77,6 +91,7 @@ export async function handlePrivacy({
           return { kind: 'erase_recovery' };
         throw error;
       });
+      response.setHeader(ERASE_BINDING_HEADER, sessions.eraseBinding(userId));
       return send(response, 200, settings);
     }
     case 'export': {

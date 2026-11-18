@@ -4,6 +4,9 @@ import { mkdir, mkdtemp, readFile, readdir, rm, rmdir, stat } from 'node:fs/prom
 import { DatabaseSync } from 'node:sqlite';
 import {
   anonymousDataValidator,
+  ERASE_BINDING_HEADER,
+  ERASE_RECOVERY_HEADER,
+  eraseBindingValidator,
   importBatchValidator,
   importReviewValidator,
   tripDetailValidator,
@@ -41,11 +44,8 @@ it('exports only the current guest without mutating trips and revokes only that 
         }),
       });
       expect(response.status).toBe(201);
-      return (path: string, method = 'GET', init?: { recovery?: boolean }) =>
-        fetch(`${base}${path}`, {
-          headers: { ...headers, ...(init?.recovery && { 'x-nextstop-erase-recovery': '1' }) },
-          method,
-        });
+      return (path: string, method = 'GET', extraHeaders?: Record<string, string>) =>
+        fetch(`${base}${path}`, { headers: { ...headers, ...extraHeaders }, method });
     }
     const first = await guest('访客甲的苏州');
     const [firstDb] = await readdir(join(dataDir, 'users'));
@@ -59,13 +59,21 @@ it('exports only the current guest without mutating trips and revokes only that 
     expect(text).toContain('访客甲的苏州');
     expect(text).not.toContain('访客乙的苏州');
     expect(await (await first('/trips')).json()).toEqual(saved);
+    const dataPath = '/me/data';
+    const legacySettings = `${dataPath}?include=pending_deletions&include_retired_batch_removals=1`;
+    const settings = `${legacySettings}&include_erase_recovery=1`;
+    const firstSettings = await first(settings);
+    const binding = firstSettings.headers.get(ERASE_BINDING_HEADER);
+    expect(firstSettings.status).toBe(200);
+    assert(eraseBindingValidator.check(binding));
+    expect(exported.headers.has(ERASE_BINDING_HEADER)).toBe(false);
+    const bound = { [ERASE_BINDING_HEADER]: binding };
+    const resume = { ...bound, [ERASE_RECOVERY_HEADER]: '1' };
     const blockedSidecar = join(dataDir, 'users', `${firstDb}-journal`);
     await mkdir(blockedSidecar);
-    const failed = await first('/me/data', 'DELETE');
+    const failed = await first(dataPath, 'DELETE', bound);
     expect(failed.status).toBe(500);
     expect(failed.headers.has('set-cookie')).toBe(false);
-    const legacySettings = '/me/data?include=pending_deletions&include_retired_batch_removals=1';
-    const settings = `${legacySettings}&include_erase_recovery=1`;
     for (const path of ['/me/data', legacySettings, '/me/export', '/trips']) {
       expect((await first(path)).status).toBe(401);
     }
@@ -79,23 +87,44 @@ it('exports only the current guest without mutating trips and revokes only that 
     expect(recovery.headers.get('cache-control')).toBe('no-store');
     expect(recovery.headers.has('set-cookie')).toBe(false);
     expect(await recovery.json()).toEqual({ kind: 'erase_recovery' });
+    expect(recovery.headers.get(ERASE_BINDING_HEADER) === binding).toBe(true);
     expect((await stat(blockedSidecar)).isDirectory()).toBe(true);
-    const retry = await first('/me/data', 'DELETE', { recovery: true });
+    const retry = await first(dataPath, 'DELETE', resume);
     expect(retry.status).toBe(500);
     expect(retry.headers.has('set-cookie')).toBe(false);
     expect(await (await first(settings)).json()).toEqual({ kind: 'erase_recovery' });
-    expect(await (await second(settings)).json()).toEqual(
-      await (await second(legacySettings)).json(),
+    const secondSettings = await second(settings);
+    const secondBinding = secondSettings.headers.get(ERASE_BINDING_HEADER);
+    assert(eraseBindingValidator.check(secondBinding));
+    expect(secondBinding !== binding).toBe(true);
+    expect(await secondSettings.json()).toEqual(await (await second(legacySettings)).json());
+
+    async function expectExpired(response: Response) {
+      expect(response.status).toBe(401);
+      expect(response.headers.has('set-cookie')).toBe(false);
+      expect(await response.json()).toMatchObject({ error: { code: 'SESSION_REQUIRED' } });
+    }
+
+    // Fail closed for old clients, missing/invalid sessions and both kinds of stale confirmation.
+    await expectExpired(await second(dataPath, 'DELETE'));
+    await expectExpired(await first(dataPath, 'DELETE', { [ERASE_RECOVERY_HEADER]: '1' }));
+    await expectExpired(await second(dataPath, 'DELETE', { [ERASE_BINDING_HEADER]: 'invalid' }));
+    await expectExpired(await second(dataPath, 'DELETE', bound));
+    await expectExpired(await second(dataPath, 'DELETE', resume));
+    await expectExpired(
+      await second(dataPath, 'DELETE', { ...resume, [ERASE_BINDING_HEADER]: secondBinding }),
     );
-    const wrongGuest = await second('/me/data', 'DELETE', { recovery: true });
-    expect(wrongGuest.status).toBe(401);
-    expect(wrongGuest.headers.has('set-cookie')).toBe(false);
+    await expectExpired(await fetch(base + dataPath, { method: 'DELETE', headers: bound }));
+    await expectExpired(
+      await first(dataPath, 'DELETE', { ...bound, cookie: 'nextstop_guest=invalid' }),
+    );
+
     await rmdir(blockedSidecar);
-    const deleted = await first('/me/data', 'DELETE', { recovery: true });
+    const deleted = await first(dataPath, 'DELETE', resume);
     expect(deleted.status).toBe(204);
     expect(deleted.headers.get('set-cookie')).toContain('Max-Age=0');
     expect((await first('/me/export')).status).toBe(401);
-    expect((await first('/me/data', 'DELETE')).status).toBe(204);
+    expect((await first(dataPath, 'DELETE', bound)).status).toBe(204);
     expect(await (await second('/me/export')).text()).toContain('访客乙的苏州');
     const remaining = await readdir(join(dataDir, 'users'));
     expect(remaining.filter((name) => name.endsWith('.sqlite'))).toHaveLength(1);

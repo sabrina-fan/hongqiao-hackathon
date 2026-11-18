@@ -118,7 +118,7 @@ export function createApp(options?: Options) {
         userId,
         withUser,
         dataDir: options.dataDir,
-        clearCookie: sessions.clear,
+        sessions,
       });
     if (userId && (await withUser.isRevoked(userId))) throw new HttpFault('SESSION_REQUIRED');
     if (createSession) {

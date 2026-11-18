@@ -60,7 +60,10 @@ function controls(vite) {
         // Simulate settings still showing recovery after another tab has replaced the session.
         if (result === 'recovery')
           return res
-            .writeHead(200, { 'content-type': 'application/json' })
+            .writeHead(200, {
+              'content-type': 'application/json',
+              'x-nextstop-erase-binding': 'a'.repeat(43),
+            })
             .end('{"kind":"erase_recovery"}');
         next();
       };

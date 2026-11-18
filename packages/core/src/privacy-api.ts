@@ -58,6 +58,10 @@ export type SettingsData = Static<typeof SettingsDataSchema>;
 
 export const ERASE_RECOVERY_QUERY = 'include_erase_recovery';
 export const ERASE_RECOVERY_HEADER = 'x-nextstop-erase-recovery';
+export const ERASE_BINDING_HEADER = 'x-nextstop-erase-binding';
+export const eraseBindingValidator = compile(
+  str({ pattern: '^[A-Za-z0-9_-]{43}$', maxLength: 43 }),
+);
 const EraseRecoverySchema = obj({ kind: lit('erase_recovery') });
 const SettingsViewSchema = union([SettingsDataSchema, EraseRecoverySchema]);
 export const settingsViewValidator = compile(SettingsViewSchema);

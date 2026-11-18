@@ -1,3 +1,4 @@
+import { ERASE_BINDING_HEADER } from '@nextstop/core';
 import { afterEach, expect, it, vi } from 'vitest';
 
 const sessionPath = '/api/v1/sessions';
@@ -135,17 +136,28 @@ it('loads settings with the original anonymous-data response from an older serve
   vi.stubGlobal('fetch', fetcher);
   const { readSettingsData } = await import('./settings-client.js');
 
-  await expect(readSettingsData(new AbortController().signal)).resolves.toEqual(legacy);
+  await expect(readSettingsData(new AbortController().signal)).resolves.toEqual({
+    view: legacy,
+    eraseBinding: null,
+  });
   expect(fetcher.mock.calls.map(([path]) => path)).toEqual([settingsPath]);
 });
 
 it('reads deletion recovery without creating a session or issuing a DELETE', async () => {
   const recovery = { kind: 'erase_recovery' };
-  const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json(recovery));
+  const binding = 'a'.repeat(43);
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockResolvedValueOnce(
+      Response.json(recovery, { headers: { [ERASE_BINDING_HEADER]: binding } }),
+    );
   vi.stubGlobal('fetch', fetcher);
   const { readSettingsData } = await import('./settings-client.js');
 
-  await expect(readSettingsData(new AbortController().signal)).resolves.toEqual(recovery);
+  await expect(readSettingsData(new AbortController().signal)).resolves.toEqual({
+    view: recovery,
+    eraseBinding: binding,
+  });
   expect(fetcher.mock.calls.map(([path, init]) => [path, init?.method ?? 'GET'])).toEqual([
     [settingsPath, 'GET'],
   ]);
@@ -161,7 +173,10 @@ it('initializes the guest and retries settings once when no signed session is pr
   vi.stubGlobal('fetch', fetcher);
   const { readSettingsData } = await import('./settings-client.js');
 
-  await expect(readSettingsData(new AbortController().signal)).resolves.toEqual(empty);
+  await expect(readSettingsData(new AbortController().signal)).resolves.toEqual({
+    view: empty,
+    eraseBinding: null,
+  });
   expect(fetcher.mock.calls.map(([path, init]) => [path, init?.method ?? 'GET'])).toEqual([
     [settingsPath, 'GET'],
     [sessionPath, 'POST'],

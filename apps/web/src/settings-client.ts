@@ -1,11 +1,13 @@
 import {
+  ERASE_BINDING_HEADER,
   ERASE_RECOVERY_HEADER,
   ERASE_RECOVERY_QUERY,
   RETIRED_BATCH_REMOVALS_QUERY,
+  eraseBindingValidator,
   settingsViewValidator,
   type SettingsData,
 } from '@nextstop/core';
-import { ApiError, readWithGuestSession, request, requestJson } from './api.js';
+import { ApiError, readResponseJson, readWithGuestSession, request } from './api.js';
 import { removeBatchItem } from './import-batch-client.js';
 import { invalidateTripData } from './offline-trip.js';
 
@@ -14,14 +16,21 @@ const settingsPath = `${dataPath}?include=pending_deletions&${RETIRED_BATCH_REMO
 export const readSettingsData = (signal: AbortSignal) =>
   // A revoked cookie can read recovery status but cannot pass session initialization.
   readWithGuestSession(
-    () => requestJson(settingsPath, {}, settingsViewValidator.check, signal),
+    async () => {
+      const response = await request(settingsPath, {}, signal);
+      const binding = response.headers.get(ERASE_BINDING_HEADER);
+      return {
+        view: await readResponseJson(response, settingsViewValidator.check),
+        eraseBinding: eraseBindingValidator.check(binding) ? binding : null,
+      };
+    },
     signal,
     { readFirst: true },
   );
 
 export type DeleteTarget =
   | NonNullable<SettingsData['pending_deletions']>[number]
-  | { kind: 'all'; recoveryOnly?: true };
+  | { kind: 'all'; eraseBinding: string; recoveryOnly: boolean };
 
 export async function deleteData(target: DeleteTarget) {
   if (target.kind === 'batch_item') {
@@ -36,24 +45,27 @@ export async function deleteData(target: DeleteTarget) {
     target.kind === 'all'
       ? dataPath
       : `/api/v1/${target.kind === 'trip' ? 'trips' : 'imports'}/${encodeURIComponent(target.id)}`;
-  const recoveryOnly = target.kind === 'all' && target.recoveryOnly;
-  let skippedRecovery = false;
+  const headers =
+    target.kind === 'all'
+      ? {
+          [ERASE_BINDING_HEADER]: target.eraseBinding,
+          ...(target.recoveryOnly && { [ERASE_RECOVERY_HEADER]: '1' }),
+        }
+      : undefined;
+  let confirmationExpired = false;
   try {
-    const response = await request(path, {
-      method: 'DELETE',
-      ...(recoveryOnly && { headers: { [ERASE_RECOVERY_HEADER]: '1' } }),
-    });
+    const response = await request(path, { method: 'DELETE', ...(headers && { headers }) });
     if (response.status !== 204)
       throw new ApiError('INVALID_RESPONSE', '服务响应格式无效。', response.status);
   } catch (error) {
-    if (recoveryOnly && error instanceof ApiError && error.code === 'SESSION_REQUIRED') {
-      skippedRecovery = true;
+    if (target.kind === 'all' && error instanceof ApiError && error.code === 'SESSION_REQUIRED') {
+      confirmationExpired = true;
       return 'confirmation-expired';
     }
     throw error;
   } finally {
-    // A stale recovery cannot touch the replacement guest. Other failures may have committed.
-    if (!skippedRecovery && target.kind !== 'source')
+    // A rejected confirmation did not touch the guest. Other failures may have committed.
+    if (!confirmationExpired && target.kind !== 'source')
       invalidateTripData(target.kind === 'trip' ? target.id : null);
   }
 }

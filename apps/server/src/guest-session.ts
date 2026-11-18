@@ -22,6 +22,10 @@ export function createGuestSessions(secret: string, secure: boolean, now: () => 
         ? id
         : null;
     },
+    eraseBinding(userId: string) {
+      // Use a separate HMAC message domain from the HttpOnly session signature.
+      return sign(`erase-confirmation:${userId}`);
+    },
     clear() {
       return `${cookieName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure ? '; Secure' : ''}`;
     },
