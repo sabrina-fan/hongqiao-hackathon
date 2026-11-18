@@ -123,7 +123,7 @@ export function TripDraftPanel({
   onSessionExpired: (error: unknown) => boolean;
 }) {
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [pending, setPending] = useState(false);
+  const [pending, setPending] = useState('');
   const [retry, setRetry] = useState(0);
   const [review, setReview] = useState(false);
   const [error, setError] = useState('');
@@ -147,15 +147,15 @@ export function TripDraftPanel({
   const draft = preview?.draft;
   const needsReview =
     review || preview?.needs_review || (draft && draft.trip_revision !== revision);
-  const busy = disabled || pending;
+  const busy = disabled || Boolean(pending);
   const canApply = draft?.entries.some(({ kind }) => kind === 'scheduled');
   function show(next: TripDraft) {
     setPreview({ draft: next, needs_review: false });
     setReview(false);
   }
-  async function perform(action: () => Promise<void>) {
+  async function perform(message: string, action: () => Promise<void>) {
     if (busy) return;
-    setPending(true);
+    setPending(message);
     setError('');
     setNotice('');
     try {
@@ -165,12 +165,12 @@ export function TripDraftPanel({
       if (failure instanceof ApiError && failure.code === 'DRAFT_STALE') setReview(true);
       else setError(failure instanceof ApiError ? failure.message : '无法更新草案，请重试。');
     } finally {
-      setPending(false);
+      setPending('');
     }
   }
 
   return (
-    <section className="trip-draft" aria-label="一日行程草案" aria-busy={pending}>
+    <section className="trip-draft" aria-label="一日行程草案">
       {draft ? (
         <div className="panel padded-panel draft-preview">
           <h2>行程草案预览</h2>
@@ -183,7 +183,7 @@ export function TripDraftPanel({
               draft={draft}
               disabled={busy || Boolean(needsReview)}
               adjust={(edit) =>
-                void perform(async () =>
+                void perform('正在更新草案…', async () =>
                   show(
                     await editDraft(
                       trip_id,
@@ -203,13 +203,8 @@ export function TripDraftPanel({
       ) : (
         <p className="note">从已确认收藏生成一日草案。你可以调整顺序、跳过或锁定活动。</p>
       )}
-      {pending && <p role="status">正在检查草案…</p>}
+      <div role="status">{(pending || notice) && <p className="note">{pending || notice}</p>}</div>
       {error && <p role="alert">{error}</p>}
-      {notice && (
-        <p className="note" role="status">
-          {notice}
-        </p>
-      )}
       {needsReview ? (
         <>
           <p className="note" role="alert">
@@ -220,7 +215,7 @@ export function TripDraftPanel({
             className="primary full"
             disabled={busy}
             onClick={() =>
-              void perform(async () => {
+              void perform('正在重新核对草案…', async () => {
                 const latest = await getTripDetail(trip_id);
                 onTripChange(latest);
                 show(await generateDraft(trip_id, latest.revision));
@@ -236,7 +231,7 @@ export function TripDraftPanel({
           className="primary full"
           disabled={busy || !canApply}
           onClick={() =>
-            void perform(async () => {
+            void perform('正在应用草案…', async () => {
               const updated = await applyDraft(trip_id, {
                 draft_id: draft.draft_id,
                 revision: draft.revision,
@@ -254,7 +249,9 @@ export function TripDraftPanel({
           type="button"
           className="primary full draft-generate"
           disabled={busy}
-          onClick={() => void perform(async () => show(await generateDraft(trip_id, revision)))}
+          onClick={() =>
+            void perform('正在生成草案…', async () => show(await generateDraft(trip_id, revision)))
+          }
         >
           生成一日行程草案
         </button>
