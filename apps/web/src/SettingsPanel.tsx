@@ -1,6 +1,6 @@
 import type { AnonymousData } from '@nextstop/core';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ApiError, createSession } from './api.js';
+import { ApiError, readWithGuestSession } from './api.js';
 import {
   deleteData,
   downloadData,
@@ -89,16 +89,14 @@ export function SettingsPanel({
     const controller = new AbortController();
     const { signal } = controller;
     setReadError('');
-    void createSession(signal)
-      .then(() => readAnonymousData(signal))
-      .then(
-        (value) => {
-          if (!signal.aborted) setData(value);
-        },
-        (error: unknown) => {
-          if (!signal.aborted) setReadError(messageOf(error));
-        },
-      );
+    void readWithGuestSession(() => readAnonymousData(signal), signal).then(
+      (value) => {
+        if (!signal.aborted) setData(value);
+      },
+      (error: unknown) => {
+        if (!signal.aborted) setReadError(messageOf(error));
+      },
+    );
     return () => controller.abort();
   }, [available, attempt]);
 

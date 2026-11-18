@@ -327,7 +327,7 @@ img {
   inset: 0 0 0 45%;
   background:
     linear-gradient(90deg, #e8f7fd, transparent 42%),
-    url('./assets/hero.webp') center / cover;
+    url('/prototype/assets/hero.webp') center / cover;
 }
 .hero h1 {
   font-size: 34px;
@@ -395,7 +395,7 @@ img {
   aspect-ratio: 1.78;
   border: 1px solid #c5dce6;
   border-radius: 16px;
-  background: url('./assets/map.webp') center / cover;
+  background: url('/prototype/assets/map.webp') center / cover;
 }
 .map.alt {
   background: #e6f5ed;

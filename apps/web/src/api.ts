@@ -100,12 +100,14 @@ function post(body: unknown, headers: Record<string, string> = {}): RequestInit 
 }
 
 let startingSession: Promise<Response> | undefined;
+let establishedGuest = false;
 export async function createSession(signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted();
-  // Both tabs can load together. Share the initial cookie-setting request.
+  // Views can load together. Share the cookie-setting request.
   startingSession ??= request('/api/v1/sessions', { method: 'POST' })
     .then((response) => {
       if (response.headers.get('x-nextstop-new-session') === '1') invalidateTripData(null, false);
+      establishedGuest = true;
       return response;
     })
     .finally(() => {
@@ -113,6 +115,23 @@ export async function createSession(signal?: AbortSignal): Promise<void> {
     });
   await startingSession;
   signal?.throwIfAborted();
+}
+
+/** A read can validate an existing HttpOnly guest cookie without a preliminary POST. */
+export async function readWithGuestSession<T>(read: () => Promise<T>, signal: AbortSignal) {
+  if (!establishedGuest || startingSession) {
+    await createSession(signal);
+    return read();
+  }
+  signal.throwIfAborted();
+  try {
+    return await read();
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.code !== 'SESSION_REQUIRED') throw error;
+    establishedGuest = false;
+    await createSession(signal);
+    return read();
+  }
 }
 
 const tripsPath = '/api/v1/trips';
