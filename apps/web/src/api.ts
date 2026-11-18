@@ -1,6 +1,8 @@
 import {
   acceptReceiptValidator,
   placeSearchValidator,
+  radarContextValidator,
+  radarHistoryValidator,
   radarViewValidator,
   tripDetailValidator,
   tripListValidator,
@@ -140,6 +142,14 @@ export async function searchPlaces(query: string, signal?: AbortSignal) {
     signal,
   );
   return body.places;
+}
+
+export function getRadarContext(signal?: AbortSignal) {
+  return requestJson('/api/v1/radar/context', {}, radarContextValidator.check, signal);
+}
+
+export function getRadarHistory(signal?: AbortSignal) {
+  return requestJson('/api/v1/radar/history', {}, radarHistoryValidator.check, signal);
 }
 
 export function createRadarSession(input: RadarRequest, signal?: AbortSignal): Promise<RadarView> {

@@ -1,20 +1,31 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Capabilities, PlaceOption, RadarView } from '@nextstop/core';
+import {
+  browserPositionValidator,
+  liveOriginId,
+  type BrowserPosition,
+  type Capabilities,
+  type FixedStop,
+  type PlaceOption,
+  type RadarView,
+} from '@nextstop/core';
 import {
   ApiError,
   acceptRadar,
   createRadarSession,
   createSession,
+  getRadarContext,
+  getRadarHistory,
   getRadarSession,
   isCancellation,
 } from './api.js';
-import { Icon, PickCard, RadarForm } from './RadarScreens.js';
+import { fixedClock, Icon, PickCard, RadarForm } from './RadarScreens.js';
 import { TripPanel } from './TripPanel.js';
 
 type Session = { kind: 'loading' | 'ready' } | { kind: 'failed'; message: string };
 type Result =
   | { kind: 'idle' | 'calculating' }
   | { kind: 'error'; message: string }
+  | { kind: 'history'; view: RadarView; stale: boolean }
   | { kind: 'stale'; message: string }
   | { kind: 'shown'; view: RadarView; failure?: string }
   | { kind: 'accepting'; view: RadarView }
@@ -51,6 +62,16 @@ export function RadarPanel({
   const [origin, setOrigin] = useState<PlaceOption | null>(null);
   const [destination, setDestination] = useState<PlaceOption | null>(null);
   const [minutes, setMinutes] = useState('75');
+  const [position, setPosition] = useState<BrowserPosition | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationHint, setLocationHint] = useState('');
+  const locationAttempt = useRef(0);
+  const [fixed, setFixed] = useState<FixedStop | null>(null);
+  const [contextHint, setContextHint] = useState('');
+  const [skipFixed, setSkipFixed] = useState(false);
+  const [shortWalk, setShortWalk] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyNote, setHistoryNote] = useState('');
   const lifetime = useRef<AbortController | null>(null);
   const locked = useRef(false);
   const canOpen = capabilities.radar || capabilities.trip_writes;
@@ -79,9 +100,9 @@ export function RadarPanel({
           try {
             const view = await getRadarSession(id, signal);
             if (signal.aborted) return;
-            setOrigin(view.origin);
+            if (view.origin.id !== liveOriginId) setOrigin(view.origin);
             setDestination(view.destination);
-            setMinutes(String(view.available_min));
+            setMinutes(String(view.window?.manual_min ?? view.available_min));
             setResult({ kind: 'shown', view });
           } catch (error) {
             if (signal.aborted || sessionExpired(error)) return;
@@ -101,29 +122,113 @@ export function RadarPanel({
     };
   }, [attempt, canOpen, capabilities.radar]);
 
+  useEffect(() => {
+    if (page !== 'radar' || session.kind !== 'ready' || !capabilities.radar) return;
+    const controller = new AbortController();
+    void getRadarContext(controller.signal)
+      .then(({ fixed }) => {
+        if (controller.signal.aborted) return;
+        setFixed(fixed);
+        setContextHint('');
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setContextHint(messageOf(error));
+      });
+    return () => controller.abort();
+  }, [page, session.kind, capabilities.radar]);
+
   function clearProposal() {
     remember(null);
     setResult({ kind: 'idle' });
   }
+  function locate() {
+    if (locating) return;
+    const signal = lifetime.current?.signal;
+    const attemptId = ++locationAttempt.current;
+    if (!navigator.geolocation) {
+      setLocationHint('此浏览器无法定位，请手动选择出发地。');
+      return;
+    }
+    setLocating(true);
+    setLocationHint('');
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        if (signal?.aborted || attemptId !== locationAttempt.current) return;
+        setLocating(false);
+        const point = {
+          system: 'wgs84',
+          longitude: coords.longitude,
+          latitude: coords.latitude,
+          accuracy_m: coords.accuracy,
+        };
+        if (!browserPositionValidator.check(point)) {
+          setLocationHint('定位精度不足，请手动选择出发地。');
+          return;
+        }
+        clearProposal();
+        setPosition(point);
+      },
+      (error) => {
+        if (signal?.aborted || attemptId !== locationAttempt.current) return;
+        setLocating(false);
+        setLocationHint(
+          error.code === 1
+            ? '定位权限未开启，请手动选择出发地。'
+            : '暂时无法定位，请手动选择出发地。',
+        );
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 8000 },
+    );
+  }
+  async function openHistory() {
+    const signal = lifetime.current?.signal;
+    if (!signal || locked.current) return;
+    locked.current = true;
+    setHistoryLoading(true);
+    try {
+      const saved = await getRadarHistory(signal);
+      if (signal.aborted) return;
+      if (!saved) setResult({ kind: 'idle' });
+      if (!saved) setHistoryNote('还没有保存的雷达结果。');
+      else setResult({ kind: 'history', view: saved.view, stale: saved.status === 'stale' });
+    } catch (error) {
+      if (!signal.aborted && !sessionExpired(error))
+        setResult({ kind: 'error', message: messageOf(error) });
+    } finally {
+      locked.current = false;
+      setHistoryLoading(false);
+    }
+  }
   const available = Number(minutes);
-  const busy = result.kind === 'calculating' || result.kind === 'accepting';
+  const busy = result.kind === 'calculating' || result.kind === 'accepting' || historyLoading;
+  const missingFixed = fixed !== null && !fixed.address;
   const canSubmit = Boolean(
-    origin &&
+    (origin || position) &&
     destination &&
     Number.isInteger(available) &&
     available >= 1 &&
     available <= 720 &&
-    !busy,
+    (!missingFixed || skipFixed) &&
+    !busy &&
+    !locating,
   );
   async function calculate() {
     const signal = lifetime.current?.signal;
-    if (!origin || !destination || !canSubmit || locked.current || !signal) return;
+    if (!destination || !canSubmit || locked.current || !signal) return;
+    const source = position ? { position } : origin ? { origin_id: origin.id } : null;
+    if (!source) return;
     locked.current = true;
     remember(null);
     setResult({ kind: 'calculating' });
     try {
       const view = await createRadarSession(
-        { origin_id: origin.id, poi_id: destination.id, available_min: available },
+        {
+          ...source,
+          poi_id: destination.id,
+          available_min: available,
+          fixed_mode: missingFixed && skipFixed ? 'without_fixed' : 'next_locked',
+          ...(shortWalk ? { preference: 'short_walk' } : {}),
+        },
         signal,
       );
       if (signal.aborted) return;
@@ -163,8 +268,21 @@ export function RadarPanel({
       locked.current = false;
     }
   }
-  const shown = result.kind === 'shown' || result.kind === 'accepting' ? result.view : null;
+  const shown = 'view' in result ? result.view : null;
   const showResults = shown !== null || result.kind === 'stale' || result.kind === 'done';
+
+  function editResult() {
+    if (result.kind === 'history') {
+      ++locationAttempt.current;
+      setLocating(false);
+      setLocationHint('');
+      setPosition(null);
+      setOrigin(result.view.origin.id === liveOriginId ? null : result.view.origin);
+      setDestination(result.view.destination);
+      setMinutes(String(result.view.window?.manual_min ?? result.view.available_min));
+    }
+    clearProposal();
+  }
 
   useEffect(() => {
     if (page === 'radar' && showResults) document.getElementById('screen')?.scrollTo(0, 0);
@@ -237,13 +355,27 @@ export function RadarPanel({
           (capabilities.radar ? (
             <RadarForm
               places={{ origin, destination }}
+              location={{
+                active: Boolean(position),
+                locating,
+                hint: locationHint,
+                onLocate: locate,
+              }}
+              fixed={{ stop: fixed, skipped: skipFixed, hint: contextHint, onSkip: setSkipFixed }}
+              shortWalk={shortWalk}
+              onShortWalk={setShortWalk}
               minutes={minutes}
               busy={busy}
               canSubmit={canSubmit}
               onPlace={(kind, place) => {
                 clearProposal();
-                if (kind === 'origin') setOrigin(place);
-                else setDestination(place);
+                if (kind === 'origin') {
+                  ++locationAttempt.current;
+                  setLocating(false);
+                  setLocationHint('');
+                  setPosition(null);
+                  setOrigin(place);
+                } else setDestination(place);
               }}
               onMinutes={(value) => {
                 clearProposal();
@@ -257,6 +389,19 @@ export function RadarPanel({
               地图服务尚未配置，已有行程仍可查看。
             </p>
           ))}
+        {session.kind === 'ready' && capabilities.radar && (
+          <div className="radar-history-link">
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => void openHistory()}
+              disabled={busy}
+            >
+              {historyLoading ? '读取历史结果…' : '查看上次雷达结果 ›'}
+            </button>
+            {historyNote && <p role="status">{historyNote}</p>}
+          </div>
+        )}
         {result.kind === 'error' && (
           <p className="note" role="alert">
             {result.message}
@@ -272,21 +417,40 @@ export function RadarPanel({
         <button
           type="button"
           className="icon-button back"
-          onClick={clearProposal}
+          onClick={editResult}
           disabled={busy}
           aria-label="返回雷达"
         >
           ‹
         </button>
-        <h1>推荐结果</h1>
-        <button type="button" className="secondary mini" disabled={busy} onClick={clearProposal}>
-          修改条件
+        <h1>{result.kind === 'history' ? '上次雷达结果' : '推荐结果'}</h1>
+        <button type="button" className="secondary mini" disabled={busy} onClick={editResult}>
+          {result.kind === 'history' ? '使用上次条件' : '修改条件'}
         </button>
       </header>
       <section className="result" aria-live="polite">
         {shown && (
           <p className="context">
             <Icon>⌖</Icon> {shown.origin.name} · <Icon>◷</Icon> {shown.available_min} 分钟 · 步行
+          </p>
+        )}
+        {shown?.window && (
+          <p className="radar-hint">
+            手选上限 {shown.window.manual_min} 分钟
+            {shown.window.fixed &&
+              ` · ${fixedClock(shown.window.fixed)} ${shown.window.fixed.name}`}
+            {' · '}
+            {shown.window.limited_by === 'fixed'
+              ? '按固定截止'
+              : shown.window.limited_by === 'both'
+                ? '两项上限相同'
+                : '按手选上限'}
+          </p>
+        )}
+        {result.kind === 'history' && (
+          <p className="note" role="status">
+            {result.stale ? '历史证据已过期或行程已更新。' : '这是上次保存的结果。'}{' '}
+            重新核验后才能确认。
           </p>
         )}
         {result.kind === 'stale' && (
@@ -321,9 +485,10 @@ export function RadarPanel({
             pick={shown.outcome.best}
             view={shown}
             accepting={result.kind === 'accepting'}
-            writable={capabilities.trip_writes}
+            writable={capabilities.trip_writes && result.kind !== 'history'}
+            historical={result.kind === 'history'}
             onConfirm={() => void confirm(shown, shown.destination.id)}
-            onEdit={clearProposal}
+            onEdit={editResult}
           />
         )}
       </section>

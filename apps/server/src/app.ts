@@ -10,7 +10,8 @@ import { createGuestSessions } from './guest-session.js';
 import { checkPostOrigin, HttpFault, readJson, send, sendError } from './http.js';
 import { createImportHandler, importRoute, type ImportVision } from './imports/http.js';
 import type { RadarMap } from './radar/amap.js';
-import { acceptRadar, createRadar, getRadar } from './radar/store.js';
+import { acceptRadar, getRadar, getRadarHistory } from './radar/store.js';
+import { getRadarContext, proposeRadar } from './radar/propose.js';
 import { createUserAccess } from './radar/user-access.js';
 
 import { getTrip } from './trip/store.js';
@@ -56,6 +57,8 @@ export function createApp(options?: Options) {
     const createSession = request.method === 'POST' && path === '/api/v1/sessions';
     const search = request.method === 'GET' && path === '/api/v1/places';
     const create = request.method === 'POST' && path === '/api/v1/radar/sessions';
+    const context = request.method === 'GET' && path === '/api/v1/radar/context';
+    const history = request.method === 'GET' && path === '/api/v1/radar/history';
     const trip = request.method === 'GET' && path === '/api/v1/trip';
     const manageTrip = tripRoute(request.method, path);
     const member = /^\/api\/v1\/radar\/sessions\/([A-Za-z0-9_-]{1,100})(\/accept)?$/.exec(path);
@@ -63,7 +66,20 @@ export function createApp(options?: Options) {
     const accept = Boolean(member?.[2]) && request.method === 'POST';
     const view = sessionId && !member?.[2] && request.method === 'GET';
     const imports = importRoute(request.method, path);
-    if (!(createSession || search || create || trip || manageTrip || accept || view || imports))
+    if (
+      !(
+        createSession ||
+        search ||
+        create ||
+        context ||
+        history ||
+        trip ||
+        manageTrip ||
+        accept ||
+        view ||
+        imports
+      )
+    )
       throw new HttpFault('NOT_IMPLEMENTED');
     if (!sessions || !withUser) throw new HttpFault('RADAR_NOT_CONFIGURED');
     const userId = sessions.read(request.headers.cookie);
@@ -80,6 +96,18 @@ export function createApp(options?: Options) {
       );
     if (imports && handleImport)
       return handleImport({ request, response, route: imports, userId, withUser });
+    if (context)
+      return send(
+        response,
+        200,
+        await withUser(userId, (runtime) => getRadarContext(runtime, now())),
+      );
+    if (history)
+      return send(
+        response,
+        200,
+        await withUser(userId, (runtime) => getRadarHistory(runtime, now())),
+      );
     if (search || create) {
       if (!map) throw new HttpFault('RADAR_NOT_CONFIGURED');
       if (search) {
@@ -88,14 +116,15 @@ export function createApp(options?: Options) {
         return send(response, 200, { places: await map.search(q) });
       }
       const input = await readJson(request, radarRequestValidator.check);
-      const startedAt = now();
-      const evidence = await map.walk(input);
       return send(
         response,
         201,
-        await withUser(userId, (runtime) =>
-          createRadar({ runtime, request: input, evidence, now, startedAt }),
-        ),
+        await proposeRadar({
+          request: input,
+          map,
+          now,
+          withRuntime: (run) => withUser(userId, run),
+        }),
       );
     }
     if (trip) return send(response, 200, await withUser(userId, (runtime) => getTrip({ runtime })));

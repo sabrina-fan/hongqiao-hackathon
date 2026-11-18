@@ -1,4 +1,16 @@
-import { arr, compile, int, obj, str } from '@earendil-works/pi-schema';
+import {
+  arr,
+  compile,
+  int,
+  lit,
+  nullable,
+  num,
+  obj,
+  oneOf,
+  opt,
+  str,
+  union,
+} from '@earendil-works/pi-schema';
 import type { Static } from '@earendil-works/pi-schema';
 import {
   BindingSchema,
@@ -18,23 +30,72 @@ export const placeSearchValidator = compile(
 );
 
 const AvailableMinutes = int({ minimum: 1, maximum: 720 });
-const RadarRequestSchema = obj({
-  origin_id: IdentifierSchema,
+const CoordinateFields = {
+  longitude: num({ minimum: -180, maximum: 180 }),
+  latitude: num({ minimum: -90, maximum: 90 }),
+};
+const BrowserPositionSchema = obj({
+  system: lit('wgs84'),
+  ...CoordinateFields,
+  accuracy_m: num({ minimum: 0, maximum: 100 }),
+});
+export const browserPositionValidator = compile(BrowserPositionSchema);
+export type BrowserPosition = Static<typeof BrowserPositionSchema>;
+export const RoutePointSchema = obj({ system: lit('gcj02'), ...CoordinateFields });
+export type RoutePoint = Static<typeof RoutePointSchema>;
+
+const candidateFields = {
   poi_id: IdentifierSchema,
   available_min: AvailableMinutes,
-});
+  fixed_mode: opt(oneOf(['next_locked', 'without_fixed'])),
+  preference: opt(lit('short_walk')),
+};
+const RadarRequestSchema = union([
+  obj({ ...candidateFields, origin_id: IdentifierSchema }),
+  obj({ ...candidateFields, position: BrowserPositionSchema }),
+]);
 export const radarRequestValidator = compile(RadarRequestSchema);
 export type RadarRequest = Static<typeof RadarRequestSchema>;
+export const liveOriginId = 'browser-position';
+
+export const FixedStopSchema = obj({
+  arrangement_id: IdentifierSchema,
+  name: str({ minLength: 1, maxLength: 100 }),
+  address: str({ maxLength: 500 }),
+  starts_at: str({ format: 'date-time' }),
+  time_zone: str({ minLength: 1, maxLength: 100 }),
+});
+export type FixedStop = Static<typeof FixedStopSchema>;
+export const radarContextValidator = compile(obj({ fixed: nullable(FixedStopSchema) }));
 
 const RadarViewSchema = obj({
   outcome: RadarOutcomeSchema,
   origin: PlaceOptionSchema,
-  available_min: AvailableMinutes,
+  available_min: int({ minimum: 0, maximum: 720 }),
   destination: PlaceOptionSchema,
   valid_until: str({ format: 'date-time' }),
+  window: opt(
+    obj({
+      fixed: nullable(FixedStopSchema),
+      manual_min: AvailableMinutes,
+      limited_by: oneOf(['manual', 'fixed', 'both']),
+      remaining_min: nullable(int({ minimum: 0 })),
+    }),
+  ),
+  markers: opt(
+    obj({ origin: RoutePointSchema, destination: RoutePointSchema, next: opt(RoutePointSchema) }),
+  ),
 });
 export type RadarView = Static<typeof RadarViewSchema>;
 export const radarViewValidator = compile(RadarViewSchema);
+export const radarHistoryValidator = compile(
+  nullable(
+    obj({
+      status: oneOf(['saved', 'stale']),
+      view: RadarViewSchema,
+    }),
+  ),
+);
 
 const AcceptRadarSchema = obj({ binding: BindingSchema, poi_id: IdentifierSchema });
 export type AcceptRadarInput = Static<typeof AcceptRadarSchema>;

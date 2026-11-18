@@ -1,4 +1,6 @@
-import type { PlaceOption, RadarOutcome, RadarView } from '@nextstop/core';
+import type { FixedStop, PlaceOption, RadarOutcome, RadarView } from '@nextstop/core';
+import { RadarRoutePreview } from './RadarRoutePreview.js';
+import './radar-context.css';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { PlaceField } from './PlaceField.js';
@@ -17,6 +19,10 @@ const timePresets = [45, 75, 105];
 
 export function RadarForm({
   places,
+  location,
+  fixed,
+  shortWalk,
+  onShortWalk,
   minutes,
   busy,
   canSubmit,
@@ -26,6 +32,15 @@ export function RadarForm({
   onSessionExpired,
 }: {
   places: Record<PlaceKind, PlaceOption | null>;
+  location: { active: boolean; locating: boolean; hint: string; onLocate: () => void };
+  fixed: {
+    stop: FixedStop | null;
+    skipped: boolean;
+    hint: string;
+    onSkip: (value: boolean) => void;
+  };
+  shortWalk: boolean;
+  onShortWalk: (value: boolean) => void;
   minutes: string;
   busy: boolean;
   canSubmit: boolean;
@@ -66,7 +81,9 @@ export function RadarForm({
                 <Icon>⌖</Icon> 当前位置
               </h2>
               <div className="between place-row">
-                <strong>{places.origin?.name ?? '尚未选择出发地'}</strong>
+                <strong>
+                  {location.active ? '我的当前位置' : (places.origin?.name ?? '尚未选择出发地')}
+                </strong>
                 <button
                   className="text-button"
                   type="button"
@@ -76,6 +93,19 @@ export function RadarForm({
                   手动选择 ›
                 </button>
               </div>
+              <button
+                className="text-button"
+                type="button"
+                onClick={location.onLocate}
+                disabled={location.locating}
+              >
+                {location.locating ? '正在定位…' : '使用当前位置'}
+              </button>
+              {location.hint && (
+                <p className="radar-hint" role="status">
+                  {location.hint}
+                </p>
+              )}
               <div className="between place-row destination-row">
                 <strong>{places.destination?.name ?? '尚未选择目的地'}</strong>
                 <button
@@ -143,19 +173,50 @@ export function RadarForm({
               <h2>
                 <Icon>▦</Icon> 下一项固定安排 <small>（可选）</small>
               </h2>
-              <p className="locked between">
-                固定安排尚未开放 <span aria-hidden="true">›</span>
-              </p>
+              {fixed.hint && (
+                <p role="status" className="radar-hint">
+                  {fixed.hint}
+                </p>
+              )}
+              {fixed.stop ? (
+                <>
+                  <a className="locked between" href="#trip">
+                    {fixedClock(fixed.stop)} · {fixed.stop.name} <span aria-hidden="true">›</span>
+                  </a>
+                  {fixed.stop.address ? (
+                    <p className="radar-hint">取距固定安排开始的时间和手选上限中较短的一项。</p>
+                  ) : (
+                    <>
+                      <p className="radar-hint">缺少地点。可前往行程补全后再计算。</p>
+                      <label className="radar-hint">
+                        <input
+                          type="checkbox"
+                          checked={fixed.skipped}
+                          onChange={(event) => fixed.onSkip(event.target.checked)}
+                        />
+                        本次不使用这个固定安排
+                      </label>
+                    </>
+                  )}
+                </>
+              ) : (
+                !fixed.hint && <p className="locked">今天暂无待开始的固定安排</p>
+              )}
             </section>
             <section>
               <h2>
                 <Icon>☷</Icon> 本次偏好 <small>（可选）</small>
               </h2>
               <div className="chips">
-                <span className="chip selected-chip">步行</span>
-                <span className="chip muted">历史人文</span>
-                <span className="chip muted">小众安静</span>
-                <span className="chip muted">室内</span>
+                <span className="chip">步行模式</span>
+                <button
+                  className="chip"
+                  type="button"
+                  aria-pressed={shortWalk}
+                  onClick={() => onShortWalk(!shortWalk)}
+                >
+                  轻松步行
+                </button>
               </div>
             </section>
           </div>
@@ -199,6 +260,15 @@ export function RadarForm({
   );
 }
 
+export function fixedClock({ starts_at, time_zone }: FixedStop) {
+  return new Date(starts_at).toLocaleTimeString('zh-CN', {
+    timeZone: time_zone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+}
+
 function clock(value: string) {
   return new Date(value).toLocaleTimeString('zh-CN', {
     hour: '2-digit',
@@ -214,6 +284,7 @@ export function PickCard({
   view,
   accepting,
   writable,
+  historical,
   onConfirm,
   onEdit,
 }: {
@@ -221,6 +292,7 @@ export function PickCard({
   view: RadarView;
   accepting: boolean;
   writable: boolean;
+  historical: boolean;
   onConfirm: () => void;
   onEdit: () => void;
 }) {
@@ -228,16 +300,7 @@ export function PickCard({
     pick.travel_to_min + (pick.travel_to_next_min ?? 0) + pick.stay_min_estimate + pick.buffer_min;
   return (
     <>
-      <div
-        className="map alt route-preview"
-        aria-label={`路线示意：${view.origin.name}到${view.destination.name}`}
-      >
-        <span className="map-river" aria-hidden="true" />
-        <span className="route-line" aria-hidden="true" />
-        <span className="map-start">● 起点</span>
-        <span className="map-pin">◉ {view.destination.name}</span>
-        <span className="map-caption">示意路线 · 无地图坐标</span>
-      </div>
+      <RadarRoutePreview view={view} />
       <div className="between title-row">
         <h2>为你找到的选择</h2>
         <small>高德步行估算</small>
@@ -271,16 +334,23 @@ export function PickCard({
               <strong>{pick.travel_to_next_min} 分钟</strong>
             </div>
           )}
-          <div>
-            <small>缓冲</small>
-            <strong>{pick.buffer_min} 分钟</strong>
-          </div>
+          {pick.buffer_min > 0 && (
+            <div>
+              <small>缓冲</small>
+              <strong>{pick.buffer_min} 分钟</strong>
+            </div>
+          )}
         </div>
         <div className="pick-bottom">
           <p className="muted">
-            共约 {total} 分钟 · {clock(pick.evidence.fetched_at)} 获取
+            共约 {total} 分钟
+            {view.window?.remaining_min != null &&
+              ` · 计算时剩余 ${view.window.remaining_min} 分钟`}
           </p>
-          <p className="muted">营业、预约和价格待确认 · {clock(view.valid_until)} 前可加入</p>
+          <p className="muted">
+            高德路线估算 · {clock(pick.evidence.fetched_at)} 获取 · 营业、预约和价格待确认
+          </p>
+          {!historical && <p className="muted">{clock(view.valid_until)} 前可加入</p>}
           <div className="actions">
             <button className="secondary" type="button" disabled={accepting} onClick={onEdit}>
               返回修改
