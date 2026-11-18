@@ -1,6 +1,7 @@
 import { capabilitiesValidator, readyValidator } from '@nextstop/core';
 import type { Capabilities } from '@nextstop/core';
 import { useEffect, useState } from 'react';
+import { RadarPanel } from './RadarPanel.js';
 
 type Connection =
   | { kind: 'loading' }
@@ -58,7 +59,7 @@ export function App() {
           </span>{' '}
           下一站
         </a>
-        <span className="preview">工程预览</span>
+        <span className="preview">苏州 · 步行</span>
       </header>
       <section className="intro">
         <p className="eyebrow">NEXTSTOP / 现在去哪</p>
@@ -67,12 +68,12 @@ export function App() {
           <br />
           找一个合适的下一站。
         </h1>
-        <p className="lead">把收藏、可用时间和下一项固定安排放在一起，做出有依据的出行选择。</p>
+        <p className="lead">选个想去的地点，算一算眼前的空档够不够步行前往和停留。</p>
       </section>
-      <section className="panel" aria-labelledby="service-heading">
+      {connection.kind === 'ready' && <RadarPanel capabilities={connection.capabilities} />}
+      <section className="panel service" aria-labelledby="service-heading">
         <div className="panel-heading">
-          <h2 id="service-heading">开发服务</h2>
-          <span className="tag">Scaffold</span>
+          <h2 id="service-heading">服务连接</h2>
         </div>
         <p role="status" className={`connection ${connection.kind}`}>
           <span className="dot" aria-hidden="true" />
@@ -82,10 +83,9 @@ export function App() {
               ? '服务连接正常'
               : '连接失败，请确认后端已启动'}
         </p>
-        <p>当前已提供应用骨架与共享契约。雷达推荐、多图导入和行程写入将在后续闭环中接入。</p>
         {connection.kind === 'ready' && (
           <p className="detail">
-            雷达接口：{connection.capabilities.radar ? '已开放' : '待接入'} · 导入接口：
+            雷达接口：{connection.capabilities.radar ? '已开放' : '待配置'} · 导入接口：
             {connection.capabilities.imports ? '已开放' : '待接入'}
           </p>
         )}

@@ -118,6 +118,8 @@ export function createJevIntentClient(config: {
         throw new ModelGatewayError('PROVIDER_UNAVAILABLE');
       }
       if (!response.ok) {
+        // Release the unread body. Its cleanup may reject after the HTTP status is known.
+        void response.body?.cancel().catch(() => undefined);
         checkBudget();
         throw new ModelGatewayError('PROVIDER_UNAVAILABLE');
       }
@@ -132,15 +134,16 @@ export function createJevIntentClient(config: {
         throw new ModelGatewayError('PROVIDER_UNAVAILABLE');
       }
       if (!responseValidator.check(body)) {
+        checkBudget();
         throw new ModelGatewayError('INVALID_MODEL_RESPONSE', 'SCHEMA_MISMATCH');
       }
       const answer = body.answers.intent;
       const sum = Object.values(answer.probabilities).reduce((total, value) => total + value, 0);
+      // Body decoding and validation can cross a deadline before the abort timer runs.
+      checkBudget();
       if (Math.abs(sum - 1) > 0.001) {
         throw new ModelGatewayError('INVALID_MODEL_RESPONSE', 'INVALID_PROBABILITIES');
       }
-      // Body decoding and validation can cross a deadline before the abort timer runs.
-      checkBudget();
       return {
         intent: answer.choice,
         confidence: answer.confidence,

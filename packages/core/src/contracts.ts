@@ -70,7 +70,7 @@ export type RadarOutcome = Static<typeof RadarOutcomeSchema>;
 export const radarOutcomeValidator = compile(RadarOutcomeSchema);
 
 export const CapabilitiesSchema = obj({
-  stage: lit('scaffold'),
+  stage: oneOf(['scaffold', 'radar']),
   radar: bool(),
   imports: bool(),
   trip_writes: bool(),
@@ -82,6 +82,6 @@ export const capabilitiesValidator = compile(CapabilitiesSchema);
 export const ReadySchema = obj({
   status: lit('ok'),
   service: lit('nextstop'),
-  stage: lit('scaffold'),
+  stage: oneOf(['scaffold', 'radar']),
 });
 export const readyValidator = compile(ReadySchema);

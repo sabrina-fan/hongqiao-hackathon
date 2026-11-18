@@ -23,9 +23,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm format:check --all
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
+      - run: pnpm verify:code
       # ego-lite acceptance runs locally with a connected desktop browser.
       # This hosted Linux job covers code checks; it does not claim browser coverage.
       - run: pnpm audit:prod

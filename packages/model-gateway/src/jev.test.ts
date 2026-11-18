@@ -19,6 +19,8 @@ const answer = {
   },
   usage: { input_tokens: 10, output_tokens: 5 },
 };
+const inconsistentProbabilities = structuredClone(answer);
+inconsistentProbabilities.answers.intent.probabilities.too_far = 1;
 
 function client(fetcher: typeof fetch, timeoutMs = 1000) {
   return createJevIntentClient({
@@ -64,18 +66,20 @@ describe('Jev native intent transport', () => {
     ).rejects.toMatchObject({ code: 'DEADLINE_EXCEEDED' });
     expect(fetcher).not.toHaveBeenCalled();
   });
-  it('does not return a valid response that finishes at the shared deadline', async () => {
+  it.each([
+    { label: 'valid', body: answer },
+    { label: 'schema-invalid', body: {} },
+    { label: 'probability-invalid', body: inconsistentProbabilities },
+  ])('reports the shared deadline for a $label response that finishes late', async ({ body }) => {
     const deadlineMs = Date.now() + 1000;
     using clock = vi.spyOn(Date, 'now');
     const fetcher = vi.fn<typeof fetch>(async () => {
       clock.mockReturnValue(deadlineMs);
-      return Response.json(answer);
+      return Response.json(body);
     });
     await expect(
       client(fetcher).classifyIntent({ message: '太远了', deadlineMs }),
-    ).rejects.toMatchObject({
-      code: 'DEADLINE_EXCEEDED',
-    });
+    ).rejects.toMatchObject({ code: 'DEADLINE_EXCEEDED' });
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it('enforces the attempt budget even before the abort timer is dispatched', async () => {
@@ -92,14 +96,12 @@ describe('Jev native intent transport', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it('rejects an inconsistent probability distribution', async () => {
-    const invalid = structuredClone(answer);
-    invalid.answers.intent.probabilities.too_far = 1;
     await expect(
-      client(async () => Response.json(invalid)).classifyIntent({
+      client(async () => Response.json(inconsistentProbabilities)).classifyIntent({
         message: '换一个',
         deadlineMs: Date.now() + 1000,
       }),
-    ).rejects.toMatchObject({ code: 'INVALID_MODEL_RESPONSE' });
+    ).rejects.toMatchObject({ code: 'INVALID_MODEL_RESPONSE', reason: 'INVALID_PROBABILITIES' });
   });
   it('classifies malformed JSON separately from transport failures', async () => {
     await expect(
@@ -161,6 +163,19 @@ describe('Jev native intent transport', () => {
       expect(fetcher).toHaveBeenCalledTimes(1);
     },
   );
+  it('cancels an unread HTTP error body and preserves the provider error if cleanup fails', async () => {
+    const cancel = vi.fn<() => void>(() => {
+      throw new Error('stream already closed upstream');
+    });
+    const response = new Response(new ReadableStream({ cancel }), { status: 503 });
+    await expect(
+      client(async () => response).classifyIntent({
+        message: '太远了',
+        deadlineMs: Date.now() + 1000,
+      }),
+    ).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE', message: 'PROVIDER_UNAVAILABLE' });
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
   it('does not expose provider bodies or credentials in an error', async () => {
     const fetcher: typeof fetch = async () =>
       new Response('upstream private diagnostic', { status: 502 });

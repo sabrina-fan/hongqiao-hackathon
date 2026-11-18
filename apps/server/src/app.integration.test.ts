@@ -55,10 +55,10 @@ describe('HTTP scaffold', () => {
     expect(ready.status).toBe(200);
     expect(readyValidator.check(await ready.json())).toBe(true);
   });
-  it('does not return pretend recommendations from an unimplemented API', async () => {
+  it('reports missing configuration without returning a pretend recommendation', async () => {
     const origin = await startApp();
     const response = await fetch(`${origin}/api/v1/radar/sessions`, { method: 'POST' });
-    expect(response.status).toBe(404);
-    expect(await response.json()).toMatchObject({ error: { code: 'NOT_IMPLEMENTED' } });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: { code: 'RADAR_NOT_CONFIGURED' } });
   });
 });
