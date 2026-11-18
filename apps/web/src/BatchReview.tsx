@@ -34,7 +34,10 @@ export function imageStatus(item: ImportBatchItem) {
   return itemStatus[item.kind];
 }
 
-export type ImageAction = { action: 'remove' | 'skip' } | { action: 'search'; query: string };
+export type ImageAction =
+  | { action: 'remove' }
+  | { action: 'skip' }
+  | { action: 'search'; query: string };
 
 function ReviewImage({
   batchId,

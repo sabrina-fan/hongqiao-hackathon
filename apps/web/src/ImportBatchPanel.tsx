@@ -13,6 +13,7 @@ import {
   batchImagePath,
   editBatchItem,
   getBatch,
+  removeBatchItem,
   saveBatchChoices,
   uploadBatch,
 } from './import-batch-client.js';
@@ -34,6 +35,14 @@ function rememberBatch(id: string) {
     sessionStorage.setItem(lastBatchKey, id);
   } catch {
     /* The current screen can still use the batch. */
+  }
+}
+
+function forgetBatch(id: string) {
+  try {
+    if (sessionStorage.getItem(lastBatchKey) === id) sessionStorage.removeItem(lastBatchKey);
+  } catch {
+    /* The current screen can still reset. */
   }
 }
 
@@ -183,7 +192,10 @@ export function ImportBatchPanel({
         const current = await getBatch(id, controller.signal);
         if (controller.signal.aborted) return;
         setPollError('');
-        acceptBatch(current);
+        // A late poll cannot restore a batch after its removal receipt reset the screen.
+        setBatch((prior) =>
+          prior?.batch_id === id && prior.revision <= current.revision ? current : prior,
+        );
       } catch (error) {
         if (!controller.signal.aborted) setPollError(`无法刷新进度。${messageOf(error)}`);
       }
@@ -232,14 +244,23 @@ export function ImportBatchPanel({
       remove: '正在移除截图…',
     }[action.action];
     void run(message, async () => {
-      acceptBatch(
-        await editBatchItem({
-          id: batch.batch_id,
-          imageId: item.import_id,
-          revision: batch.revision,
-          ...action,
-        }),
-      );
+      const input = { id: batch.batch_id, imageId: item.import_id, revision: batch.revision };
+      const next =
+        action.action === 'remove'
+          ? await removeBatchItem(input)
+          : await editBatchItem({ ...input, ...action });
+      if (!next) {
+        forgetBatch(input.id);
+        setResumable((prior) => (prior === input.id ? null : prior));
+        setBatch(null);
+        setReviewing(false);
+        setChoices(new Map());
+        setWishlist(null);
+        setPollError('');
+        setNotice('截图已移除。');
+        return;
+      }
+      acceptBatch(next);
       setChoices((prior) => {
         const next = new Map(prior);
         next.delete(item.import_id);
@@ -309,7 +330,7 @@ export function ImportBatchPanel({
           {failure}
         </p>
       )}
-      {pollError && (
+      {batch && pollError && (
         <p className="note batch-error state-card state-error" role="alert">
           {pollError}
         </p>

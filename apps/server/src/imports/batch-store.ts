@@ -102,11 +102,20 @@ export async function removeBatchImages({
   }
 }
 
-export async function readBatch(runtime: UserRuntime, id: string) {
-  return checkedBatch(
-    await runtime.harness.snapshot(Batches, runtime.conversation.id, id, BACKGROUND_CONTEXT),
+async function findBatch(runtime: UserRuntime, id: string) {
+  const record = await runtime.harness.snapshot(
+    Batches,
+    runtime.conversation.id,
     id,
+    BACKGROUND_CONTEXT,
   );
+  return record?.batch ? checkedBatch(record, id) : null;
+}
+
+export async function readBatch(runtime: UserRuntime, id: string) {
+  const batch = await findBatch(runtime, id);
+  if (!batch) throw new HttpFault('IMPORT_NOT_FOUND');
+  return batch;
 }
 
 async function changeBatch(
@@ -184,7 +193,8 @@ export async function removeBatchItem({
   remove: (id: string) => Promise<void>;
 }) {
   const deletion = { kind: 'batch_item' as const, batchId: id, imageId, revision };
-  if (await resumeImageCleanup(runtime, deletion, remove)) return readBatch(runtime, id);
+  // Only an exact, completed cleanup replay can succeed without a live batch.
+  if (await resumeImageCleanup(runtime, deletion, remove)) return findBatch(runtime, id);
   const batch = await changeBatch(runtime, id, async (current, _record, tx) => {
     checkRevision(current, revision);
     const item = batchItem(current, imageId);

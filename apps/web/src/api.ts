@@ -85,7 +85,10 @@ export async function requestJson<T>(
   signal?: AbortSignal,
   timeoutMs?: number,
 ): Promise<T> {
-  const response = await request(path, init, signal, timeoutMs);
+  return readResponseJson(await request(path, init, signal, timeoutMs), check);
+}
+
+export async function readResponseJson<T>(response: Response, check: (body: unknown) => body is T) {
   const body: unknown = await response.json();
   if (!check(body)) throw new ApiError('INVALID_RESPONSE', '服务响应格式无效。', response.status);
   return body;

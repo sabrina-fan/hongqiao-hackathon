@@ -1,4 +1,5 @@
 import {
+  ALLOW_RETIRED_REMOVAL_HEADER,
   batchRevisionValidator,
   batchSearchValidator,
   confirmBatchValidator,
@@ -276,7 +277,10 @@ export function createBatchHandler(
           remove: (target) => images.remove(userId, target),
         }),
       );
-      return send(response, 200, batch);
+      if (batch) return send(response, 200, batch);
+      if (request.headers[ALLOW_RETIRED_REMOVAL_HEADER] === '1') return send(response, 204);
+      // Older PWAs parse every successful response as an ImportBatch.
+      throw new HttpFault('IMPORT_NOT_FOUND');
     }
     const batch = await withUser(userId, (runtime) =>
       updateBatchItem({

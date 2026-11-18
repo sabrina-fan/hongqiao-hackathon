@@ -64,6 +64,17 @@ async function expectError(response: Response, status: number, code: string) {
   expect(body).toMatchObject({ error: { code } });
 }
 
+const cleanupApp = (dataDir: string) =>
+  createApp({
+    dataDir,
+    cookieSecret: 'test-only-cleanup-regression-signing-value',
+    map: createAmap({
+      key: 'fixture',
+      fetcher: async () => Response.json({ status: '1', info: 'OK', pois: [poi] }),
+    }),
+    vision: async () => ({ kind: 'text', name: poi.name, excerpt: '合成来源', confidence: 'high' }),
+  });
+
 const operations = ['batch', 'source', 'trip'] as const;
 const faults = ['before unlink', 'after original unlink'] as const;
 
@@ -71,21 +82,7 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
   'finishes committed $operation cleanup on retry after failure $fault',
   async ({ operation, fault }) => {
     const dataDir = await mkdtemp(join(tmpdir(), 'nextstop-cleanup-regression-'));
-    const options = {
-      dataDir,
-      cookieSecret: 'test-only-cleanup-regression-signing-value',
-      map: createAmap({
-        key: 'fixture',
-        fetcher: async () => Response.json({ status: '1', info: 'OK', pois: [poi] }),
-      }),
-      vision: async () => ({
-        kind: 'text',
-        name: poi.name,
-        excerpt: '合成来源',
-        confidence: 'high',
-      }),
-    } satisfies NonNullable<Parameters<typeof createApp>[0]>;
-    let server = createApp(options);
+    let server = cleanupApp(dataDir);
     try {
       let base = await listen(server);
       const session = await fetch(`${base}/sessions`, { method: 'POST' });
@@ -94,11 +91,13 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
       assert(cookie);
       const call = (path: string, method = 'GET') =>
         fetch(base + path, { method, headers: { cookie } });
-      const post = (path: string, body: unknown) =>
+      const post = (path: string, body: unknown, headers?: Record<string, string>) =>
         fetch(base + path, {
           method: 'POST',
           headers:
-            body instanceof FormData ? { cookie } : { cookie, 'content-type': 'application/json' },
+            body instanceof FormData
+              ? { cookie }
+              : { cookie, 'content-type': 'application/json', ...headers },
           body: body instanceof FormData ? body : JSON.stringify(body),
         });
       const createTrip = async (destination: string) =>
@@ -237,10 +236,14 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
       const targets = earlierImage ? [earlierImage, target] : [target];
       const targetIds = new Set(targets.map(({ id }) => id));
       const targetDirectories = targets.map(({ directory }) => directory);
-      const remove = (revision: number) => {
+      const remove = (revision: number, allowRetired = false) => {
         switch (operation) {
           case 'batch':
-            return post(`${batchItem(target.id)}/remove`, { revision });
+            return post(
+              `${batchItem(target.id)}/remove`,
+              { revision },
+              allowRetired ? { 'x-nextstop-allow-retired-removal': '1' } : undefined,
+            );
           case 'source':
             return call(importPath(target.id), 'DELETE');
           case 'trip':
@@ -269,7 +272,7 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
       if (earlierImage) await assert.rejects(readdir(earlierImage.directory), { code: 'ENOENT' });
 
       await server[Symbol.asyncDispose]();
-      server = createApp(options);
+      server = cleanupApp(dataDir);
       base = await listen(server);
       const expectedBatch = {
         ...saved,
@@ -349,8 +352,8 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
         );
         assert.deepEqual(imageRemovals(), targetDirectories);
       }
-      async function expectSuccess() {
-        const response = await remove(saved.revision);
+      async function expectSuccess(allowRetired: boolean) {
+        const response = await remove(saved.revision, allowRetired);
         if (operation === 'batch') {
           assert.deepEqual(
             await checkedJson(response, 200, importBatchValidator.check),
@@ -363,7 +366,7 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
           await assert.rejects(readdir(directory), { code: 'ENOENT' });
         }
       }
-      await Promise.all([expectSuccess(), expectSuccess()]);
+      await Promise.all([expectSuccess(false), expectSuccess(true)]);
       await checkCommittedState();
       await expectPending([]);
       const targetRemovals = [...targetDirectories, ...targetDirectories];
@@ -393,3 +396,145 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
     }
   },
 );
+
+it('acknowledges an exact removal replay after trip deletion retires the empty batch', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'nextstop-retired-batch-'));
+  let server = cleanupApp(dataDir);
+  try {
+    let base = await listen(server);
+    async function guest() {
+      const session = await fetch(`${base}/sessions`, { method: 'POST' });
+      assert.equal(session.status, 204);
+      const cookie = session.headers.get('set-cookie')?.split(';')[0];
+      assert(cookie);
+      return cookie;
+    }
+    const cookie = await guest();
+    const call = (path: string, method = 'GET') =>
+      fetch(base + path, { method, headers: { cookie } });
+    const post = (path: string, body: FormData | object) =>
+      fetch(base + path, {
+        method: 'POST',
+        headers:
+          body instanceof FormData ? { cookie } : { cookie, 'content-type': 'application/json' },
+        body: body instanceof FormData ? body : JSON.stringify(body),
+      });
+    const trip = (destination: string) =>
+      post('/trips', {
+        destination,
+        date: '2026-11-20',
+        start: '09:00',
+        end: '20:00',
+        time_zone: 'Asia/Shanghai',
+      });
+    await checkedJson(await trip('无关旅行'), 201, tripDetailValidator.check);
+    const single = new FormData();
+    single.append('image', new File([png.unrelated], '幸存.png', { type: 'image/png' }));
+    const survivor = await checkedJson(
+      await post('/imports', single),
+      201,
+      importReviewValidator.check,
+    );
+    const owned = await checkedJson(await trip('目标旅行'), 201, tripDetailValidator.check);
+    const form = new FormData();
+    form.append('images', new File([png.pending], '待移除.png', { type: 'image/png' }));
+    const initial = await checkedJson(
+      await post('/import-batches', form),
+      202,
+      importBatchValidator.check,
+    );
+    const batchPath = `/import-batches/${initial.batch_id}`;
+    const readBatch = async () =>
+      checkedJson(await call(batchPath), 200, importBatchValidator.check);
+    const ready = await vi.waitFor(async () => {
+      const batch = await readBatch();
+      expect(batch.items.map(({ kind }) => kind)).toEqual(['ready']);
+      return batch;
+    }, 5_000);
+    const [item] = ready.items;
+    assert(item);
+    const [database] = (await readdir(join(dataDir, 'users'))).filter((file) =>
+      file.endsWith('.sqlite'),
+    );
+    assert(database);
+    const images = join(dataDir, 'import-images', database.slice(0, -'.sqlite'.length));
+    const target = join(images, item.import_id);
+    const readCopies = (id: string) =>
+      Promise.all(['original', 'normalized'].map((copy) => readFile(join(images, id, copy))));
+    const targetCopies = await readCopies(item.import_id);
+    const survivorCopies = await readCopies(survivor.import_id);
+    const itemPath = `${batchPath}/items/${item.import_id}/remove`;
+    const remove = ({
+      visitor = cookie,
+      revision = ready.revision,
+      path = itemPath,
+      legacy = false,
+    } = {}) =>
+      fetch(base + path, {
+        method: 'POST',
+        headers: {
+          cookie: visitor,
+          'content-type': 'application/json',
+          ...(!legacy && { 'x-nextstop-allow-retired-removal': '1' }),
+        },
+        body: JSON.stringify({ revision }),
+      });
+
+    const diskRemove = vi.mocked(rm);
+    const realRemove = diskRemove.getMockImplementation();
+    assert(realRemove);
+    const targetRemovalCalls = () => diskRemove.mock.calls.filter(([path]) => path === target);
+    diskRemove.mockClear();
+    diskRemove.mockImplementation(async (path, options) => {
+      if (path === target)
+        throw Object.assign(new Error('Controlled cleanup failure'), { code: 'EACCES' });
+      return realRemove(path, options);
+    });
+    try {
+      await expectError(await remove(), 500, 'INTERNAL_ERROR');
+      expect(await readBatch()).toEqual({ ...ready, revision: ready.revision + 1, items: [] });
+      assert.equal((await call(`/trips/${owned.trip_id}`, 'DELETE')).status, 204);
+      await expectError(await call(batchPath), 404, 'IMPORT_NOT_FOUND');
+      await expectError(await remove(), 500, 'INTERNAL_ERROR');
+    } finally {
+      diskRemove.mockImplementation(realRemove);
+    }
+
+    await server[Symbol.asyncDispose]();
+    server = cleanupApp(dataDir);
+    base = await listen(server);
+    const foreign = await guest();
+    await expectError(await remove({ visitor: foreign }), 404, 'IMPORT_NOT_FOUND');
+    await expectError(await remove({ revision: ready.revision - 1 }), 404, 'IMPORT_NOT_FOUND');
+    await expectError(await remove({ revision: ready.revision + 1 }), 404, 'IMPORT_NOT_FOUND');
+    await expectError(
+      await remove({ path: `${batchPath}/items/${survivor.import_id}/remove` }),
+      404,
+      'IMPORT_NOT_FOUND',
+    );
+    const unknown = `/import-batches/bat-00000000-0000-4000-8000-000000000000/items/${item.import_id}/remove`;
+    await expectError(await remove({ path: unknown }), 404, 'IMPORT_NOT_FOUND');
+    expect(await readCopies(item.import_id)).toEqual(targetCopies);
+    expect(targetRemovalCalls()).toHaveLength(2);
+
+    const replay = await remove();
+    await assert.rejects(readdir(target), { code: 'ENOENT' });
+    expect(replay.status).toBe(204);
+    expect(await replay.text()).toBe('');
+    expect((await remove()).status).toBe(204);
+    await expectError(await remove({ legacy: true }), 404, 'IMPORT_NOT_FOUND');
+    await expectError(await remove({ visitor: foreign }), 404, 'IMPORT_NOT_FOUND');
+    await expectError(await call(batchPath), 404, 'IMPORT_NOT_FOUND');
+    expect(targetRemovalCalls()).toHaveLength(3);
+    expect(await readCopies(survivor.import_id)).toEqual(survivorCopies);
+    const survivorImage = await call(`/imports/${survivor.import_id}/image`);
+    expect(survivorImage.status).toBe(200);
+    expect(Buffer.from(await survivorImage.arrayBuffer())).toEqual(survivorCopies[1]);
+  } finally {
+    try {
+      await server[Symbol.asyncDispose]();
+    } finally {
+      await rm(dataDir, { recursive: true, force: true });
+    }
+  }
+});

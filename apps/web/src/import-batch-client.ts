@@ -1,13 +1,17 @@
-import { importBatchValidator, type ConfirmBatch } from '@nextstop/core';
-import { requestJson } from './api.js';
+import {
+  ALLOW_RETIRED_REMOVAL_HEADER,
+  importBatchValidator,
+  type ConfirmBatch,
+} from '@nextstop/core';
+import { readResponseJson, request, requestJson } from './api.js';
 
 const batches = '/api/v1/import-batches';
 const batchPath = (id: string) => `${batches}/${encodeURIComponent(id)}`;
 const itemPath = (id: string, imageId: string) =>
   `${batchPath(id)}/items/${encodeURIComponent(imageId)}`;
-const post = (body: unknown): RequestInit => ({
+const post = (body: unknown, headers?: Record<string, string>): RequestInit => ({
   method: 'POST',
-  headers: { 'content-type': 'application/json' },
+  headers: { 'content-type': 'application/json', ...headers },
   body: JSON.stringify(body),
 });
 
@@ -25,11 +29,18 @@ export function uploadBatch(files: readonly File[]) {
     60_000,
   );
 }
+type BatchItemRevision = { id: string; imageId: string; revision: number };
+
+export async function removeBatchItem({ id, imageId, revision }: BatchItemRevision) {
+  const response = await request(
+    `${itemPath(id, imageId)}/remove`,
+    post({ revision }, { [ALLOW_RETIRED_REMOVAL_HEADER]: '1' }),
+  );
+  return response.status === 204 ? null : readResponseJson(response, importBatchValidator.check);
+}
+
 export const editBatchItem = (
-  input: { id: string; imageId: string; revision: number } & (
-    | { action: 'search'; query: string }
-    | { action: 'retry' | 'skip' | 'remove' }
-  ),
+  input: BatchItemRevision & ({ action: 'search'; query: string } | { action: 'retry' | 'skip' }),
 ) =>
   requestJson(
     `${itemPath(input.id, input.imageId)}/${input.action}`,

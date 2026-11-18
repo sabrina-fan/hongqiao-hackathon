@@ -4,6 +4,8 @@ import { IdentifierSchema, RevisionSchema } from './contracts.js';
 import { ImportReviewSchema } from './wishlist-api.js';
 
 export const IMPORT_BATCH_MAX_IMAGES = 15;
+// A client sending this header with value `1` can handle 204 when a completed removal has no batch snapshot.
+export const ALLOW_RETIRED_REMOVAL_HEADER = 'x-nextstop-allow-retired-removal';
 const image = { import_id: IdentifierSchema, name: str({ maxLength: 160 }) };
 const stored = { ...image, image_type: oneOf(['image/png', 'image/jpeg']) };
 const reviewed = { ...stored, review: ImportReviewSchema };
