@@ -1,16 +1,39 @@
 import { arr, compile, int, lit, obj, opt, str, union } from '@earendil-works/pi-schema';
-import { IdentifierSchema } from '@nextstop/core';
-import type { PlaceOption, RadarRequest } from '@nextstop/core';
+import {
+  IdentifierSchema,
+  liveOriginId,
+  type FixedStop,
+  type PlaceOption,
+  type RadarRequest,
+  type RoutePoint,
+} from '@nextstop/core';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { WalkingEvidence } from './evidence.js';
 
 export type RadarMap = {
   search(query: string): Promise<PlaceOption[]>;
-  walk(request: Pick<RadarRequest, 'origin_id' | 'poi_id'>): Promise<WalkingEvidence>;
+  walk(
+    request: Pick<RadarRequest, 'poi_id'> &
+      (
+        | { origin_id: string }
+        | { position: Extract<RadarRequest, { position: unknown }>['position'] }
+      ),
+    signal?: AbortSignal,
+  ): Promise<WalkingEvidence>;
+  walkToFixed(
+    input: { candidate: WalkingEvidence; fixed: FixedStop },
+    signal?: AbortSignal,
+  ): Promise<WalkingEvidence>;
 };
 
 export class MapFault extends Error {
-  constructor(readonly code: 'MAP_UNAVAILABLE' | 'MAP_RATE_LIMITED' | 'PLACE_NOT_FOUND') {
+  constructor(
+    readonly code:
+      | 'MAP_UNAVAILABLE'
+      | 'MAP_RATE_LIMITED'
+      | 'PLACE_NOT_FOUND'
+      | 'FIXED_LOCATION_UNRESOLVED',
+  ) {
     super(code);
   }
 }
@@ -63,11 +86,26 @@ function toOption(row: { id: string; name: string; address?: string | string[] }
   };
 }
 
-type Gcj02 = string & { readonly __coord: 'gcj02' };
-function isGcj02(point: string): point is Gcj02 {
-  if (!/^-?\d{1,3}(?:\.\d+)?,-?\d{1,2}(?:\.\d+)?$/.test(point)) return false;
-  const [lng, lat] = point.split(',').map(Number);
-  return lng !== undefined && lat !== undefined && Math.abs(lng) <= 180 && Math.abs(lat) <= 90;
+const converted = compile(obj({ locations: str() }, { open: true }));
+const geocodes = compile(
+  obj(
+    { geocodes: arr(obj({ location: str(), level: str(), adcode: str() }, { open: true })) },
+    { open: true },
+  ),
+);
+
+function amapPoint(point: string): RoutePoint {
+  if (!/^-?\d{1,3}(?:\.\d+)?,-?\d{1,2}(?:\.\d+)?$/.test(point))
+    throw new MapFault('MAP_UNAVAILABLE');
+  const [longitude, latitude] = point.split(',').map(Number);
+  if (
+    longitude === undefined ||
+    latitude === undefined ||
+    Math.abs(longitude) > 180 ||
+    Math.abs(latitude) > 90
+  )
+    throw new MapFault('MAP_UNAVAILABLE');
+  return { system: 'gcj02', longitude, latitude };
 }
 
 export function createAmap({
@@ -121,8 +159,32 @@ export function createAmap({
       throw error instanceof MapFault ? error : new MapFault('MAP_UNAVAILABLE');
     }
   }
-  function walkingRoute(origins: Gcj02, destination: Gcj02, signal: AbortSignal) {
-    return request('/v3/distance', { origins, destination, type: '3' }, signal);
+  const pointQuery = ({ longitude, latitude }: RoutePoint) => `${longitude},${latitude}`;
+  async function routeBetween(
+    origin: PlaceOption,
+    destination: PlaceOption,
+    markers: NonNullable<WalkingEvidence['markers']>,
+    signal: AbortSignal,
+  ): Promise<WalkingEvidence> {
+    const result = await request(
+      '/v3/distance',
+      {
+        origins: pointQuery(markers.origin),
+        destination: pointQuery(markers.destination),
+        type: '3',
+      },
+      signal,
+    );
+    if (!route.check(result) || !result.results[0]) throw new MapFault('MAP_UNAVAILABLE');
+    const leg = result.results[0];
+    return {
+      origin,
+      destination,
+      markers,
+      distance_m: Number(leg.distance),
+      travel_min: Math.ceil(Number(leg.duration) / 60),
+      fetched_at: new Date(now()).toISOString(),
+    };
   }
   return {
     async search(query) {
@@ -134,9 +196,10 @@ export function createAmap({
       if (!places.check(body)) throw new MapFault('MAP_UNAVAILABLE');
       return body.pois.map(toOption);
     },
-    async walk({ origin_id, poi_id }) {
-      const signal = AbortSignal.timeout(6500);
-      const ids = Array.from(new Set([origin_id, poi_id]));
+    async walk(input, signal = AbortSignal.timeout(6500)) {
+      const ids = [
+        ...new Set('origin_id' in input ? [input.origin_id, input.poi_id] : [input.poi_id]),
+      ];
       const body = await request('/v5/place/detail', { id: ids.join('|') }, signal);
       if (!details.check(body)) throw new MapFault('MAP_UNAVAILABLE');
       if (
@@ -144,21 +207,65 @@ export function createAmap({
         new Set(body.pois.map((poi) => poi.id)).size !== body.pois.length
       )
         throw new MapFault('MAP_UNAVAILABLE');
-      const origin = body.pois.find((poi) => poi.id === origin_id);
-      const destination = body.pois.find((poi) => poi.id === poi_id);
-      if (!origin || !destination) throw new MapFault('PLACE_NOT_FOUND');
-      if (!isGcj02(origin.location) || !isGcj02(destination.location))
-        throw new MapFault('MAP_UNAVAILABLE');
-      const result = await walkingRoute(origin.location, destination.location, signal);
-      if (!route.check(result) || !result.results[0]) throw new MapFault('MAP_UNAVAILABLE');
-      const leg = result.results[0];
-      return {
-        origin: toOption(origin),
-        destination: toOption(destination),
-        distance_m: Number(leg.distance),
-        travel_min: Math.ceil(Number(leg.duration) / 60),
-        fetched_at: new Date(now()).toISOString(),
-      };
+      const destination = body.pois.find((poi) => poi.id === input.poi_id);
+      if (!destination) throw new MapFault('PLACE_NOT_FOUND');
+      const destinationPoint = amapPoint(destination.location);
+      if ('position' in input) {
+        const { longitude, latitude } = input.position;
+        const result = await request(
+          '/v3/assistant/coordinate/convert',
+          {
+            locations: `${longitude},${latitude}`,
+            coordsys: 'gps',
+          },
+          signal,
+        );
+        if (!converted.check(result)) throw new MapFault('MAP_UNAVAILABLE');
+        return routeBetween(
+          { id: liveOriginId, name: '我的当前位置', address: '' },
+          toOption(destination),
+          { origin: amapPoint(result.locations), destination: destinationPoint },
+          signal,
+        );
+      }
+      const origin = body.pois.find((poi) => poi.id === input.origin_id);
+      if (!origin) throw new MapFault('PLACE_NOT_FOUND');
+      return routeBetween(
+        toOption(origin),
+        toOption(destination),
+        {
+          origin: amapPoint(origin.location),
+          destination: destinationPoint,
+        },
+        signal,
+      );
+    },
+    async walkToFixed({ candidate, fixed }, signal = AbortSignal.timeout(6500)) {
+      if (!candidate.markers) throw new MapFault('MAP_UNAVAILABLE');
+      const body = await request(
+        '/v3/geocode/geo',
+        { address: fixed.address, city: '320500' },
+        signal,
+      );
+      if (!geocodes.check(body)) throw new MapFault('MAP_UNAVAILABLE');
+      const match = body.geocodes[0];
+      if (
+        body.geocodes.length !== 1 ||
+        !match ||
+        !/^3205\d{2}$/.test(match.adcode) ||
+        !['门牌号', '兴趣点'].includes(match.level)
+      )
+        throw new MapFault('FIXED_LOCATION_UNRESOLVED');
+      return routeBetween(
+        candidate.destination,
+        {
+          id: fixed.arrangement_id,
+          name: fixed.name,
+          address: fixed.address,
+        },
+        { origin: candidate.markers.destination, destination: amapPoint(match.location) },
+        signal,
+      );
     },
   };
 }
