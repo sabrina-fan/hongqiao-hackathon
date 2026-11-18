@@ -256,7 +256,12 @@ export function RadarForm({
             </section>
           </div>
           <div className="home-action">
-            <button className="primary full cta" type="submit" disabled={!canSubmit}>
+            <button
+              className="primary full cta"
+              type="submit"
+              disabled={!canSubmit}
+              aria-busy={busy}
+            >
               <Icon>✧</Icon>
               <span aria-live="polite">{busy ? '正在计算…' : '现在去哪'}</span>
             </button>
@@ -430,6 +435,7 @@ export function PickCard({
             className="primary"
             type="button"
             disabled={accepting || !writable || expired}
+            aria-busy={accepting}
             onClick={onConfirm}
           >
             <span aria-live="polite">{accepting ? '正在确认…' : '确认加入行程'}</span>

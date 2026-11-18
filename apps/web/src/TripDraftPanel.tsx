@@ -203,11 +203,21 @@ export function TripDraftPanel({
       ) : (
         <p className="note">从已确认收藏生成一日草案。你可以调整顺序、跳过或锁定活动。</p>
       )}
-      <div role="status">{(pending || notice) && <p className="note">{pending || notice}</p>}</div>
-      {error && <p role="alert">{error}</p>}
+      <div role="status">
+        {(pending || notice) && (
+          <p className="note state-card" data-state={pending ? 'pending' : 'success'}>
+            {pending || notice}
+          </p>
+        )}
+      </div>
+      {error && (
+        <p className="state-card state-error" role="alert">
+          {error}
+        </p>
+      )}
       {needsReview ? (
         <>
-          <p className="note" role="alert">
+          <p className="note state-card state-error" role="alert">
             行程或草案已更新，请重新核对后再确认应用。
           </p>
           <button
@@ -268,7 +278,9 @@ export function TripDraftPanel({
           重试读取草案
         </button>
       ) : (
-        <p role="status">正在读取草案…</p>
+        <p className="state-card" data-state="pending" role="status">
+          正在读取草案…
+        </p>
       )}
     </section>
   );

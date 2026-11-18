@@ -237,6 +237,39 @@ try {
       );
     });
     await shot(`confirm-${failure ? 'image' : target.includes('待删除') ? 'trip' : 'account'}`);
+    if (failure) {
+      const resize = (width) =>
+        page.cdp('Emulation.setDeviceMetricsOverride', {
+          width,
+          height: 844,
+          deviceScaleFactor: 1,
+          mobile: true,
+          screenWidth: width,
+          screenHeight: 844,
+        });
+      await resize(320);
+      await wait(() => {
+        const layer = document.querySelector('.settings-confirm');
+        if (!layer || innerWidth !== 320 || layer.scrollWidth > layer.clientWidth) return false;
+        const [cancel, confirm] = [...layer.querySelectorAll('button')];
+        return (
+          [cancel, confirm].every((button) => {
+            const rect = button.getBoundingClientRect();
+            return (
+              rect.width >= 44 &&
+              rect.height >= 44 &&
+              rect.left >= 0 &&
+              rect.right <= 320 &&
+              button.contains(
+                document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2),
+              )
+            );
+          }) && cancel.getBoundingClientRect().right <= confirm.getBoundingClientRect().left
+        );
+      });
+      await shot('confirm-image-320');
+      await resize(390);
+    }
     await press('取消');
     await absent('.settings-confirm');
     assert.deepEqual(await data(), before);

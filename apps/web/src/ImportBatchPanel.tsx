@@ -305,16 +305,22 @@ export function ImportBatchPanel({
         ))}
       </ol>
       {failure && (
-        <p className="note batch-error" role="alert">
+        <p className="note batch-error state-card state-error" role="alert">
           {failure}
         </p>
       )}
       {pollError && (
-        <p className="note batch-error" role="alert">
+        <p className="note batch-error state-card state-error" role="alert">
           {pollError}
         </p>
       )}
-      <div role="status">{(pending || notice) && <p className="note">{pending || notice}</p>}</div>
+      <div role="status">
+        {(pending || notice) && (
+          <p className="note state-card" data-state={pending ? 'pending' : 'success'}>
+            {pending || notice}
+          </p>
+        )}
+      </div>
       {!batch && (
         <form
           onSubmit={(event) => {

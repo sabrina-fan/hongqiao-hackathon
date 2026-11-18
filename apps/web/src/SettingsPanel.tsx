@@ -294,9 +294,13 @@ export function SettingsPanel({
           </button>
         </div>
         {!available && <p className="note">联网后可以查看和管理个人数据。</p>}
-        {available && !data && !readError && <p role="status">正在读取个人数据…</p>}
+        {available && !data && !readError && (
+          <p className="state-card" data-state="pending" role="status">
+            正在读取个人数据…
+          </p>
+        )}
         {readError && (
-          <div className="note">
+          <div className="note state-card state-error">
             <p role="alert">{readError}</p>
             <button
               type="button"
@@ -320,7 +324,11 @@ export function SettingsPanel({
             <h2 id="delete-data-title">确认删除数据</h2>
             <p>{deleteMessage(target)}</p>
             {actionError && <p role="alert">{actionError}</p>}
-            {pending === 'delete' && <p role="status">正在删除数据…</p>}
+            {pending === 'delete' && (
+              <p className="state-card" data-state="pending" role="status">
+                正在删除数据…
+              </p>
+            )}
             <div className="settings-confirm-actions">
               <button
                 type="button"
@@ -382,12 +390,12 @@ export function SettingsPanel({
           </p>
         )}
         {(pending === 'export' || pending === 'feedback') && (
-          <p className="note" role="status">
+          <p className="note state-card" data-state="pending" role="status">
             {pending === 'export' ? '正在导出匿名数据…' : '正在清除本次反馈…'}
           </p>
         )}
         {notice && (
-          <p className="note" role="status">
+          <p className="note state-card" data-state="success" role="status">
             {notice}
           </p>
         )}

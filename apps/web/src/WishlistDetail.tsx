@@ -97,7 +97,11 @@ export function WishlistDetail({ placeKey, onBack }: { placeKey: PlaceKey; onBac
           <small>苏州水巷 · 插图</small>
         </div>
       )}
-      {state.kind === 'loading' && <p role="status">正在读取地点…</p>}
+      {state.kind === 'loading' && (
+        <p className="state-card" data-state="pending" role="status">
+          正在读取地点…
+        </p>
+      )}
       {state.kind === 'error' && (
         <div className="note">
           <p role="alert">{state.message}</p>
@@ -199,7 +203,11 @@ export function WishlistDetail({ placeKey, onBack }: { placeKey: PlaceKey; onBac
             </p>
           )}
           <div role="status">
-            {(pending || notice) && <p className="note">{pending || notice}</p>}
+            {(pending || notice) && (
+              <p className="note state-card" data-state={pending ? 'pending' : 'success'}>
+                {pending || notice}
+              </p>
+            )}
           </div>
           {confirmRemove ? (
             <div className="panel wishlist-detail-panel">

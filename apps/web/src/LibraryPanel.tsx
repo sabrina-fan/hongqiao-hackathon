@@ -104,9 +104,13 @@ export function LibraryPanel({
             已收藏 {screen.saved}
           </p>
         )}
-        {canRead && list.kind === 'loading' && <p role="status">正在读取收藏…</p>}
+        {canRead && list.kind === 'loading' && (
+          <p className="state-card" data-state="pending" role="status">
+            正在读取收藏…
+          </p>
+        )}
         {canRead && list.kind === 'error' && (
-          <div className="note">
+          <div className="note state-card state-error">
             <p role="alert">{list.message}</p>
             <button type="button" onClick={() => setRetry((value) => value + 1)}>
               重试读取收藏

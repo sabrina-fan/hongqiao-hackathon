@@ -75,7 +75,7 @@ export function WishlistList({
         <small role="status">共 {visible.length} 处</small>
       </div>
       {visible.length === 0 && (
-        <p className="note">
+        <p className="note state-card">
           {places.length
             ? '没有符合条件的收藏。试试其他关键词或筛选。'
             : '还没有收藏。可以手动添加地点，或导入攻略截图。'}

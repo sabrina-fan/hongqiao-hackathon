@@ -1,0 +1,114 @@
+.state-card,
+.service {
+  --state-edge: #b6d7ec;
+  --state-fill: #f1f8fd;
+  border: 1px solid var(--state-edge);
+  border-radius: 14px;
+  background: var(--state-fill);
+  color: var(--ink);
+}
+
+.state-card {
+  display: grid;
+  gap: 8px;
+  margin-block: 10px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.state-card > p {
+  margin: 0;
+}
+
+.state-card button,
+.state-card a.secondary,
+.service button {
+  min-height: 44px;
+  justify-self: start;
+}
+
+.state-card[data-state='pending'] {
+  display: flex;
+  align-items: baseline;
+}
+
+.state-card[data-state='pending']::before {
+  content: '';
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border: 2px solid #80baf1;
+  border-top-color: var(--blue);
+  border-radius: 50%;
+}
+
+.state-card[data-state='success'] {
+  --state-edge: #b9e3c9;
+  --state-fill: #f0faf3;
+}
+
+.state-card.state-error,
+.service:has(.connection.failed) {
+  --state-edge: #e9c2ba;
+  --state-fill: #fff7f4;
+}
+
+.service {
+  margin-block: 12px;
+  padding: 14px;
+}
+
+.service h2 {
+  font-size: 16px;
+}
+
+.service .connection {
+  font-size: 13px;
+}
+
+.batch-screen .batch-progress {
+  border-color: #b6d7ec;
+  background: linear-gradient(160deg, #fff 50%, #edf8fd);
+}
+
+.result .state-card > p:first-child {
+  font-weight: 700;
+}
+
+.settings-confirm {
+  padding: 18px;
+  border-color: #e9c2ba;
+  border-radius: 18px;
+  box-shadow: 0 12px 38px #17334a33;
+  overflow-wrap: anywhere;
+}
+
+.settings-confirm > p[role='alert'] {
+  padding: 10px;
+  border-radius: 10px;
+  background: #fff1ed;
+}
+
+.settings-confirm-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.draft-row[data-kind='unscheduled'] {
+  border-color: #e6c997;
+  background: #fff8eb;
+}
+
+.draft-conflict {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.home-action button[aria-busy='true'],
+.pick .actions .primary[aria-busy='true'] {
+  opacity: 1;
+  background: #e2edf9;
+  color: #315781;
+}

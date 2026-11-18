@@ -441,7 +441,7 @@ export function RadarPanel({
       {page === 'trip' ? '行程服务暂不可用。' : '雷达尚未配置，暂时无法搜索地点。'}
     </p>
   ) : session.kind === 'loading' ? (
-    <p role="status" className="note">
+    <p role="status" className="note state-card" data-state="pending">
       正在建立访客会话…
     </p>
   ) : session.kind === 'failed' ? (
@@ -557,7 +557,7 @@ export function RadarPanel({
           </div>
         )}
         {result.kind === 'error' && (
-          <div className="note" role="alert">
+          <div className="note state-card state-error" role="alert">
             <p>{result.message}</p>
             <button
               type="button"
@@ -657,7 +657,7 @@ export function RadarPanel({
           </p>
         )}
         {result.kind === 'shown' && result.failure && (
-          <div className="note" role="alert">
+          <div className="note state-card state-error" role="alert">
             <p>确认失败：{result.failure} 可再次点「确认加入行程」核对本次结果。</p>
             <a href="#trip" className="secondary">
               查看当前行程 →
@@ -665,7 +665,7 @@ export function RadarPanel({
           </div>
         )}
         {shown?.outcome.kind === 'empty' && (
-          <div className="note" role="status">
+          <div className="note state-card" role="status">
             <p>当前条件下没有可行方案，建议不绕路。</p>
             <p>
               {shown.window?.fixed
