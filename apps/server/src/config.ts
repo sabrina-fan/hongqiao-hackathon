@@ -18,5 +18,16 @@ export function readServerConfig(env: NodeJS.ProcessEnv) {
     data_dir: resolve(import.meta.dirname, '../../..', env.DATA_DIR ?? 'data'),
   };
   if (!configValidator.check(value)) throw new Error('Invalid server configuration');
-  return value;
+  const cookieSecret = env.COOKIE_SECRET?.trim();
+  const mapKey = env.AMAP_SERVER_KEY?.trim();
+  return {
+    ...value,
+    cookieSecret:
+      cookieSecret && Buffer.byteLength(cookieSecret) >= 32 && !/^x+$/i.test(cookieSecret)
+        ? cookieSecret
+        : null,
+    mapKey: mapKey && !/^x+$/i.test(mapKey) ? mapKey : null,
+    secureCookie:
+      env.NODE_ENV === 'production' || env.PUBLIC_BASE_URL?.startsWith('https://') === true,
+  };
 }

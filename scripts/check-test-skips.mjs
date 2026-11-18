@@ -1,42 +1,11 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { glob, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import ts from 'typescript';
+import { join, resolve } from 'node:path';
+import { findForbiddenTestModifiers, testExclude, testInclude } from './test-policy.ts';
 
-async function testFiles(directory) {
-  const files = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (['node_modules', 'dist'].includes(entry.name)) continue;
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...(await testFiles(path)));
-    else if (/\.(test|spec)\.tsx?$/.test(entry.name)) files.push(path);
-  }
-  return files;
-}
-
-const forbidden = new Set(['only', 'skip', 'todo', 'skipIf', 'runIf', 'fails', 'fail', 'fixme']);
-const violations = [];
-for (const path of [
-  ...(await testFiles('packages')),
-  ...(await testFiles('apps')),
-  ...(await testFiles('e2e')),
-]) {
-  const source = ts.createSourceFile(
-    path,
-    await readFile(path, 'utf8'),
-    ts.ScriptTarget.Latest,
-    true,
-  );
-  function visit(node) {
-    if (ts.isPropertyAccessExpression(node) && forbidden.has(node.name.text)) {
-      const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
-      violations.push(`${path}:${line + 1}: forbidden test modifier .${node.name.text}`);
-    }
-    ts.forEachChild(node, visit);
-  }
-  visit(source);
-}
+const files = await Array.fromAsync(glob(testInclude, { exclude: testExclude }));
+const violations = findForbiddenTestModifiers(files);
 if (violations.length > 0) {
   console.error(violations.join('\n'));
   process.exitCode = 1;
@@ -70,6 +39,11 @@ if (violations.length > 0) {
         report.numFailedTestSuites !== 0
       ) {
         throw new Error('Test gate rejected missing, empty, skipped, or failed test results');
+      }
+      const executed = new Set(report.testResults.map((result) => resolve(result.name)));
+      const missing = files.filter((path) => !executed.has(resolve(path)));
+      if (missing.length > 0) {
+        throw new Error(`Test files were scanned but not executed: ${missing.join(', ')}`);
       }
     }
   } finally {

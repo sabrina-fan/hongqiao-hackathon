@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Server } from 'node:http';
+import { request as httpRequest, type IncomingMessage, type Server } from 'node:http';
+import { json } from 'node:stream/consumers';
 import { capabilitiesValidator, readyValidator } from '@nextstop/core';
 import { createApp } from './app.js';
 
@@ -42,10 +43,22 @@ describe('HTTP scaffold', () => {
       model_calls: false,
     });
   });
-  it('does not return pretend recommendations from an unimplemented API', async () => {
+  it.each(['//', '//['])('returns 400 for %s and keeps serving health requests', async (path) => {
+    const origin = await startApp();
+    const response = await new Promise<IncomingMessage>((resolve, reject) => {
+      httpRequest(origin, { path }, resolve).once('error', reject).end();
+    });
+    expect(response.statusCode).toBe(400);
+    const body: unknown = await json(response);
+    expect(body).toMatchObject({ error: { code: 'INVALID_REQUEST' } });
+    const ready = await fetch(`${origin}/health/ready`);
+    expect(ready.status).toBe(200);
+    expect(readyValidator.check(await ready.json())).toBe(true);
+  });
+  it('reports missing configuration without returning a pretend recommendation', async () => {
     const origin = await startApp();
     const response = await fetch(`${origin}/api/v1/radar/sessions`, { method: 'POST' });
-    expect(response.status).toBe(404);
-    expect(await response.json()).toMatchObject({ error: { code: 'NOT_IMPLEMENTED' } });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: { code: 'RADAR_NOT_CONFIGURED' } });
   });
 });

@@ -1,16 +1,4 @@
-title = "NextStop secret scanning"
+title = "NextStop committed content"
 
 [extend]
 useDefault = true
-
-# Local dir scans exclude real env files; secrets:check-env separately rejects
-# any tracked real env file, even one added with git add -f.
-[allowlist]
-paths = [
-  '''(^|/)\.env($|\.)''',
-  '''(^|/)node_modules/''',
-  '''(^|/)dist/''',
-  '''(^|/)data/''',
-  '''(^|/)\.git/''',
-  '''(^|/)test-results/'''
-]

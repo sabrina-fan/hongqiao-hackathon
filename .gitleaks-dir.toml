@@ -1,0 +1,16 @@
+title = "NextStop working tree"
+
+[extend]
+path = ".gitleaks.toml"
+
+# These local files and build outputs only apply to directory scans.
+[allowlist]
+paths = [
+  '''(^|/)\.env$''',
+  '''(^|/)\.env\.jev\.local$''',
+  '''(^|/)node_modules/''',
+  '''(^|/)dist/''',
+  '''(^|/)data/''',
+  '''(^|/)\.git/''',
+  '''(^|/)test-results/'''
+]

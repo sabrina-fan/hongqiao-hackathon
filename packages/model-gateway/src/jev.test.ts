@@ -19,13 +19,15 @@ const answer = {
   },
   usage: { input_tokens: 10, output_tokens: 5 },
 };
+const inconsistentProbabilities = structuredClone(answer);
+inconsistentProbabilities.answers.intent.probabilities.too_far = 1;
 
-function client(fetcher: typeof fetch) {
+function client(fetcher: typeof fetch, timeoutMs = 1000) {
   return createJevIntentClient({
     baseUrl: 'https://relay.example',
     apiKey: 'test-key',
     model: 'jev-latest',
-    timeoutMs: 1000,
+    timeoutMs,
     fetcher,
   });
 }
@@ -64,15 +66,115 @@ describe('Jev native intent transport', () => {
     ).rejects.toMatchObject({ code: 'DEADLINE_EXCEEDED' });
     expect(fetcher).not.toHaveBeenCalled();
   });
-  it('rejects an inconsistent probability distribution', async () => {
-    const invalid = structuredClone(answer);
-    invalid.answers.intent.probabilities.too_far = 1;
+  it.each([
+    { label: 'valid', body: answer },
+    { label: 'schema-invalid', body: {} },
+    { label: 'probability-invalid', body: inconsistentProbabilities },
+  ])('reports the shared deadline for a $label response that finishes late', async ({ body }) => {
+    const deadlineMs = Date.now() + 1000;
+    using clock = vi.spyOn(Date, 'now');
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      clock.mockReturnValue(deadlineMs);
+      return Response.json(body);
+    });
     await expect(
-      client(async () => Response.json(invalid)).classifyIntent({
+      client(fetcher).classifyIntent({ message: '太远了', deadlineMs }),
+    ).rejects.toMatchObject({ code: 'DEADLINE_EXCEEDED' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('enforces the attempt budget even before the abort timer is dispatched', async () => {
+    using clock = vi.spyOn(performance, 'now').mockReturnValue(0);
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      clock.mockReturnValue(20);
+      return Response.json(answer);
+    });
+    await expect(
+      client(fetcher, 20).classifyIntent({ message: '太远了', deadlineMs: Date.now() + 1000 }),
+    ).rejects.toMatchObject({
+      code: 'ATTEMPT_TIMEOUT',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('rejects an inconsistent probability distribution', async () => {
+    await expect(
+      client(async () => Response.json(inconsistentProbabilities)).classifyIntent({
         message: '换一个',
         deadlineMs: Date.now() + 1000,
       }),
-    ).rejects.toMatchObject({ code: 'INVALID_MODEL_RESPONSE' });
+    ).rejects.toMatchObject({ code: 'INVALID_MODEL_RESPONSE', reason: 'INVALID_PROBABILITIES' });
+  });
+  it('classifies malformed JSON separately from transport failures', async () => {
+    await expect(
+      client(async () => new Response('private invalid JSON')).classifyIntent({
+        message: '换一个',
+        deadlineMs: Date.now() + 1000,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_MODEL_RESPONSE', reason: 'INVALID_JSON' });
+  });
+  it('keeps a distinct reason for schema-invalid JSON', async () => {
+    await expect(
+      client(async () => Response.json({ model: 'jev-latest' })).classifyIntent({
+        message: '换一个',
+        deadlineMs: Date.now() + 1000,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_MODEL_RESPONSE', reason: 'SCHEMA_MISMATCH' });
+  });
+  it.each(['headers', 'body'])('keeps network failures during %s as failures', async (phase) => {
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      const error = new TypeError('private network diagnostic');
+      if (phase === 'headers') throw error;
+      return new Response(new ReadableStream({ start: (stream) => stream.error(error) }));
+    });
+    await expect(
+      client(fetcher).classifyIntent({ message: '换一个', deadlineMs: Date.now() + 1000 }),
+    ).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE', message: 'PROVIDER_UNAVAILABLE' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    { phase: 'headers', timeoutMs: 20, remainingMs: 1000, code: 'ATTEMPT_TIMEOUT' },
+    { phase: 'body', timeoutMs: 20, remainingMs: 1000, code: 'ATTEMPT_TIMEOUT' },
+    { phase: 'headers', timeoutMs: 1000, remainingMs: 20, code: 'DEADLINE_EXCEEDED' },
+    { phase: 'body', timeoutMs: 1000, remainingMs: 20, code: 'DEADLINE_EXCEEDED' },
+  ])(
+    'reports $code during $phase without retrying',
+    async ({ phase, timeoutMs, remainingMs, code }) => {
+      const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+        const signal = init?.signal;
+        if (!signal) throw new Error('Expected a request cancellation signal');
+        if (phase === 'headers') {
+          return new Promise<Response>((_resolve, reject) => {
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+          });
+        }
+        return new Response(
+          new ReadableStream({
+            start(stream) {
+              signal.addEventListener('abort', () => stream.error(signal.reason), { once: true });
+            },
+          }),
+        );
+      });
+      await expect(
+        client(fetcher, timeoutMs).classifyIntent({
+          message: '换一个',
+          deadlineMs: Date.now() + remainingMs,
+        }),
+      ).rejects.toMatchObject({ code });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    },
+  );
+  it('cancels an unread HTTP error body and preserves the provider error if cleanup fails', async () => {
+    const cancel = vi.fn<() => void>(() => {
+      throw new Error('stream already closed upstream');
+    });
+    const response = new Response(new ReadableStream({ cancel }), { status: 503 });
+    await expect(
+      client(async () => response).classifyIntent({
+        message: '太远了',
+        deadlineMs: Date.now() + 1000,
+      }),
+    ).rejects.toMatchObject({ code: 'PROVIDER_UNAVAILABLE', message: 'PROVIDER_UNAVAILABLE' });
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
   it('does not expose provider bodies or credentials in an error', async () => {
     const fetcher: typeof fetch = async () =>

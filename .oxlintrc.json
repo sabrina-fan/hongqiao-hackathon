@@ -1,9 +1,26 @@
 {
-  "plugins": ["typescript", "unicorn", "oxc", "vitest"],
+  "plugins": ["typescript", "unicorn", "oxc", "vitest", "import"],
+  "jsPlugins": [{ "name": "workspace", "specifier": "./scripts/oxlint-rules.mjs" }],
   "categories": { "correctness": "error" },
   "rules": {
     "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "ignoreRestSiblings": true }],
-    "no-console": ["error", { "allow": ["warn", "error"] }]
+    "no-console": ["error", { "allow": ["warn", "error"] }],
+    "unicorn/prefer-node-protocol": "error",
+    "import/no-cycle": "error",
+    "import/no-absolute-path": "error",
+    "import/no-commonjs": "error",
+    "workspace/public-imports": "error",
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "regex": "^@nextstop/[^/]+/",
+            "message": "跨包导入使用 @nextstop 包的公开入口，不要深导入 src/dist。"
+          }
+        ]
+      }
+    ]
   },
   "ignorePatterns": [
     "**/node_modules/**",
@@ -14,26 +31,107 @@
   ],
   "overrides": [
     {
+      "files": ["apps/*/src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}"],
+      "excludeFiles": ["**/*.{test,spec}.{ts,tsx}"],
+      "rules": { "workspace/no-chained-type-assertions": "error" }
+    },
+    {
       "files": ["scripts/**/*.mjs", "evals/**/*.mjs", "e2e/**/*.mjs"],
       "rules": { "no-console": "off" }
     },
     {
       "files": ["apps/web/src/**/*.{ts,tsx}"],
       "rules": {
+        "import/no-nodejs-modules": "error",
+        "no-restricted-globals": [
+          "error",
+          { "name": "process", "message": "客户端不要读取服务端环境；使用公开契约。" }
+        ],
         "no-restricted-imports": [
           "error",
           {
             "patterns": [
-              "node:*",
-              "node:*/**",
-              "@nextstop/server",
-              "@nextstop/server/**",
-              "@nextstop/model-gateway",
-              "@nextstop/model-gateway/**",
-              "@earendil-works/pi-durable",
-              "@earendil-works/pi-durable/**",
-              "@earendil-works/pi-ai",
-              "@earendil-works/pi-ai/**"
+              {
+                "group": [
+                  "@nextstop/server",
+                  "@nextstop/model-gateway",
+                  "@earendil-works/pi-durable",
+                  "@earendil-works/pi-durable/**",
+                  "@earendil-works/pi-ai",
+                  "@earendil-works/pi-ai/**"
+                ],
+                "message": "Web 只通过公开契约与 HTTP/SSE 使用服务端能力。"
+              },
+              {
+                "regex": "^@nextstop/[^/]+/",
+                "message": "跨包导入使用 @nextstop 包的公开入口，不要深导入 src/dist。"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/core/**/*.{ts,tsx}"],
+      "rules": {
+        "import/no-nodejs-modules": "error",
+        "no-restricted-globals": [
+          "error",
+          { "name": "process", "message": "core 通过参数接收配置，不读取环境或执行 I/O。" },
+          { "name": "fetch", "message": "core 通过参数接收外部数据，不执行 I/O。" },
+          { "name": "globalThis", "message": "core 通过参数接收外部能力，不访问全局运行时。" },
+          { "name": "XMLHttpRequest", "message": "core 不执行网络 I/O。" },
+          { "name": "WebSocket", "message": "core 不执行网络 I/O。" }
+        ],
+        "no-restricted-properties": [
+          "error",
+          { "object": "Date", "property": "now", "message": "core 通过参数接收当前时间。" },
+          { "object": "Math", "property": "random", "message": "core 通过参数接收随机值。" }
+        ],
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "**",
+                  "!@earendil-works",
+                  "!@earendil-works/pi-schema",
+                  "!vitest",
+                  "!fast-check",
+                  "!./**",
+                  "!../**"
+                ],
+                "message": "core 仅依赖自身、pi-schema 与测试工具；基础设施留在应用适配层。"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["packages/model-gateway/**/*.{ts,tsx}"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": [
+                  "@nextstop/server",
+                  "@nextstop/web",
+                  "@earendil-works/pi-durable",
+                  "@earendil-works/pi-durable/**",
+                  "node:sqlite",
+                  "better-sqlite3",
+                  "sqlite3"
+                ],
+                "message": "gateway 不依赖应用模块或行程存储；应用用例拥有业务写入。"
+              },
+              {
+                "regex": "^@nextstop/[^/]+/",
+                "message": "跨包导入使用 @nextstop 包的公开入口，不要深导入 src/dist。"
+              }
             ]
           }
         ]

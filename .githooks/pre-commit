@@ -1,0 +1,4 @@
+#!/bin/sh
+set -e
+node scripts/check-node.mjs
+exec node --run lint

@@ -3,7 +3,7 @@
 定稿日期：2026-11-15
 评审修订：2026-11-16 —— 闸门移到应用端（proposal doc）、批量 ETA 方向更正、补齐导入/数据模型/API/进程模型/对象存储/删除/预约与停留时长数据源、延迟预算。修订记录见文末。
 评审修订：2026-11-17 —— proposal/candidate_pool/eta_snapshot 改为按 radar session 键控的 doc family，验证证明绑定 session/proposal 修订/快照版本/trip 修订；提案结果改 `kind=empty|recommendations` 判别联合；删除分级（单 trip 引用清理 vs 全删用户关库清文件+客户端缓存）；提案轮次由运行时收窄工具面并拒绝混合批次；模型输入与存储输出 schema 分离；`compile().validate()` 更正；testdata 入库；Node 24 统一与 pnpm monorepo 脚手架。修订记录见文末。
-适用 PRD：`NextStop_旅行机会雷达_完整PRD_V1.0_2026-11-15.md`
+产品场景、范围与验收标准见 [旅行机会雷达 PRD V1.0](./PRD.md)。
 
 ## 0. 文档地图与标记约定
 
@@ -112,7 +112,7 @@ PRD 的核心路径是线性的：
 | 存储 | durable **内置** SQLite | — | 五种后端可选，见 §8.3 |
 | 图片处理 | `@earendil-works/pi-durable/images/node`（Photon WASM） | 1.5.2 | worker 线程，不阻塞事件循环 |
 | Web UI | **自己写**（React + Vite） | — | **不用 `pi-web-ui`**，见 §2.5 |
-| HTTP | chord 自带；不够再上 Hono | — | 先不引入 |
+| HTTP | 脚手架用 `node:http`；业务接口设计优先使用 chord 自带 HTTP | — | 现有健康、地点搜索、雷达提案与行程接口使用 `node:http`。Hono 按需评估。 |
 | 测试 | `fauxProvider()` + `registerStorageConformance()` + Vitest | — | 回放不烧钱；测试矩阵见 ENGINEERING §3.3 |
 | Lint / 格式化 | **oxlint + oxfmt** | 1.83.0 / 0.68.0 | 从 `heirloom-lite` 借；不用 ESLint/Prettier |
 | 浏览器 E2E | **ego-lite（`ego-browser` CLI）** | 本机已安装版本 | 桌面浏览器验收，连接本地真实 Web/API；见 ENGINEERING §3.3 |
@@ -229,7 +229,7 @@ agent-core 只覆盖前六行。**其余全部要手写**——而那些恰好�
 
 **那三个 SQLite 包尤其别装**：durable **自带**五种存储后端，不需要外部后端包。
 
-**Web UI 自己写**。应用端通过 `harness.watch()` / `observeCommits()` / `watchDoc()` 订阅状态，再通过 HTTP/SSE 只读推给浏览器（§8.3）；浏览器不持有 Harness。远程 RPC 需要时可用 chord 自带的 HTTP / web 客户端，不用 `pi-protocol` / `pi-client`。当前脚手架只实现 Node HTTP 健康接口，尚未接入 SSE 或 chord RPC。
+**Web UI 自己写**。应用端通过 `harness.watch()` / `observeCommits()` / `watchDoc()` 订阅状态，再通过 HTTP/SSE 只读推给浏览器（§8.3）；浏览器不持有 Harness。远程 RPC 需要时可用 chord 自带的 HTTP / web 客户端，不用 `pi-protocol` / `pi-client`。当前页面通过 Node HTTP 读取健康、地点、雷达和行程数据。SSE 与 chord RPC 属后续设计。
 
 ### 2.6 我们自己写的只剩这些 🔷
 
@@ -916,7 +916,7 @@ type Wgs84 = string & { readonly __coord: 'wgs84' };   // GPS 原始 / 国际标
 - **空结果由应用端确定性生成**：可行集为空时不调用模型凑首选。`empty` 是正常业务响应；只有 `recommendations` 才需要 best。尚未生成结果用 `outcome:null`，与「已计算且无候选」区分。
 - 模型输入是闭合对象，额外的 `binding`、时间与证据字段会被拒绝。`reason_text` 仍可能包含虚构数值或断言，因此完整业务闸门还必须检查理由与证据；不能仅靠字段分离保证文本真实。
 - 当前 `evidence` 只表达高德 ETA 的估算来源与采集时间，不代表开放/预约政策已验证。完整证据、排除原因、体验类别与历史展示在业务闭环中扩充权威 schema；这部分尚未实现。
-- `candidates.propose` 的工具注册、服务端 `buildProposal`、完整 `checkProposal` 与 GET/SSE/accept 都是下文的设计目标。当前仅有共享契约、绑定检查和会话隔离持久化适配，不能据此宣称业务闸门已上线。
+- 单个已选 POI 的提案创建、GET 和 accept 已在[应用用例](./apps/server/src/radar/store.ts)实现。多候选模型工具、固定行程段和 SSE 是后续设计目标。
 - `obj()` 默认闭合；禁用 `multipleOf` / `uniqueItems` / `contains` / `patternProperties` / `propertyNames`（§7.3）。
 
 ---
@@ -927,7 +927,7 @@ type Wgs84 = string & { readonly __coord: 'wgs84' };   // GPS 原始 / 国际标
 
 **业务实现目标：`candidate_pool` / `eta_snapshot` / `proposal` 都使用 `defineDocFamily`，key = `session_id`。** 雷达每开一次 session 就有自己的池、ETA 快照与提案，验证证明不能跨 session 或修订复用（§9.2）。✅ 1.5.2 有 `defineDocFamily`：family 成员用 `tx.doc(token, conversationId, key, seed)` 访问，`initial(seed)` 只在成员缺席时运行。
 
-**当前脚手架**在 [`apps/server/src/runtime/documents.ts`](./apps/server/src/runtime/documents.ts) 实现 `nextstop.radar_result` family（key=session_id），成员是 `{outcome:null|RadarOutcome, validated:null|ProposalBinding}`。这是契约与持久化的最小落点，尚未拆出下列候选池/ETA/提案工具文档，也未注册任何模型工具。下列代码和表格为后续业务设计；`ProposalState` 的语义为 `{outcome: RadarOutcome|null}`。
+**当前单候选实现**将请求、候选与步行证据快照、结果及验证绑定保存在同一 `nextstop.radar_result` family 成员中，按雷达会话 ID 隔离。`nextstop.trip` 保存当前行程，`nextstop.accept_receipt` 按幂等键保存回执。见[持久化文档](./apps/server/src/runtime/documents.ts)。下列候选池、ETA 与提案工具的拆分为多候选阶段设计。
 
 ```ts
 const CandidatePool = defineDocFamily<CandidatePoolState, SessionId>({

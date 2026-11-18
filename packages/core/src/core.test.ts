@@ -106,6 +106,34 @@ describe('time window hard constraint', () => {
     expect(fitsTimeWindow({ ...input, available_min: 59 })).toBe(false);
     expect(fitsTimeWindow({ ...input, travel_after_min: Number.NaN })).toBe(false);
   });
+  it('ignores metadata outside the five time fields', () => {
+    const input = {
+      available_min: 60,
+      travel_to_min: 10,
+      stay_min: 25,
+      travel_after_min: 15,
+      buffer_min: 10,
+      source: 'amap',
+      diagnostic: Number.NaN,
+    };
+    expect(fitsTimeWindow(input)).toBe(true);
+    expect(fitsTimeWindow({ ...input, available_min: 59 })).toBe(false);
+  });
+  it.each(['available_min', 'travel_to_min', 'stay_min', 'travel_after_min', 'buffer_min'])(
+    'rejects invalid numeric values in %s',
+    (field) => {
+      const input = {
+        available_min: 60,
+        travel_to_min: 10,
+        stay_min: 25,
+        travel_after_min: 15,
+        buffer_min: 10,
+      };
+      for (const invalid of [-1, Number.NaN, Infinity, -Infinity]) {
+        expect(fitsTimeWindow({ ...input, [field]: invalid })).toBe(false);
+      }
+    },
+  );
   it('never makes an infeasible trip feasible by reducing the available time', () => {
     const result = fc.check(
       fc.property(

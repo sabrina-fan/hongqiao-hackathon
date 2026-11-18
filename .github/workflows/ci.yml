@@ -10,6 +10,9 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
+    concurrency:
+      group: checks-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -20,14 +23,35 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm format:check --all
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
+      - run: pnpm verify:code
       # ego-lite acceptance runs locally with a connected desktop browser.
       # This hosted Linux job covers code checks; it does not claim browser coverage.
       - run: pnpm audit:prod
-      - run: pnpm secrets:check-env
-      - name: Scan repository files for secrets
+
+  secrets:
+    if: ${{ !github.event.deleted }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: node scripts/check-env-boundary.mjs
+      - name: Scan checkout and incoming commits
         shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          docker run --rm --network none -v "$PWD:/repo:ro" ghcr.io/gitleaks/gitleaks:v8.28.0 dir /repo --redact --config /repo/.gitleaks.toml
+          # A new ref or a missing force-push base needs the history reachable from the new tip.
+          range="$HEAD_SHA"
+          if [[ -n "$BASE_SHA" ]] && git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null; then
+            range="$BASE_SHA..$HEAD_SHA"
+          fi
+          scan() {
+            docker run --rm --network none -v "$PWD:/repo:ro" -w /repo \
+              -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
+              ghcr.io/gitleaks/gitleaks:v8.28.0 "$@" --redact
+          }
+          scan dir . --config .gitleaks-dir.toml
+          scan git . --config .gitleaks.toml --log-opts="--diff-merges=first-parent $range"

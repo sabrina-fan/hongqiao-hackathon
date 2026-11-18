@@ -1,8 +1,15 @@
 import { createApp } from './app.js';
 import { readServerConfig } from './config.js';
 
+import { createAmap } from './radar/amap.js';
+
 const config = readServerConfig(process.env);
-const server = createApp();
+const server = createApp({
+  dataDir: config.data_dir,
+  cookieSecret: config.cookieSecret,
+  secureCookie: config.secureCookie,
+  map: config.mapKey ? createAmap({ key: config.mapKey }) : null,
+});
 await new Promise<void>((resolve, reject) => {
   server.once('error', reject);
   server.listen(config.port, config.host, () => {
@@ -11,7 +18,7 @@ await new Promise<void>((resolve, reject) => {
   });
 });
 process.stdout.write(
-  `${JSON.stringify({ event: 'server_started', host: config.host, port: config.port, stage: 'scaffold' })}\n`,
+  `${JSON.stringify({ event: 'server_started', host: config.host, port: config.port, radar_configured: Boolean(config.mapKey && config.cookieSecret) })}\n`,
 );
 
 function shutdown() {

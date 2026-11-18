@@ -25,7 +25,12 @@ const responseValidator = compile(
 
 export class ModelGatewayError extends Error {
   constructor(
-    readonly code: 'DEADLINE_EXCEEDED' | 'PROVIDER_UNAVAILABLE' | 'INVALID_MODEL_RESPONSE',
+    readonly code:
+      | 'DEADLINE_EXCEEDED'
+      | 'ATTEMPT_TIMEOUT'
+      | 'PROVIDER_UNAVAILABLE'
+      | 'INVALID_MODEL_RESPONSE',
+    readonly reason?: 'INVALID_JSON' | 'SCHEMA_MISMATCH' | 'INVALID_PROBABILITIES',
   ) {
     super(code);
     this.name = 'ModelGatewayError';
@@ -72,14 +77,23 @@ export function createJevIntentClient(config: {
       if (!Number.isFinite(remaining) || remaining <= 0)
         throw new ModelGatewayError('DEADLINE_EXCEEDED');
       const started = performance.now();
+      const budgetMs = Math.min(config.timeoutMs, remaining);
+      const signal = AbortSignal.timeout(Math.ceil(budgetMs));
+      function checkBudget() {
+        if (Date.now() >= input.deadlineMs) throw new ModelGatewayError('DEADLINE_EXCEEDED');
+        if (signal.aborted || performance.now() - started >= budgetMs) {
+          throw new ModelGatewayError(
+            remaining <= config.timeoutMs ? 'DEADLINE_EXCEEDED' : 'ATTEMPT_TIMEOUT',
+          );
+        }
+      }
       let response: Response;
-      let body: unknown;
       try {
         response = await fetcher(endpoint, {
           method: 'POST',
           redirect: 'manual',
           headers: { authorization: `Bearer ${config.apiKey}`, 'content-type': 'application/json' },
-          signal: AbortSignal.timeout(Math.ceil(Math.min(config.timeoutMs, remaining))),
+          signal,
           body: JSON.stringify({
             model: config.model,
             state: { user_message: input.message },
@@ -99,18 +113,37 @@ export function createJevIntentClient(config: {
             },
           }),
         });
-        if (!response.ok) throw new ModelGatewayError('PROVIDER_UNAVAILABLE');
+      } catch {
+        checkBudget();
+        throw new ModelGatewayError('PROVIDER_UNAVAILABLE');
+      }
+      if (!response.ok) {
+        // Release the unread body. Its cleanup may reject after the HTTP status is known.
+        void response.body?.cancel().catch(() => undefined);
+        checkBudget();
+        throw new ModelGatewayError('PROVIDER_UNAVAILABLE');
+      }
+      let body: unknown;
+      try {
         body = await response.json();
       } catch (error) {
-        if (error instanceof ModelGatewayError) throw error;
-        throw new ModelGatewayError(
-          Date.now() >= input.deadlineMs ? 'DEADLINE_EXCEEDED' : 'PROVIDER_UNAVAILABLE',
-        );
+        checkBudget();
+        if (error instanceof SyntaxError) {
+          throw new ModelGatewayError('INVALID_MODEL_RESPONSE', 'INVALID_JSON');
+        }
+        throw new ModelGatewayError('PROVIDER_UNAVAILABLE');
       }
-      if (!responseValidator.check(body)) throw new ModelGatewayError('INVALID_MODEL_RESPONSE');
+      if (!responseValidator.check(body)) {
+        checkBudget();
+        throw new ModelGatewayError('INVALID_MODEL_RESPONSE', 'SCHEMA_MISMATCH');
+      }
       const answer = body.answers.intent;
       const sum = Object.values(answer.probabilities).reduce((total, value) => total + value, 0);
-      if (Math.abs(sum - 1) > 0.001) throw new ModelGatewayError('INVALID_MODEL_RESPONSE');
+      // Body decoding and validation can cross a deadline before the abort timer runs.
+      checkBudget();
+      if (Math.abs(sum - 1) > 0.001) {
+        throw new ModelGatewayError('INVALID_MODEL_RESPONSE', 'INVALID_PROBABILITIES');
+      }
       return {
         intent: answer.choice,
         confidence: answer.confidence,
