@@ -420,7 +420,7 @@ try {
   const fixedHint = await page.evaluate(() => document.querySelector('.result .context')?.textContent);
   const previous = await page.evaluate(() => document.querySelector('.pick h3')?.textContent);
   const actions = await page.evaluate(() =>
-    [...document.querySelectorAll('.pick .actions button')].map((button) => {
+    [...document.querySelectorAll('.pick .actions > button')].map((button) => {
       const { height, left, right } = button.getBoundingClientRect();
       return { height, left, right };
     }),
