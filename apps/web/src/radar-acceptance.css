@@ -1,0 +1,35 @@
+.radar-acceptance {
+  overflow-wrap: anywhere;
+}
+
+.radar-acceptance-status {
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.radar-acceptance .badge {
+  min-height: 0;
+}
+
+.radar-acceptance-fallbacks,
+.radar-acceptance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.radar-acceptance-fallbacks > * {
+  flex: 1 1 auto;
+}
+
+.radar-acceptance-actions {
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.radar-acceptance a,
+.radar-acceptance button {
+  min-height: 44px;
+}

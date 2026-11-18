@@ -18,6 +18,9 @@ export class HttpFault extends Error {
       | 'IMPORT_INVALID_CHOICE'
       | 'IMPORT_BUSY'
       | 'WISHLIST_NOT_FOUND'
+      | 'DRAFT_STALE'
+      | 'DRAFT_INVALID_EDIT'
+      | 'DRAFT_NO_SCHEDULE'
       | 'NOT_IMPLEMENTED',
   ) {
     super(code);
@@ -36,6 +39,9 @@ const errors = {
   IMPORT_INVALID_CHOICE: [409, '请选择当前核对中的地图候选。'],
   IMPORT_BUSY: [503, '图片处理繁忙，请稍后重试。'],
   WISHLIST_NOT_FOUND: [404, '未找到此收藏。'],
+  DRAFT_STALE: [409, '草案或行程已更新，请重新核对草案。'],
+  DRAFT_INVALID_EDIT: [409, '无法调整这项活动，请检查锁定和跳过状态。'],
+  DRAFT_NO_SCHEDULE: [409, '草案没有可应用的活动。'],
   NOT_IMPLEMENTED: [404, '接口尚未实现。'],
   NOT_FOUND: [404, '未找到本次雷达提案。'],
   PLACE_NOT_FOUND: [404, '地点已不可用，请重新搜索选择。'],
@@ -48,8 +54,10 @@ const errors = {
   NO_FEASIBLE_OPTION: [409, '没有可接受的可行候选。'],
   FIXED_LOCATION_REQUIRED: [409, '请在行程中补全固定安排地点，或明确选择本次不使用该安排。'],
   FIXED_LOCATION_UNRESOLVED: [409, '地图无法核验固定安排的地址，请在行程中补全门牌地址后重算。'],
+  FIXED_IN_PROGRESS: [409, '当前固定安排仍在进行中，请等安排结束后再计算。'],
   FIXED_TIME_INVALID: [409, '固定安排的时间在旅行时区中无效，请在行程中修改。'],
   IDEMPOTENCY_CONFLICT: [409, '同一确认标识已用于其他操作。'],
+  ACCEPTANCE_MISMATCH: [409, '本次确认与要撤销的地点不匹配，请重新读取行程。'],
   TRIP_NOT_FOUND: [404, '未找到旅行或固定安排。'],
   TRIP_STALE: [409, '行程已更新，请重新读取后再编辑。'],
   INVALID_TRIP_DAY: [400, '请选择有效日期和时区，游玩结束时间须晚于开始时间且在同一天。'],

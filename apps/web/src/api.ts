@@ -1,6 +1,7 @@
 import {
   acceptReceiptValidator,
   placeSearchValidator,
+  radarAcceptanceValidator,
   radarContextValidator,
   radarHistoryValidator,
   radarViewValidator,
@@ -186,6 +187,27 @@ export function reviseRadar(
     radarViewValidator.check,
     signal,
     32_000,
+  );
+}
+
+const acceptancePath = (sessionId: string) =>
+  `/api/v1/radar/sessions/${encodeURIComponent(sessionId)}/acceptance`;
+
+export async function getRadarAcceptance(sessionId: string, signal?: AbortSignal) {
+  try {
+    return await requestJson(acceptancePath(sessionId), {}, radarAcceptanceValidator.check, signal);
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'NOT_FOUND') return null;
+    throw error;
+  }
+}
+
+export function undoRadarAcceptance(sessionId: string, stopId: string, signal?: AbortSignal) {
+  return requestJson(
+    `${acceptancePath(sessionId)}/undo`,
+    post({ stop_id: stopId }),
+    radarAcceptanceValidator.check,
+    signal,
   );
 }
 

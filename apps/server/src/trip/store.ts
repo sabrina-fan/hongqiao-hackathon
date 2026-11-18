@@ -79,11 +79,14 @@ export async function readScheduledPoiIds(runtime: UserRuntime): Promise<Readonl
   for (const key of [...(await readKeys(runtime)), LEGACY_KEY]) {
     const trip = await readTrip(runtime, key);
     for (const stop of trip?.stops ?? []) ids.add(stop.poi_id);
+    for (const arrangement of trip?.arrangements ?? []) {
+      if (arrangement.poi_id !== undefined) ids.add(arrangement.poi_id);
+    }
   }
   return ids;
 }
 
-function detail(trip: StoredTrip): TripDetail {
+export function tripDetail(trip: StoredTrip): TripDetail {
   const { trip_id, revision, stops, day, arrangements = [] } = trip;
   return {
     trip_id,
@@ -105,16 +108,28 @@ export async function listTrips(runtime: UserRuntime): Promise<TripList> {
   return { current_trip_id: trips[0]?.trip_id ?? null, trips };
 }
 
-async function findTrip(runtime: UserRuntime, id: string) {
-  const keys = await readKeys(runtime);
-  const key = keys.includes(id) ? id : LEGACY_KEY;
+function keyForTrip(keys: string[], id: string) {
+  return keys.includes(id) ? id : LEGACY_KEY;
+}
+
+export async function tripInTransaction(tx: Tx, conversationId: ConversationId, id: string) {
+  const directory = await tx.doc(TripDirectory, conversationId, DIRECTORY_KEY, DIRECTORY_KEY);
+  const key = keyForTrip(directory.keys, id);
+  const document = await tx.doc(Trips, conversationId, key, key);
+  const { trip } = document;
+  if (trip?.trip_id !== id) throw new TripFault('TRIP_NOT_FOUND');
+  return trip;
+}
+
+export async function findTrip(runtime: UserRuntime, id: string) {
+  const key = keyForTrip(await readKeys(runtime), id);
   const trip = await readTrip(runtime, key);
   if (trip?.trip_id !== id) throw new TripFault('TRIP_NOT_FOUND');
   return { key, trip };
 }
 
 export async function getTripDetail(runtime: UserRuntime, id: string): Promise<TripDetail> {
-  return detail((await findTrip(runtime, id)).trip);
+  return tripDetail((await findTrip(runtime, id)).trip);
 }
 
 export async function createTrip(runtime: UserRuntime, day: TripDay): Promise<TripDetail> {
@@ -128,7 +143,7 @@ export async function createTrip(runtime: UserRuntime, day: TripDay): Promise<Tr
     record.trip = trip;
     directory.keys.unshift(trip_id);
   }, BACKGROUND_CONTEXT);
-  return detail(trip);
+  return tripDetail(trip);
 }
 
 async function updateTrip({
@@ -150,7 +165,7 @@ async function updateTrip({
       throw new TripFault('TRIP_STALE');
     const updated = { ...change(trip), revision: revision + 1 };
     record.trip = updated;
-    return detail(updated);
+    return tripDetail(updated);
   }, BACKGROUND_CONTEXT);
 }
 
@@ -180,16 +195,14 @@ export function saveArrangement({
     change(trip) {
       if (!trip.day) throw new TripFault('INVALID_TRIP_DAY');
       const arrangements = trip.arrangements ?? [];
-      if (
-        arrangementId &&
-        !arrangements.some(({ arrangement_id }) => arrangement_id === arrangementId)
-      ) {
-        throw new TripFault('TRIP_NOT_FOUND');
-      }
+      const prior = arrangements.find(({ arrangement_id }) => arrangement_id === arrangementId);
+      if (arrangementId && !prior) throw new TripFault('TRIP_NOT_FOUND');
+      const address = arrangement.address.trim();
       const item = {
         ...arrangement,
-        address: arrangement.address.trim(),
+        address,
         arrangement_id: arrangementId ?? `arrangement-${randomUUID()}`,
+        ...(prior?.poi_id && prior.address === address ? { poi_id: prior.poi_id } : {}),
       };
       return {
         ...trip,

@@ -14,10 +14,12 @@ import { checkPostOrigin, HttpFault, readJson, send, sendError } from './http.js
 import { createImportHandler, importRoute, type ImportVision } from './imports/http.js';
 import type { RadarMap } from './radar/amap.js';
 import { acceptRadar, getRadar, getRadarHistory } from './radar/store.js';
+import { radarAcceptanceRoute } from './radar/acceptance-http.js';
 import { getRadarContext, proposeRadar } from './radar/propose.js';
 import { recheckRecall, rejectRecall } from './radar/recall-store.js';
 import { createUserAccess } from './radar/user-access.js';
 
+import { draftRoute } from './trip/draft-routes.js';
 import { getTrip } from './trip/store.js';
 import { tripRoute } from './trip/routes.js';
 import { handleWishlist, wishlistRoute } from './wishlist/http.js';
@@ -68,7 +70,9 @@ export function createApp(options?: Options) {
     const context = request.method === 'GET' && path === '/api/v1/radar/context';
     const history = request.method === 'GET' && path === '/api/v1/radar/history';
     const trip = request.method === 'GET' && path === '/api/v1/trip';
-    const manageTrip = tripRoute(request.method, path);
+    const manageTrip =
+      draftRoute(request.method, path, map, now) ?? tripRoute(request.method, path);
+    const acceptance = radarAcceptanceRoute(request, path);
     const member =
       /^\/api\/v1\/radar\/sessions\/([A-Za-z0-9_-]{1,100})(\/(?:accept|reject|recheck))?$/.exec(
         path,
@@ -92,6 +96,7 @@ export function createApp(options?: Options) {
         accept ||
         reject ||
         recheck ||
+        acceptance ||
         view ||
         imports ||
         wishlist
@@ -154,6 +159,7 @@ export function createApp(options?: Options) {
       );
     }
     if (trip) return send(response, 200, await withUser(userId, (runtime) => getTrip({ runtime })));
+    if (acceptance) return send(response, 200, await withUser(userId, acceptance));
     if (sessionId && accept) {
       const key = request.headers['idempotency-key'];
       if (!identifier.check(key)) throw new HttpFault('INVALID_REQUEST');

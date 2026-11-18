@@ -20,7 +20,7 @@ import type { UserRuntime } from '../runtime/open-user-runtime.js';
 import { activeTripDocument, readActiveTrip } from '../trip/store.js';
 type ActiveTrip = Awaited<ReturnType<typeof readActiveTrip>>;
 import { RadarFault } from './evidence.js';
-import { effectiveFixed, nextFixedStop } from './fixed-stop.js';
+import { fixedForSearch } from './fixed-stop.js';
 import type { RecallSnapshot } from './recall-snapshot.js';
 import {
   recallEvaluatedAt,
@@ -41,7 +41,7 @@ function withTrip(binding: ProposalBinding, trip: TripView | null): ProposalBind
 
 function checkFixed(snapshot: RecallSnapshot, trip: ActiveTrip, at: number) {
   try {
-    const fixed = effectiveFixed(nextFixedStop(trip, at), snapshot.fixed_mode, at);
+    const fixed = fixedForSearch(trip, snapshot.fixed_mode, at);
     if (
       fixed?.arrangement_id !== snapshot.fixed?.arrangement_id ||
       fixed?.starts_at !== snapshot.fixed?.starts_at ||
@@ -79,8 +79,8 @@ export function checkedRecall(
   if (!current) return view;
   if (current.at < recallEvaluatedAt(snapshot) || current.at >= Date.parse(view.valid_until))
     throw new RadarFault('PROPOSAL_STALE');
+  checkFixed(snapshot, current.trip, current.at);
   if (view.outcome.kind === 'recommendations') {
-    checkFixed(snapshot, current.trip, current.at);
     const { eligible } = screenRecall(snapshot, current.at);
     if (
       !view.candidates?.some(({ place }) =>

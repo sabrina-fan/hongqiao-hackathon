@@ -1,27 +1,21 @@
-import {
-  confirmImportValidator,
-  importSearchValidator,
-  placeSearchValidator,
-  visualExtractionValidator,
-  type ImportReview,
-  type VisualExtraction,
-} from '@nextstop/core';
-import type { VisionImage } from '@nextstop/model-gateway';
+import { confirmImportValidator, importSearchValidator, type ImportReview } from '@nextstop/core';
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpFault, readJson, send } from '../http.js';
 import type { RadarMap } from '../radar/amap.js';
 import type { createUserAccess } from '../radar/user-access.js';
-import { createImportImages, readImportImage } from './images.js';
+import { batchRoute, createBatchHandler } from './batch-http.js';
+import { createImportImages, readImportImage, sendImportImage } from './images.js';
+import { createImportReview, type ImportVision } from './review.js';
 import { confirmImport, readImport, saveImport, updateMatch } from './store.js';
 
-export type ImportVision = (image: VisionImage) => Promise<VisualExtraction>;
+export type { ImportVision } from './review.js';
 export function importRoute(method: string | undefined, path: string) {
   if (method === 'POST' && path === '/api/v1/imports') return { kind: 'upload' } as const;
   if (method === 'POST' && path === '/api/v1/imports/search') return { kind: 'manual' } as const;
   const match = /^\/api\/v1\/imports\/(imp-[a-f0-9-]{36})(?:\/(confirm|search|image))?$/.exec(path);
   const id = match?.[1];
-  if (!id) return null;
+  if (!id) return batchRoute(method, path);
   if (method === 'POST' && match[2] === 'confirm') return { kind: 'confirm', id } as const;
   if (method === 'POST' && match[2] === 'search') return { kind: 'search', id } as const;
   if (method === 'GET' && match[2] === 'image') return { kind: 'image', id } as const;
@@ -39,28 +33,10 @@ export function createImportHandler({
   vision: ImportVision | null | undefined;
 }) {
   const images = createImportImages(dataDir);
+  const reviewImage = createImportReview(map, vision);
+  const match = reviewImage.match;
+  const handleBatch = createBatchHandler(images, reviewImage);
   let activeUploads = 0;
-  async function match(query: string): Promise<ImportReview['match']> {
-    if (!map) return { kind: 'map_unavailable' };
-    try {
-      const result = { places: await map.search(query.trim()) };
-      if (!placeSearchValidator.check(result)) return { kind: 'map_unavailable' };
-      const candidates = [...new Map(result.places.map((place) => [place.id, place])).values()];
-      return { kind: 'results', candidates };
-    } catch {
-      return { kind: 'map_unavailable' };
-    }
-  }
-  async function extract(image: VisionImage): Promise<ImportReview['extraction']> {
-    if (!vision) return { kind: 'vision_unavailable' };
-    try {
-      const result = await vision(image);
-      if (visualExtractionValidator.check(result)) return result;
-    } catch {
-      // The review stays available for manual lookup when the supplier fails.
-    }
-    return { kind: 'vision_unavailable' };
-  }
 
   return async (input: {
     request: IncomingMessage;
@@ -79,11 +55,7 @@ export function createImportHandler({
         const { record } = await withUser(userId, (runtime) => readImport(runtime, route.id));
         if (!record.image_type) throw new HttpFault('IMPORT_NOT_FOUND');
         const data = await images.read(userId, route.id);
-        response.setHeader('content-type', record.image_type);
-        response.setHeader('content-security-policy', "default-src 'none'; sandbox");
-        response.setHeader('cross-origin-resource-policy', 'same-origin');
-        response.writeHead(200);
-        return response.end(data);
+        return sendImportImage(response, record.image_type, data);
       }
       case 'confirm': {
         const selection = await readJson(request, confirmImportValidator.check);
@@ -124,21 +96,10 @@ export function createImportHandler({
         try {
           const image = await readImportImage(request);
           const id = `imp-${randomUUID()}`;
-          const extraction = await extract({ data: image.data, mimeType: image.mimeType });
-          const review: ImportReview = {
-            import_id: id,
-            revision: 1,
-            source: {
-              kind: 'image',
-              import_id: id,
-              excerpt: extraction.kind === 'text' ? extraction.excerpt : null,
-            },
-            extraction,
-            match:
-              extraction.kind === 'text' || extraction.kind === 'guess'
-                ? await match(extraction.name)
-                : { kind: 'not_searched' },
-          };
+          const review = await reviewImage.image(id, {
+            data: image.data,
+            mimeType: image.mimeType,
+          });
           await images.put(userId, id, image);
           await withUser(userId, (runtime) =>
             saveImport({ runtime, review, imageType: image.mimeType }),
@@ -148,6 +109,8 @@ export function createImportHandler({
           activeUploads -= 1;
         }
       }
+      default:
+        return handleBatch({ ...input, route });
     }
   };
 }

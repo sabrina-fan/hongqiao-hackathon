@@ -30,7 +30,8 @@ import {
   type RadarSessionSnapshot,
 } from '../runtime/documents.js';
 import { activeTripDocument, readActiveTrip } from '../trip/store.js';
-import { effectiveFixed, nextFixedStop } from './fixed-stop.js';
+import { fixedForSearch } from './fixed-stop.js';
+import { RadarAcceptances } from './acceptance.js';
 import type { UserRuntime } from '../runtime/open-user-runtime.js';
 import { RadarFault, WalkingEvidenceSchema, type WalkingEvidence } from './evidence.js';
 import { checkedRecall } from './recall-store.js';
@@ -197,21 +198,21 @@ function checkedView(
     at >= Date.parse(session.valid_until)
   )
     throw new RadarFault('PROPOSAL_STALE');
+  let fixed: FixedStop | null;
+  try {
+    fixed = fixedForSearch(trip, session.constraints?.fixed_mode, at);
+  } catch (error) {
+    if (error instanceof RadarFault) throw new RadarFault('PROPOSAL_STALE');
+    throw error;
+  }
+  if (
+    fixed?.arrangement_id !== session.constraints?.fixed?.arrangement_id ||
+    fixed?.starts_at !== session.constraints?.fixed?.starts_at
+  )
+    throw new RadarFault('PROPOSAL_STALE');
   const feasible = fits(session, at);
   if (outcome.kind === 'recommendations') {
     if (!feasible) throw new RadarFault('PROPOSAL_STALE');
-    let fixed: FixedStop | null;
-    try {
-      fixed = effectiveFixed(nextFixedStop(trip, at), session.constraints?.fixed_mode, at);
-    } catch (error) {
-      if (error instanceof RadarFault) throw new RadarFault('PROPOSAL_STALE');
-      throw error;
-    }
-    if (
-      fixed?.arrangement_id !== session.constraints?.fixed?.arrangement_id ||
-      fixed?.starts_at !== session.constraints?.fixed?.starts_at
-    )
-      throw new RadarFault('PROPOSAL_STALE');
   } else if (feasible) throw new RadarFault('PROPOSAL_UNVALIDATED');
   return viewOf(session, current, feasible);
 }
@@ -250,7 +251,7 @@ export async function createRadar({
       throw new RadarFault('PROPOSAL_STALE');
     const at = now();
     const created_ms = startedAt ?? at;
-    const fixed = effectiveFixed(nextFixedStop(trip, created_ms), request.fixed_mode, created_ms);
+    const fixed = fixedForSearch(trip, request.fixed_mode, created_ms);
     const fetched = Date.parse(evidence.fetched_at);
     const onwardFetched = onward ? Date.parse(onward.fetched_at) : fetched;
     if (
@@ -414,12 +415,13 @@ export async function acceptRadar({
     const at = now();
     const view = checkedView(record, sessionId, tripDoc.trip, at);
     if (view.outcome.kind === 'empty') throw new RadarFault('NO_FEASIBLE_OPTION');
-    const destination = view.candidates
-      ? view.candidates.find(({ place }) => place.id === input.poi_id)?.place
+    const selected = view.candidates
+      ? view.candidates.find(({ place }) => place.id === input.poi_id)
       : view.destination.id === input.poi_id
-        ? view.destination
+        ? { place: view.destination, markers: view.markers }
         : undefined;
-    if (!destination) throw new RadarFault('NOT_FOUND');
+    if (!selected) throw new RadarFault('NOT_FOUND');
+    const { place: destination, markers } = selected;
     if (
       record.recall &&
       !screenRecall(record.recall.snapshot, at).eligible.some(
@@ -443,8 +445,15 @@ export async function acceptRadar({
       stops: [...(prior?.stops.map((item) => ({ ...item })) ?? []), stop],
     };
     const receipt = { trip_id: trip.trip_id, trip_revision: trip.revision, stop };
+    const confirmation = await tx.doc(RadarAcceptances, conversationId, sessionId, sessionId);
     tripDoc.trip = trip;
     idem.entry = { fingerprint: identity, receipt };
+    confirmation.acceptance = {
+      status: 'added',
+      receipt,
+      destination,
+      ...(markers ? { point: { ...markers.destination } } : {}),
+    };
     return receipt;
   }, BACKGROUND_CONTEXT);
 }

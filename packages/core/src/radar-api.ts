@@ -47,6 +47,8 @@ export type RoutePoint = Static<typeof RoutePointSchema>;
 const candidateFields = {
   poi_id: opt(IdentifierSchema),
   available_min: AvailableMinutes,
+  // `without_fixed` uses the manual window only when the next lock is missing an address.
+  // An addressed next lock still sets a deadline. A running lock blocks both modes.
   fixed_mode: opt(oneOf(['next_locked', 'without_fixed'])),
   preference: opt(lit('short_walk')),
 };
@@ -58,15 +60,23 @@ export const radarRequestValidator = compile(RadarRequestSchema);
 export type RadarRequest = Static<typeof RadarRequestSchema>;
 export const liveOriginId = 'browser-position';
 
-export const FixedStopSchema = obj({
+const FixedStopFields = {
   arrangement_id: IdentifierSchema,
   name: str({ minLength: 1, maxLength: 100 }),
+  time_zone: str({ minLength: 1, maxLength: 100 }),
+};
+export const FixedStopSchema = obj({
+  ...FixedStopFields,
   address: str({ maxLength: 500 }),
   starts_at: str({ format: 'date-time' }),
-  time_zone: str({ minLength: 1, maxLength: 100 }),
 });
 export type FixedStop = Static<typeof FixedStopSchema>;
-export const radarContextValidator = compile(obj({ fixed: nullable(FixedStopSchema) }));
+const RadarContextSchema = obj({
+  fixed: nullable(FixedStopSchema),
+  in_progress: nullable(obj({ ...FixedStopFields, ends_at: str({ format: 'date-time' }) })),
+});
+export type RadarContext = Static<typeof RadarContextSchema>;
+export const radarContextValidator = compile(RadarContextSchema);
 
 export const RadarMarkersSchema = obj({
   origin: RoutePointSchema,
@@ -173,3 +183,13 @@ export const AcceptReceiptSchema = obj({
 });
 export type AcceptReceipt = Static<typeof AcceptReceiptSchema>;
 export const acceptReceiptValidator = compile(AcceptReceiptSchema);
+
+export const RadarAcceptanceSchema = obj({
+  status: oneOf(['added', 'undone']),
+  receipt: AcceptReceiptSchema,
+  destination: PlaceOptionSchema,
+  point: opt(RoutePointSchema),
+});
+export type RadarAcceptance = Static<typeof RadarAcceptanceSchema>;
+export const radarAcceptanceValidator = compile(RadarAcceptanceSchema);
+export const undoRadarValidator = compile(obj({ stop_id: IdentifierSchema }));

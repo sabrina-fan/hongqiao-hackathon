@@ -26,8 +26,10 @@ export class RadarFault extends Error {
       | 'NO_FEASIBLE_OPTION'
       | 'RADAR_MODEL_UNAVAILABLE'
       | 'FIXED_LOCATION_REQUIRED'
+      | 'FIXED_IN_PROGRESS'
       | 'FIXED_TIME_INVALID'
-      | 'IDEMPOTENCY_CONFLICT',
+      | 'IDEMPOTENCY_CONFLICT'
+      | 'ACCEPTANCE_MISMATCH',
   ) {
     super(code);
   }
