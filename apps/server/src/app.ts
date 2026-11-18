@@ -8,6 +8,7 @@ import {
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createGuestSessions } from './guest-session.js';
 import { checkPostOrigin, HttpFault, readJson, send, sendError } from './http.js';
+import { createImportHandler, importRoute, type ImportVision } from './imports/http.js';
 import type { RadarMap } from './radar/amap.js';
 import { acceptRadar, createRadar, getRadar, getTrip } from './radar/store.js';
 import { createUserAccess } from './radar/user-access.js';
@@ -17,6 +18,7 @@ type Options = {
   dataDir: string;
   cookieSecret: string | null;
   map: RadarMap | null;
+  vision?: ImportVision | null;
   secureCookie?: boolean;
   now?: () => number;
 };
@@ -28,12 +30,14 @@ export function createApp(options?: Options) {
     ? createGuestSessions(options.cookieSecret, options.secureCookie ?? false, now)
     : null;
   const withUser = options && sessions ? createUserAccess(options.dataDir) : null;
+  const handleImport =
+    options && createImportHandler({ dataDir: options.dataDir, map, vision: options.vision });
   const capabilities: Capabilities = {
     stage: sessions && map ? 'radar' : 'scaffold',
     radar: Boolean(sessions && map),
-    imports: false,
+    imports: Boolean(sessions && map),
     trip_writes: Boolean(sessions),
-    model_calls: false,
+    model_calls: Boolean(sessions && map && options?.vision),
   };
   async function handle(request: IncomingMessage, response: ServerResponse) {
     const url = URL.parse(request.url ?? '/', 'http://localhost');
@@ -54,7 +58,8 @@ export function createApp(options?: Options) {
     const sessionId = member?.[1];
     const accept = Boolean(member?.[2]) && request.method === 'POST';
     const view = sessionId && !member?.[2] && request.method === 'GET';
-    if (!(createSession || search || create || trip || accept || view))
+    const imports = importRoute(request.method, path);
+    if (!(createSession || search || create || trip || accept || view || imports))
       throw new HttpFault('NOT_IMPLEMENTED');
     if (!sessions || !withUser) throw new HttpFault('RADAR_NOT_CONFIGURED');
     const userId = sessions.read(request.headers.cookie);
@@ -63,6 +68,8 @@ export function createApp(options?: Options) {
       return send(response, 204);
     }
     if (!userId) throw new HttpFault('SESSION_REQUIRED');
+    if (imports && handleImport)
+      return handleImport({ request, response, route: imports, userId, withUser });
     if (search || create) {
       if (!map) throw new HttpFault('RADAR_NOT_CONFIGURED');
       if (search) {
