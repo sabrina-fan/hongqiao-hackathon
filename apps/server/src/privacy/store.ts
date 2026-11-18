@@ -53,13 +53,14 @@ export async function eraseSource(
 ) {
   const { uploads, records, batches } = await inventory(runtime);
   if (!uploads.some(({ import_id }) => import_id === id)) return;
-  await remove(id);
   const ids = new Set([id]);
   await runtime.conversation.commit(async (tx) => {
     await removeBatchImages({ runtime, tx, ids, batches });
     await removeImportRecords(runtime, tx, ids, records);
     await removeImageSources(runtime, tx, ids);
   }, BACKGROUND_CONTEXT);
+  // A rolled-back deletion still references both copies of the screenshot.
+  await remove(id);
 }
 
 export async function eraseTrip(
@@ -85,7 +86,6 @@ export async function eraseTrip(
       .map(({ import_id }) => import_id),
   );
   const retireRadar = await prepareRadarRetirement(runtime, id);
-  for (const image of ids) await remove(image);
   await runtime.conversation.commit(async (tx) => {
     await removeBatchImages({ runtime, tx, ids, batches, tripId: id });
     await removeImportRecords(runtime, tx, ids, records, id);
@@ -93,4 +93,5 @@ export async function eraseTrip(
     await retireTripDraft(runtime, tx, id);
     await retireTrip(runtime, tx, target.key);
   }, BACKGROUND_CONTEXT);
+  for (const image of ids) await remove(image);
 }

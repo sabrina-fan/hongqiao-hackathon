@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, readFile, readdir, rm, rmdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, rmdir, stat } from 'node:fs/promises';
+import { DatabaseSync } from 'node:sqlite';
 import {
   anonymousDataValidator,
   importBatchValidator,
@@ -10,7 +11,7 @@ import {
 import { createAmap } from './radar/amap.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { createApp } from './app.js';
 
 it('exports only the current guest without mutating trips and revokes only that guest on deletion', async () => {
@@ -225,3 +226,175 @@ it('removes exclusive trip uploads, retains shared sources, and removes both sou
     await rm(dataDir, { recursive: true, force: true });
   }
 });
+
+it.each(['source', 'trip'])(
+  'preserves references and images on %s deletion rollback and scopes the retry',
+  async (target) => {
+    const dataDir = await mkdtemp(join(tmpdir(), 'nextstop-privacy-rollback-'));
+    const poi = { id: 'settings-poi', name: '合成收藏', address: '合成地址' };
+    const server = createApp({
+      dataDir,
+      cookieSecret: 'test-only-privacy-rollback-signing-value',
+      map: createAmap({
+        key: 'fixture',
+        fetcher: async () => Response.json({ status: '1', info: 'OK', pois: [poi] }),
+      }),
+      vision: async () => ({
+        kind: 'text',
+        name: poi.name,
+        excerpt: '合成来源',
+        confidence: 'high',
+      }),
+    });
+    try {
+      server.listen(0, '127.0.0.1');
+      await once(server, 'listening');
+      const address = server.address();
+      assert(address && typeof address !== 'string');
+      const base = `http://127.0.0.1:${address.port}/api/v1`;
+      const session = await fetch(`${base}/sessions`, { method: 'POST' });
+      const cookie = session.headers.get('set-cookie')?.split(';')[0];
+      assert(cookie);
+      const call = (path: string, method = 'GET') =>
+        fetch(base + path, { method, headers: { cookie } });
+      const post = (path: string, input: unknown) =>
+        fetch(
+          base + path,
+          input instanceof FormData
+            ? { method: 'POST', headers: { cookie }, body: input }
+            : {
+                method: 'POST',
+                headers: { cookie, 'content-type': 'application/json' },
+                body: JSON.stringify(input),
+              },
+        );
+      const createTrip = async (destination: string) => {
+        const response = await post('/trips', {
+          destination,
+          date: '2026-11-20',
+          start: '09:00',
+          end: '20:00',
+          time_zone: 'Asia/Shanghai',
+        });
+        expect(response.status).toBe(201);
+        const body: unknown = await response.json();
+        assert(tripDetailValidator.check(body));
+        return body;
+      };
+      const readData = async () => {
+        const response = await call('/me/data');
+        expect(response.status).toBe(200);
+        const body: unknown = await response.json();
+        assert(anonymousDataValidator.check(body));
+        return body;
+      };
+      const other = await createTrip('保留旅行');
+      const owned = await createTrip('目标旅行');
+      const png = await readFile(new URL('../test/import-synthetic.png', import.meta.url));
+      const form = new FormData();
+      for (const name of ['单删来源.png', '共享来源.png', '独占来源.png']) {
+        form.append('images', new File([png], name, { type: 'image/png' }));
+      }
+      const response = await post('/import-batches', form);
+      expect(response.status).toBe(202);
+      const initial: unknown = await response.json();
+      assert(importBatchValidator.check(initial));
+      const batchPath = `/import-batches/${initial.batch_id}`;
+      const readBatch = async () => {
+        const response = await call(batchPath);
+        expect(response.status).toBe(200);
+        const body: unknown = await response.json();
+        assert(importBatchValidator.check(body));
+        return body;
+      };
+      const ready = await vi.waitFor(async () => {
+        const batch = await readBatch();
+        expect(batch.items.map(({ kind }) => kind)).toEqual(['ready', 'ready', 'ready']);
+        return batch;
+      });
+      const [single, shared, exclusive] = ready.items;
+      assert(single && shared && exclusive);
+      const confirm = await post(`${batchPath}/confirm`, {
+        revision: ready.revision,
+        new_count: 1,
+        selections: [single, shared].map(({ import_id }) => ({ import_id, poi_id: poi.id })),
+      });
+      expect(confirm.status).toBe(200);
+      const saved = await readBatch();
+      const before = await readData();
+      expect(before.uploads).toHaveLength(3);
+      expect(before.uploads.every(({ trip_id }) => trip_id === owned.trip_id)).toBe(true);
+      expect(before.places).toMatchObject([
+        { sources: [{ import_id: single.import_id }, { import_id: shared.import_id }] },
+      ]);
+
+      const users = join(dataDir, 'users');
+      const files = (await readdir(users)).filter((name) => name.endsWith('.sqlite'));
+      const [database] = files;
+      assert(files.length === 1 && database);
+      const sqlite = (sql: string) => {
+        using db = new DatabaseSync(join(users, database));
+        db.exec(sql);
+      };
+      const directory = (id: string) =>
+        join(dataDir, 'import-images', database.slice(0, -'.sqlite'.length), id);
+      const batchImage = (id: string) => `${batchPath}/items/${id}/image`;
+      const source = (id: string) => `/imports/${id}`;
+      const checkImage = async (id: string, confirmed: boolean) => {
+        const paths = confirmed ? [batchImage(id), `${source(id)}/image`] : [batchImage(id)];
+        for (const path of paths) {
+          const response = await call(path);
+          assert.equal(response.status, 200, path);
+          expect(Buffer.from(await response.arrayBuffer())).toEqual(png);
+        }
+        expect(await readFile(join(directory(id), 'original'))).toEqual(png);
+        expect(await readFile(join(directory(id), 'normalized'))).toEqual(png);
+      };
+      const removed = target === 'source' ? single : exclusive;
+      const path = target === 'source' ? source(single.import_id) : `/trips/${owned.trip_id}`;
+      for (const item of [single, shared, exclusive])
+        await checkImage(item.import_id, item !== exclusive);
+
+      // Abort the real SQLite write that would publish the changed batch revision.
+      sqlite(`CREATE TRIGGER fail_privacy_delete BEFORE INSERT ON document_revisions
+      WHEN NEW.document_id IN (SELECT id FROM documents WHERE kind = json_quote('nextstop.import_batch'))
+      BEGIN SELECT RAISE(ABORT, 'controlled privacy delete failure'); END`);
+      expect((await call(path, 'DELETE')).status).toBe(500);
+      expect(await readData()).toEqual(before);
+      expect(await readBatch()).toEqual(saved);
+      await checkImage(removed.import_id, removed === single);
+      for (const item of [single, shared, exclusive].filter((item) => item !== removed)) {
+        await checkImage(item.import_id, item !== exclusive);
+      }
+
+      sqlite('DROP TRIGGER fail_privacy_delete');
+      expect((await call(path, 'DELETE')).status).toBe(204);
+      expect((await call(path)).status).toBe(404);
+      expect((await call(batchImage(removed.import_id))).status).toBe(404);
+      expect((await call(`${source(removed.import_id)}/image`)).status).toBe(404);
+      expect(await stat(directory(removed.import_id), { throwIfNoEntry: false })).toBeUndefined();
+      expect((await readBatch()).items).toEqual(
+        saved.items.filter(({ import_id }) => import_id !== removed.import_id),
+      );
+      const after = await readData();
+      expect(after.trips).toEqual(target === 'trip' ? [other] : before.trips);
+      expect(after.uploads).toEqual(
+        before.uploads
+          .filter(({ import_id }) => import_id !== removed.import_id)
+          .map((upload) => (target === 'trip' ? { ...upload, trip_id: null } : upload)),
+      );
+      expect(after.places).toEqual(
+        before.places.map((place) => ({
+          ...place,
+          sources: place.sources.filter(({ import_id }) => import_id !== removed.import_id),
+        })),
+      );
+      for (const item of [single, shared, exclusive].filter((item) => item !== removed)) {
+        await checkImage(item.import_id, item !== exclusive);
+      }
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await rm(dataDir, { recursive: true, force: true });
+    }
+  },
+);
