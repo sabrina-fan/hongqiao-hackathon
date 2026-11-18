@@ -49,11 +49,12 @@ const arm = async (path, method = 'GET') =>
     (await request(`/__settings/arm?${new URLSearchParams({ path, method })}`, 'POST')).status,
     204,
   );
-const release = async (fail = false) => {
+const release = async (result) => {
   await wait(
-    async (fail) =>
-      (await fetch(`/__settings/release${fail ? '?fail' : ''}`, { method: 'POST' })).ok,
-    fail,
+    async (result) =>
+      (await fetch(`/__settings/release?${new URLSearchParams({ result })}`, { method: 'POST' }))
+        .ok,
+    result,
   );
 };
 const ready = () => text('.connection', '服务连接正常');
@@ -110,7 +111,7 @@ try {
     () => document.querySelector('.connection')?.parentElement.querySelector('button')?.disabled,
   );
   await shot('connection-loading');
-  await release(true);
+  await release('fail');
   await wait(() => document.querySelector('.connection.failed'));
   await shot('connection-failed');
   await click(health, 'Reconnect to local service');
@@ -161,7 +162,7 @@ try {
   await arm('/api/v1/me/data');
   await page.reload();
   await notice('正在读取个人数据');
-  await release(true);
+  await release('fail');
   await error('服务暂不可用');
   await press('重试读取');
   await loaded();
@@ -184,7 +185,7 @@ try {
   await wait(() => document.querySelector('button.settings-link')?.disabled);
   await notice('正在导出匿名数据');
   await shot('export-loading');
-  await release(true);
+  await release('fail');
   await error('导出失败');
   await shot('export-failed');
   assert.deepEqual(await data(), initial);
@@ -284,7 +285,7 @@ try {
         ),
       );
       await shot('delete-loading');
-      await release(true);
+      await release('fail');
       await error('删除未能确认');
       assert.deepEqual(await data(), before);
       await shot('delete-failed');
@@ -352,6 +353,31 @@ try {
   await settings();
   await ready();
   await loaded();
+  await arm('/api/v1/me/data');
+  await page.reload();
+  await notice('正在读取个人数据');
+  await release('recovery');
+  await text('#erase-recovery-title', '全部匿名数据删除尚未确认');
+  await press('继续删除全部匿名数据');
+  await press('确认删除');
+  await text('dialog[open] [role=alert]', '删除确认已失效');
+  assert.deepEqual(
+    await page.evaluate(() =>
+      [...document.querySelectorAll('dialog[open] button')].map((button) =>
+        button.textContent.trim(),
+      ),
+    ),
+    ['返回当前设置'],
+  );
+  await shot('erase-confirmation-expired');
+  await press('返回当前设置');
+  await loaded();
+  await absent('dialog[open], #erase-recovery-title');
+  await toggle('旅行数据', true);
+  await text('.settings-list', '保留旅行');
+  assert.deepEqual(await data(), remaining);
+  report.checks.push('expired erase confirmation offers only return and rereads current settings');
+
   await cancelThenDelete({
     open: () => press('删除全部匿名数据'),
     target: '此操作无法撤销',

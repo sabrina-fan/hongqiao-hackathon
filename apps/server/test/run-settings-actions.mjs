@@ -49,13 +49,21 @@ function controls(vite) {
       if (!gate?.release) return res.writeHead(409).end();
       const { release } = gate;
       gate = undefined;
-      release(url.searchParams.has('fail'));
+      release(url.searchParams.get('result'));
       return res.writeHead(204).end();
     }
     if (gate?.path === url.pathname && gate.method === req.method) {
       if (gate.release) return res.writeHead(409).end();
-      gate.release = (fail) =>
-        fail ? res.writeHead(503, { 'content-type': 'application/json' }).end('{}') : next();
+      gate.release = (result) => {
+        if (result === 'fail')
+          return res.writeHead(503, { 'content-type': 'application/json' }).end('{}');
+        // Simulate settings still showing recovery after another tab has replaced the session.
+        if (result === 'recovery')
+          return res
+            .writeHead(200, { 'content-type': 'application/json' })
+            .end('{"kind":"erase_recovery"}');
+        next();
+      };
       return;
     }
     next();

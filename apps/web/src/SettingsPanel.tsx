@@ -88,7 +88,11 @@ export function SettingsPanel({
   const [pending, setPending] = useState<'export' | 'delete' | 'feedback' | null>(null);
   const busy = pending !== null;
   const [readError, setReadError] = useState('');
-  const [actionError, setActionError] = useState('');
+  const [actionFailure, setActionFailure] = useState<
+    { kind: 'error'; message: string } | { kind: 'confirmation-expired' } | null
+  >(null);
+  const actionError = actionFailure?.kind === 'error' ? actionFailure.message : '';
+  const confirmationExpired = actionFailure?.kind === 'confirmation-expired';
   const [notice, setNotice] = useState('');
   const confirmation = useRef<HTMLDialogElement>(null);
 
@@ -120,17 +124,17 @@ export function SettingsPanel({
 
   function confirm(target: ConfirmationTarget) {
     setTarget(target);
-    setActionError('');
+    setActionFailure(null);
     setNotice('');
   }
 
   function dismissConfirmation() {
-    if (actionError) {
-      if (target?.kind === 'all' && !recoveringErase) setSettings(null);
+    if (confirmationExpired || actionError) {
+      if (confirmationExpired || (target?.kind === 'all' && !recoveringErase)) setSettings(null);
       setAttempt((value) => value + 1);
     }
     setTarget(null);
-    setActionError('');
+    setActionFailure(null);
   }
 
   async function run(
@@ -140,12 +144,12 @@ export function SettingsPanel({
   ) {
     if (busy || !available) return;
     setPending(kind);
-    setActionError('');
+    setActionFailure(null);
     setNotice('');
     try {
       await action();
     } catch (error) {
-      setActionError(`${errorPrefix} ${messageOf(error)}`);
+      setActionFailure({ kind: 'error', message: `${errorPrefix} ${messageOf(error)}` });
     } finally {
       setPending(null);
     }
@@ -155,7 +159,10 @@ export function SettingsPanel({
     return run(
       'delete',
       async () => {
-        await deleteData(target);
+        if ((await deleteData(target)) === 'confirmation-expired') {
+          setActionFailure({ kind: 'confirmation-expired' });
+          return;
+        }
         setTarget(null);
         setNotice(deletionNotice[target.kind]);
         if (target.kind === 'all') {
@@ -433,31 +440,44 @@ export function SettingsPanel({
             aria-labelledby="delete-data-title"
           >
             <h2 id="delete-data-title">确认删除数据</h2>
-            <p>{deleteMessage(target)}</p>
-            {actionError && <p role="alert">{actionError}</p>}
-            {pending === 'delete' && (
-              <p className="state-card" data-state="pending" role="status">
-                正在删除数据…
-              </p>
+            {confirmationExpired ? (
+              <>
+                <p role="alert">删除确认已失效。请返回当前设置。</p>
+                <div className="settings-confirm-actions">
+                  <button type="button" className="secondary" onClick={dismissConfirmation}>
+                    返回当前设置
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p>{deleteMessage(target)}</p>
+                {actionError && <p role="alert">{actionError}</p>}
+                {pending === 'delete' && (
+                  <p className="state-card" data-state="pending" role="status">
+                    正在删除数据…
+                  </p>
+                )}
+                <div className="settings-confirm-actions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy}
+                    onClick={dismissConfirmation}
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    className="settings-danger"
+                    disabled={busy || !available}
+                    onClick={() => void submitDeletion(target)}
+                  >
+                    {busy ? '正在删除…' : actionError ? '重试删除' : '确认删除'}
+                  </button>
+                </div>
+              </>
             )}
-            <div className="settings-confirm-actions">
-              <button
-                type="button"
-                className="secondary"
-                disabled={busy}
-                onClick={dismissConfirmation}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className="settings-danger"
-                disabled={busy || !available}
-                onClick={() => void submitDeletion(target)}
-              >
-                {busy ? '正在删除…' : actionError ? '重试删除' : '确认删除'}
-              </button>
-            </div>
           </dialog>
         ) : (
           !recoveringErase && (

@@ -46,9 +46,10 @@ export async function deleteData(target: DeleteTarget) {
     if (response.status !== 204)
       throw new ApiError('INVALID_RESPONSE', '服务响应格式无效。', response.status);
   } catch (error) {
-    skippedRecovery = Boolean(
-      recoveryOnly && error instanceof ApiError && error.code === 'SESSION_REQUIRED',
-    );
+    if (recoveryOnly && error instanceof ApiError && error.code === 'SESSION_REQUIRED') {
+      skippedRecovery = true;
+      return 'confirmation-expired';
+    }
     throw error;
   } finally {
     // A stale recovery cannot touch the replacement guest. Other failures may have committed.
