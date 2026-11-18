@@ -1,6 +1,7 @@
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import type { AnonymousData, UploadRecord } from '@nextstop/core';
 import { listImportBatches, removeBatchImages } from '../imports/batch-store.js';
+import { recordImageCleanup, resumeImageCleanup } from '../imports/image-cleanup.js';
 import { listImportRecords, removeImportRecords } from '../imports/store.js';
 import { prepareRadarRetirement } from '../radar/store.js';
 import type { UserRuntime } from '../runtime/open-user-runtime.js';
@@ -51,6 +52,8 @@ export async function eraseSource(
   id: string,
   remove: (id: string) => Promise<void>,
 ) {
+  const deletion = { kind: 'source' as const, id };
+  if (await resumeImageCleanup(runtime, deletion, remove)) return;
   const { uploads, records, batches } = await inventory(runtime);
   if (!uploads.some(({ import_id }) => import_id === id)) return;
   const ids = new Set([id]);
@@ -58,9 +61,9 @@ export async function eraseSource(
     await removeBatchImages({ runtime, tx, ids, batches });
     await removeImportRecords(runtime, tx, ids, records);
     await removeImageSources(runtime, tx, ids);
+    await recordImageCleanup(runtime, tx, deletion, ids);
   }, BACKGROUND_CONTEXT);
-  // A rolled-back deletion still references both copies of the screenshot.
-  await remove(id);
+  await resumeImageCleanup(runtime, deletion, remove);
 }
 
 export async function eraseTrip(
@@ -69,6 +72,8 @@ export async function eraseTrip(
   remove: (id: string) => Promise<void>,
   cancelRadar: () => void,
 ) {
+  const deletion = { kind: 'trip' as const, id };
+  if (await resumeImageCleanup(runtime, deletion, remove)) return;
   const target = await findTrip(runtime, id).catch((error: unknown) => {
     if (error instanceof TripFault && error.code === 'TRIP_NOT_FOUND') return null;
     throw error;
@@ -92,6 +97,7 @@ export async function eraseTrip(
     await retireRadar(tx);
     await retireTripDraft(runtime, tx, id);
     await retireTrip(runtime, tx, target.key);
+    await recordImageCleanup(runtime, tx, deletion, ids);
   }, BACKGROUND_CONTEXT);
-  for (const image of ids) await remove(image);
+  await resumeImageCleanup(runtime, deletion, remove);
 }

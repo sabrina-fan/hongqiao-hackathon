@@ -13,6 +13,7 @@ import {
 } from '@nextstop/core';
 import { HttpFault } from '../http.js';
 import type { UserRuntime } from '../runtime/open-user-runtime.js';
+import { recordImageCleanup, resumeImageCleanup } from './image-cleanup.js';
 import { emptyImageReview } from './review.js';
 import { writeBatchChoices } from './store.js';
 
@@ -158,17 +159,42 @@ export function updateBatchItem({
   id: string;
   imageId: string;
   revision: number;
-  update: (item: ImportBatchItem) => ImportBatchItem | null | Promise<ImportBatchItem | null>;
+  update: (item: ImportBatchItem) => ImportBatchItem;
 }) {
-  return changeBatch(runtime, id, async (batch) => {
+  return changeBatch(runtime, id, (batch) => {
     checkRevision(batch, revision);
     const item = batchItem(batch, imageId);
-    const next = await update(item);
     const index = batch.items.findIndex(({ import_id }) => import_id === imageId);
-    if (next) batch.items[index] = next;
-    else batch.items.splice(index, 1);
+    batch.items[index] = update(item);
     return true;
   });
+}
+
+export async function removeBatchItem({
+  runtime,
+  id,
+  imageId,
+  revision,
+  remove,
+}: {
+  runtime: UserRuntime;
+  id: string;
+  imageId: string;
+  revision: number;
+  remove: (id: string) => Promise<void>;
+}) {
+  const deletion = { kind: 'batch_item' as const, batchId: id, imageId, revision };
+  if (await resumeImageCleanup(runtime, deletion, remove)) return readBatch(runtime, id);
+  const batch = await changeBatch(runtime, id, async (current, _record, tx) => {
+    checkRevision(current, revision);
+    const item = batchItem(current, imageId);
+    if (item.kind === 'saved') throw new HttpFault('IMPORT_CONFIRMED');
+    current.items = current.items.filter(({ import_id }) => import_id !== imageId);
+    await recordImageCleanup(runtime, tx, deletion, item.kind === 'invalid' ? [] : [imageId]);
+    return true;
+  });
+  await resumeImageCleanup(runtime, deletion, remove);
+  return batch;
 }
 
 export function replaceProcessing(

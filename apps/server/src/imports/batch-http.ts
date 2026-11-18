@@ -14,6 +14,7 @@ import {
   confirmBatch,
   interrupted,
   readBatch,
+  removeBatchItem,
   replaceProcessing,
   reviewedItem,
   saveBatch,
@@ -265,28 +266,32 @@ export function createBatchHandler(
       });
       return send(response, 202, storage);
     }
-    const batch = await withUser(userId, async (runtime) => {
-      let deleteImageFiles = false;
-      const updated = await updateBatchItem({
+    if (route.action === 'remove') {
+      const batch = await withUser(userId, (runtime) =>
+        removeBatchItem({
+          runtime,
+          id,
+          imageId,
+          revision,
+          remove: (target) => images.remove(userId, target),
+        }),
+      );
+      return send(response, 200, batch);
+    }
+    const batch = await withUser(userId, (runtime) =>
+      updateBatchItem({
         runtime,
         id,
         imageId,
         revision,
         update(item) {
           if (item.kind === 'saved') throw new HttpFault('IMPORT_CONFIRMED');
-          if (route.action === 'skip') {
-            const reviewed = reviewedItem(item);
-            if (!reviewed) throw new HttpFault('IMPORT_INVALID_CHOICE');
-            return { ...storedImage(reviewed), kind: 'skipped' };
-          }
-          deleteImageFiles = item.kind !== 'invalid';
-          return null;
+          const reviewed = reviewedItem(item);
+          if (!reviewed) throw new HttpFault('IMPORT_INVALID_CHOICE');
+          return { ...storedImage(reviewed), kind: 'skipped' };
         },
-      });
-      // A rolled-back removal still references both copies of the screenshot.
-      if (deleteImageFiles) await images.remove(userId, imageId);
-      return updated;
-    });
+      }),
+    );
     return send(response, 200, batch);
   };
 }

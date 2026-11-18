@@ -68,7 +68,7 @@ const operations = ['batch', 'source', 'trip'] as const;
 const faults = ['before unlink', 'after original unlink'] as const;
 
 it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fault }))))(
-  'preserves committed $operation deletion after cleanup fails $fault',
+  'finishes committed $operation cleanup on retry after failure $fault',
   async ({ operation, fault }) => {
     const dataDir = await mkdtemp(join(tmpdir(), 'nextstop-cleanup-regression-'));
     const options = {
@@ -113,15 +113,17 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
           201,
           tripDetailValidator.check,
         );
+      async function uploadSingle(bytes: Buffer<ArrayBuffer>, name: string) {
+        const body = new FormData();
+        body.set('image', new File([bytes], name, { type: 'image/png' }));
+        return checkedJson(await post('/imports', body), 201, importReviewValidator.check);
+      }
       const other = await createTrip('无关旅行');
-      const otherForm = new FormData();
-      otherForm.set('image', new File([png.unrelated], '无关来源.png', { type: 'image/png' }));
-      const unrelated = await checkedJson(
-        await post('/imports', otherForm),
-        201,
-        importReviewValidator.check,
-      );
+      const unrelated = await uploadSingle(png.unrelated, '无关来源.png');
       const owned = await createTrip('目标旅行');
+      // Identical bytes on a different trip must not make the unrelated upload a cleanup target.
+      const earlierTarget =
+        operation === 'trip' ? await uploadSingle(png.unrelated, '先清理的来源.png') : null;
       const form = new FormData();
       for (const [name, bytes] of Object.entries({
         single: png.single,
@@ -157,8 +159,10 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
       const readData = async () =>
         checkedJson(await call('/me/data'), 200, anonymousDataValidator.check);
       const before = await readData();
-      expect(before.uploads).toHaveLength(4);
-      for (const { import_id } of [single, shared, pending, unrelated]) {
+      const fixtures = [single, shared, pending, unrelated];
+      if (earlierTarget) fixtures.push(earlierTarget);
+      expect(before.uploads).toHaveLength(fixtures.length);
+      for (const { import_id } of fixtures) {
         expect(before.uploads.find((entry) => entry.import_id === import_id)?.trip_id).toBe(
           import_id === unrelated.import_id ? other.trip_id : owned.trip_id,
         );
@@ -217,8 +221,17 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
         }
       }
       for (const image of pictures) await intact(image);
+      const earlierImage = earlierTarget
+        ? await picture(earlierTarget.import_id, png.unrelated, [
+            `${importPath(earlierTarget.import_id)}/image`,
+          ])
+        : null;
+      if (earlierImage) await intact(earlierImage);
 
       const target = operation === 'source' ? singleImage : pendingImage;
+      const targets = earlierImage ? [earlierImage, target] : [target];
+      const targetIds = new Set(targets.map(({ id }) => id));
+      const targetDirectories = targets.map(({ directory }) => directory);
       const remove = (revision: number) => {
         switch (operation) {
           case 'batch':
@@ -247,7 +260,8 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
         diskRemove.mock.calls
           .map(([path]) => path)
           .filter((path) => typeof path === 'string' && path.startsWith(`${images}/`));
-      expect(imageRemovals()).toEqual([target.directory]);
+      expect(imageRemovals()).toEqual(targetDirectories);
+      if (earlierImage) await assert.rejects(readdir(earlierImage.directory), { code: 'ENOENT' });
 
       await server[Symbol.asyncDispose]();
       server = createApp(options);
@@ -255,14 +269,14 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
       const expectedBatch = {
         ...saved,
         revision: saved.revision + 1,
-        items: saved.items.filter(({ import_id }) => import_id !== target.id),
+        items: saved.items.filter(({ import_id }) => !targetIds.has(import_id)),
       };
       const expectedData = {
         trips: before.trips.filter(
           ({ trip_id }) => operation !== 'trip' || trip_id !== owned.trip_id,
         ),
         uploads: before.uploads
-          .filter(({ import_id }) => import_id !== target.id)
+          .filter(({ import_id }) => !targetIds.has(import_id))
           .map((upload) =>
             operation === 'trip' && upload.trip_id === owned.trip_id
               ? { ...upload, trip_id: null }
@@ -270,7 +284,7 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
           ),
         places: before.places.map((place) => ({
           ...place,
-          sources: place.sources.filter(({ import_id }) => import_id !== target.id),
+          sources: place.sources.filter(({ import_id }) => !targetIds.has(import_id)),
         })),
       };
       async function checkCommittedState() {
@@ -278,28 +292,65 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
         expect(await readBatch()).toEqual(expectedBatch);
         expect(await readData()).toEqual(expectedData);
         if (operation === 'trip') await expectError(await call(tripPath), 404, 'TRIP_NOT_FOUND');
-        await expectError(await call(importPath(target.id)), 404, 'IMPORT_NOT_FOUND');
-        for (const path of [`${batchItem(target.id)}/image`, `${importPath(target.id)}/image`]) {
-          await expectError(await call(path), 404, 'IMPORT_NOT_FOUND');
+        for (const image of targets) {
+          await expectError(await call(importPath(image.id)), 404, 'IMPORT_NOT_FOUND');
+          for (const path of [`${batchItem(image.id)}/image`, `${importPath(image.id)}/image`]) {
+            await expectError(await call(path), 404, 'IMPORT_NOT_FOUND');
+          }
         }
-        for (const image of pictures.filter(({ id }) => id !== target.id)) await intact(image);
-        const copies = fault === 'before unlink' ? ['normalized', 'original'] : ['normalized'];
-        expect((await readdir(target.directory)).sort()).toEqual(copies);
-        expect(await readFile(join(target.directory, 'normalized'))).toEqual(target.normalized);
-        if (fault === 'before unlink') {
-          assert.deepEqual(await readFile(join(target.directory, 'original')), target.original);
-        }
+        for (const image of pictures.filter(({ id }) => !targetIds.has(id))) await intact(image);
       }
       await checkCommittedState();
+      const copies = fault === 'before unlink' ? ['normalized', 'original'] : ['normalized'];
+      expect((await readdir(target.directory)).sort()).toEqual(copies);
+      expect(await readFile(join(target.directory, 'normalized'))).toEqual(target.normalized);
+      if (fault === 'before unlink') {
+        assert.deepEqual(await readFile(join(target.directory, 'original')), target.original);
+      }
       if (operation === 'batch') {
-        await expectError(await remove(saved.revision), 409, 'IMPORT_STALE');
+        await expectError(await remove(saved.revision - 1), 409, 'IMPORT_STALE');
         await expectError(await remove(expectedBatch.revision), 404, 'IMPORT_NOT_FOUND');
-      } else {
-        assert.equal((await remove(saved.revision)).status, 204);
+        await expectError(
+          await post(`${batchItem(sharedImage.id)}/remove`, { revision: saved.revision }),
+          409,
+          'IMPORT_STALE',
+        );
+        assert.deepEqual(imageRemovals(), targetDirectories);
       }
-      // Replay currently starts from committed records and cannot rediscover these orphan files.
+      async function expectSuccess() {
+        const response = await remove(saved.revision);
+        if (operation === 'batch') {
+          assert.deepEqual(
+            await checkedJson(response, 200, importBatchValidator.check),
+            expectedBatch,
+          );
+        } else {
+          assert.equal(response.status, 204);
+        }
+        for (const directory of targetDirectories) {
+          await assert.rejects(readdir(directory), { code: 'ENOENT' });
+        }
+      }
+      await Promise.all([expectSuccess(), expectSuccess()]);
       await checkCommittedState();
-      expect(imageRemovals()).toEqual([target.directory]);
+      const targetRemovals = [...targetDirectories, ...targetDirectories];
+      expect(imageRemovals()).toEqual(targetRemovals);
+      if (operation === 'batch') {
+        assert.equal((await call(importPath(singleImage.id), 'DELETE')).status, 204);
+        const latest = {
+          ...expectedBatch,
+          revision: expectedBatch.revision + 1,
+          items: expectedBatch.items.filter(({ import_id }) => import_id !== singleImage.id),
+        };
+        assert.deepEqual(
+          await checkedJson(await remove(saved.revision), 200, importBatchValidator.check),
+          latest,
+        );
+        assert.deepEqual(await readBatch(), latest);
+        assert.deepEqual(imageRemovals(), [...targetRemovals, singleImage.directory]);
+        await intact(sharedImage);
+        await intact(unrelatedImage);
+      }
     } finally {
       try {
         await server[Symbol.asyncDispose]();
