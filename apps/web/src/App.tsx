@@ -3,6 +3,18 @@ import type { Capabilities } from '@nextstop/core';
 import { useEffect, useState } from 'react';
 import { RadarPanel } from './RadarPanel.js';
 
+type Page = 'radar' | 'library' | 'trip' | 'settings';
+const tabs: readonly { page: Page; label: string }[] = [
+  { page: 'radar', label: '机会雷达' },
+  { page: 'library', label: '灵感库' },
+  { page: 'trip', label: '我的行程' },
+  { page: 'settings', label: '我的' },
+];
+
+function currentPage() {
+  return tabs.find(({ page }) => `#${page}` === window.location.hash)?.page ?? 'radar';
+}
+
 type Connection =
   | { kind: 'loading' }
   | { kind: 'ready'; capabilities: Capabilities }
@@ -21,6 +33,16 @@ async function readHealth<T>(
 }
 
 export function App() {
+  const [page, setPage] = useState(currentPage);
+  useEffect(() => {
+    function navigate() {
+      setPage(currentPage());
+      document.getElementById('screen')?.scrollTo(0, 0);
+    }
+    window.addEventListener('hashchange', navigate);
+    return () => window.removeEventListener('hashchange', navigate);
+  }, []);
+
   const [connection, setConnection] = useState<Connection>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -51,55 +73,76 @@ export function App() {
   }, [attempt]);
 
   return (
-    <main>
-      <header>
-        <a className="brand" href="/" aria-label="下一站首页">
-          <span className="brand-mark" aria-hidden="true">
-            ↗
-          </span>{' '}
-          下一站
-        </a>
-        <span className="preview">苏州 · 步行</span>
-      </header>
-      <section className="intro">
-        <p className="eyebrow">NEXTSTOP / 现在去哪</p>
-        <h1>
-          给旅途中的空档，
-          <br />
-          找一个合适的下一站。
-        </h1>
-        <p className="lead">选个想去的地点，算一算眼前的空档够不够步行前往和停留。</p>
-      </section>
-      {connection.kind === 'ready' && <RadarPanel capabilities={connection.capabilities} />}
-      <section className="panel service" aria-labelledby="service-heading">
-        <div className="panel-heading">
-          <h2 id="service-heading">服务连接</h2>
-        </div>
-        <p role="status" className={`connection ${connection.kind}`}>
-          <span className="dot" aria-hidden="true" />
-          {connection.kind === 'loading'
-            ? '正在检查连接…'
-            : connection.kind === 'ready'
-              ? '服务连接正常'
-              : '连接失败，请确认后端已启动'}
-        </p>
+    <div className="shell">
+      <main id="screen">
         {connection.kind === 'ready' && (
-          <p className="detail">
-            雷达接口：{connection.capabilities.radar ? '已开放' : '待配置'} · 导入接口：
-            {connection.capabilities.imports ? '已开放' : '待接入'}
-          </p>
+          <RadarPanel
+            capabilities={connection.capabilities}
+            page={page === 'radar' || page === 'trip' ? page : null}
+          />
         )}
-        <button
-          type="button"
-          onClick={() => setAttempt((value) => value + 1)}
-          disabled={connection.kind === 'loading'}
-        >
-          重新检查连接 <span aria-hidden="true">↻</span>
-        </button>
-      </section>
-      <footer>
-        NextStop · 苏州首站 <span>每一次推荐，都从真实证据开始。</span>
-      </footer>
-    </main>
+        {connection.kind !== 'ready' && (page === 'radar' || page === 'trip') && (
+          <header className="bar">
+            <h1>{page === 'radar' ? '机会雷达' : '我的行程'}</h1>
+          </header>
+        )}
+        {page === 'library' && (
+          <>
+            <header className="bar">
+              <h1>灵感库</h1>
+            </header>
+            <section className="panel padded-panel">
+              <h2>攻略截图与收藏</h2>
+              <p>当前版本暂未开放截图导入和收藏管理。</p>
+            </section>
+          </>
+        )}
+        {page === 'settings' && (
+          <section className="profile-top">
+            <h1>我的</h1>
+            <p>访客模式 · 使用当前浏览器保存你的行程</p>
+            <p>偏好及数据管理功能尚未开放。</p>
+          </section>
+        )}
+        {(page === 'settings' || (page !== 'library' && connection.kind !== 'ready')) && (
+          <section className="panel service padded-panel" aria-labelledby="service-heading">
+            <h2 id="service-heading">服务连接</h2>
+            <p role="status" className={`connection ${connection.kind}`}>
+              {connection.kind === 'loading'
+                ? '正在检查连接…'
+                : connection.kind === 'ready'
+                  ? '服务连接正常'
+                  : '连接失败，请确认后端已启动'}
+            </p>
+            {connection.kind === 'ready' && (
+              <p className="muted">
+                雷达接口：{connection.capabilities.radar ? '已开放' : '待配置'} · 导入接口：
+                {connection.capabilities.imports ? '已开放' : '待接入'}
+              </p>
+            )}
+            <button
+              className="secondary"
+              type="button"
+              onClick={() => setAttempt((value) => value + 1)}
+              disabled={connection.kind === 'loading'}
+            >
+              重新检查连接 <span aria-hidden="true">↻</span>
+            </button>
+          </section>
+        )}
+      </main>
+      <nav id="tabs" aria-label="一级导航">
+        {tabs.map((tab) => (
+          <a
+            key={tab.page}
+            href={`#${tab.page}`}
+            aria-current={tab.page === page ? 'page' : undefined}
+          >
+            <span className={`nav-icon nav-${tab.page}`} aria-hidden="true" />
+            {tab.label}
+          </a>
+        ))}
+      </nav>
+    </div>
   );
 }

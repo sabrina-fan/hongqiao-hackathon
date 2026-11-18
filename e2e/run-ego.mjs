@@ -52,6 +52,7 @@ try {
     report: join(directory, 'report.json'),
     screenshot: join(directory, 'mobile.png'),
     proposalScreenshot: join(directory, 'proposal.png'),
+    radarScreenshot: join(directory, 'radar.png'),
   };
   console.log(`Browser report and screenshot: ${directory}`);
   runBrowser(`
@@ -65,15 +66,31 @@ const save = () => writeFile(settings.report, JSON.stringify(report, null, 2));
 const wait = (fn, arg) => page.waitForFunction(fn, arg, { timeout: 10000 });
 const serviceReady = () => wait(() => document.querySelector('.connection')?.textContent.includes('服务连接正常'));
 const healthButton = 'loc=role:button[name*="重新检查连接"]';
-const submit = 'loc=role:button[name="查找下一站"]';
+const submit = 'loc=role:button[name="现在去哪"]';
+const settingsLink = 'loc=role:link[name="我的"]';
 const confirm = 'loc=role:button[name="确认加入行程"]';
+const tripLink = 'loc=role:link[name="我的行程"]';
+const radarLink = 'loc=role:link[name="机会雷达"]';
+const heading = (name) => wait((name) => document.querySelector('main h1')?.textContent.trim() === name, name);
+const tripHeading = () => heading('我的行程');
+const tripStops = () => page.evaluate(() => [...document.querySelectorAll('.trip li')].map((stop) => stop.querySelector('strong')?.textContent.trim()));
+async function checkHealth(label) {
+  await page.evaluate(() => document.querySelector('.service button')?.scrollIntoView({block:'center'}));
+  await page.click(healthButton, {label});
+}
 async function pick(field, name) {
+  const label = field === 'origin' ? '手动选择出发地' : '手动选择目的地';
+  await page.click('loc=role:button[name="' + label + '"]', {label:'Open the place picker'});
+  await page.waitForSelector('#radar-' + field);
   await page.fill('#radar-' + field, name);
   const selector = '#radar-' + field + '-options [role=option]';
   await page.waitForSelector(selector);
   await page.click(selector, { label: 'Choose matching place' });
 }
 async function propose(minutes) {
+  if (await page.evaluate(() => document.querySelector('#custom-time')?.hidden)) {
+    await page.click('loc=role:button[name="自定义"]', {label:'Enter a custom time budget'});
+  }
   await page.fill('#radar-minutes', minutes);
   await page.click(submit, { label: 'Calculate walking proposal' });
 }
@@ -81,22 +98,25 @@ await save();
 try {
   await page.cdp('Emulation.setDeviceMetricsOverride', { width:390, height:844, deviceScaleFactor:1, mobile:true, screenWidth:390, screenHeight:844 });
   await page.goto(settings.baseUrl);
-  await serviceReady();
+  await heading('现在去哪？');
   assert.match(await page.title(), /下一站/);
   const state = await page.evaluate(() => ({ heading:document.querySelector('h1')?.textContent, width:innerWidth, scrollWidth:document.documentElement.scrollWidth }));
-  assert.match(state.heading, /下一站/);
+  assert.equal(state.heading, '现在去哪？');
+  assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('nav a')].map((link) => link.hash)), ['#radar', '#library', '#trip', '#settings']);
   assert.equal(state.width, 390);
   assert.ok(state.scrollWidth <= state.width);
   report.checks.push('mobile-shell');
   console.log(await page.snapshot());
+  await page.click(settingsLink, {label:'Open the service status'});
+  await serviceReady();
   await page.cdp('Network.enable');
   try {
     await page.cdp('Network.setBlockedURLs', {urls:[settings.baseUrl + '/health/*']});
-    await page.click(healthButton, {label:'Check failed service state'});
+    await checkHealth('Check failed service state');
     await wait(() => document.querySelector('.connection')?.textContent.includes('连接失败'));
     report.checks.push('backend-error');
   } finally { await page.cdp('Network.setBlockedURLs', {urls:[]}); }
-  await page.click(healthButton, {label:'Retry restored service connection'});
+  await checkHealth('Retry restored service connection');
   await serviceReady();
   report.checks.push('retry');
   for (const failure of ['network', 'http', 'schema']) {
@@ -115,7 +135,7 @@ try {
           return new Promise((_resolve, reject) => init.signal.addEventListener('abort', () => { probe.aborted++; reject(init.signal.reason); }, {once:true}));
         };
       }, failure);
-      await page.click(healthButton, {label:'Check failed request cancellation'});
+      await checkHealth('Check failed request cancellation');
       await wait(() => window.healthCancellationProbe.started === 2 && window.healthCancellationProbe.aborted === 1 && document.querySelector('.connection')?.textContent.includes('连接失败'));
     } finally { await page.reload(); }
     await serviceReady();
@@ -123,17 +143,36 @@ try {
   report.checks.push('pending-request-aborted');
   // Business writes always target the isolated guest and temporary SQLite database.
   if (settings.baseUrl !== settings.fixture) await page.goto(settings.fixture);
-  await page.waitForSelector('#radar-origin');
+  await page.click(radarLink, {label:'Open the radar form'});
+  await page.waitForSelector('.radar-form');
   await pick('origin', '验收起点');
   await pick('destination', '验收书店');
+  await page.click('loc=role:link[name="灵感库"]', {label:'Open the inspiration library'});
+  await heading('灵感库');
+  await wait(() => document.querySelector('main')?.textContent.includes('暂未开放截图导入和收藏管理'));
+  await page.click('loc=role:link[name="我的"]', {label:'Open the settings page'});
+  await heading('我的');
+  await wait(() => document.querySelector('main')?.textContent.includes('偏好及数据管理功能尚未开放'));
+  await page.click(radarLink, {label:'Resume the selected places'});
+  await heading('现在去哪？');
+  await wait(() => [...document.querySelectorAll('.place-row strong')].map((place) => place.textContent.trim()).join('|') === '验收起点|验收书店');
+  await page.click('loc=role:button[name="75 分钟"]', {label:'Select a walking time budget'});
+  await page.screenshot({path:settings.radarScreenshot});
+  report.checks.push('capability-pages-and-radar-return');
   await propose('5');
   await wait(() => document.querySelector('.result')?.textContent.includes('没有可行方案'));
-  assert.equal(await page.evaluate(() => document.querySelectorAll('.trip li').length), 0);
+  await page.click(tripLink, {label:'Open the empty itinerary'});
+  await tripHeading();
+  await wait(() => document.querySelector('.trip')?.textContent.includes('还没有已加入的地点'));
+  assert.deepEqual(await tripStops(), []);
   report.checks.push('empty-keeps-trip');
+  await page.click(radarLink, {label:'Return to the radar result'});
+  await wait(() => document.querySelector('.result')?.textContent.includes('没有可行方案'));
+  await page.click('loc=role:button[name="修改条件"]', {label:'Edit the radar conditions'});
   await propose('90');
   await page.waitForSelector(confirm);
   await wait(() => document.querySelector('.pick')?.textContent.includes('约 7 分钟'));
-  await page.evaluate(() => document.querySelector('.result')?.scrollIntoView({block:'center'}));
+  await heading('推荐结果');
   await page.screenshot({path:settings.proposalScreenshot});
   // Lose a successful acknowledgement. The second explicit confirmation must replay it.
   await page.evaluate(() => {
@@ -151,15 +190,23 @@ try {
   await page.click(confirm, {label:'Confirm the first stop'});
   await wait(() => document.querySelector('.result [role=alert]')?.textContent.includes('确认失败'));
   await page.click(confirm, {label:'Replay the same confirmation'});
-  await wait(() => document.querySelector('.trip li')?.textContent.includes('验收书店'));
+  await wait(() => document.querySelector('.result [role=status]')?.textContent.includes('已加入行程：验收书店'));
+  assert.ok(await page.evaluate(() => Boolean(document.querySelector('nav a[href="#trip"]'))), '确认成功后，底部导航应提供「我的行程」入口');
+  await page.click(tripLink, {label:'Open the saved itinerary'});
+  await tripHeading();
+  await page.waitForSelector('.trip li');
+  assert.deepEqual(await tripStops(), ['验收书店']);
+  assert.equal(await page.evaluate(() => document.querySelector('nav [aria-current="page"]')?.hash), '#trip');
   const keys = await page.evaluate(() => window.confirmationKeys);
   assert.equal(keys.length, 2); assert.ok(keys[0]); assert.equal(keys[0], keys[1]);
-  report.checks.push('confirmation-replayed');
-  await page.screenshot({path:settings.screenshot});
+  report.checks.push('confirmation-replayed', 'trip-via-bottom-navigation');
   await page.reload();
-  await wait(() => document.querySelector('.trip li')?.textContent.includes('验收书店'));
-  assert.equal(await page.evaluate(() => document.querySelectorAll('.trip li').length), 1);
+  await tripHeading();
+  await page.waitForSelector('.trip li');
+  assert.deepEqual(await tripStops(), ['验收书店']);
+  await page.screenshot({path:settings.screenshot});
   report.checks.push('trip-after-reload');
+  await page.click(radarLink, {label:'Return to the radar form'});
   await pick('origin', '验收起点'); await pick('destination', '验收书店'); await propose('90');
   await page.waitForSelector(confirm);
   // A second client of this guest legitimately changes the trip while the first tab is open.
@@ -188,8 +235,10 @@ try {
     'backend-error',
     'retry',
     'pending-request-aborted',
+    'capability-pages-and-radar-return',
     'empty-keeps-trip',
     'confirmation-replayed',
+    'trip-via-bottom-navigation',
     'trip-after-reload',
     'stale-keeps-trip',
     'stale-recalculated',
