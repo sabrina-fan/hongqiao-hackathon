@@ -22,6 +22,9 @@ export function createGuestSessions(secret: string, secure: boolean, now: () => 
         ? id
         : null;
     },
+    clear() {
+      return `${cookieName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure ? '; Secure' : ''}`;
+    },
     issue() {
       const payload = `${randomUUID()}.${Math.floor(now() / 1000) + lifetime}`;
       return `${cookieName}=${payload}.${sign(payload)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${lifetime}${secure ? '; Secure' : ''}`;

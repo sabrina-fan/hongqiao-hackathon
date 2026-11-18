@@ -6,6 +6,7 @@ import {
   type DraftVersion,
 } from '@nextstop/core';
 import { requestJson } from './api.js';
+import { cacheGeneration, rememberTrip } from './offline-trip.js';
 
 const path = (id: string) => `/api/v1/trips/${encodeURIComponent(id)}/draft`;
 const post = (body: unknown): RequestInit => ({
@@ -27,5 +28,9 @@ export const editDraft = (id: string, version: DraftVersion, edit: DraftEdit) =>
     undefined,
     PLAN_TIMEOUT_MS,
   );
-export const applyDraft = (id: string, version: DraftVersion) =>
-  requestJson(`${path(id)}/apply`, post(version), tripDetailValidator.check);
+export async function applyDraft(id: string, version: DraftVersion) {
+  const generation = cacheGeneration();
+  const trip = await requestJson(`${path(id)}/apply`, post(version), tripDetailValidator.check);
+  rememberTrip(trip, generation);
+  return trip;
+}

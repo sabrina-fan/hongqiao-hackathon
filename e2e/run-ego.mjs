@@ -154,7 +154,7 @@ try {
   await wait(() => document.querySelector('main')?.textContent.includes('还没有收藏'));
   await page.click('loc=role:link[name="我的"]', {label:'Open the settings page'});
   await heading('我的');
-  await wait(() => document.querySelector('main')?.textContent.includes('偏好及数据管理功能尚未开放'));
+  await wait(() => document.querySelector('.settings-screen')?.textContent.includes('导出匿名数据'));
   await page.click(radarLink, {label:'Resume the selected places'});
   await heading('现在去哪？');
   await wait(() => [...document.querySelectorAll('.place-row strong')].map((place) => place.textContent.trim()).join('|') === '验收起点|验收书店');

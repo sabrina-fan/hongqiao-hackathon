@@ -8,6 +8,8 @@ import {
   listTrips,
   saveArrangement,
 } from './api.js';
+import { OfflineTrip } from './OfflineTrip.js';
+import { cacheGeneration, rememberTrip } from './offline-trip.js';
 import { TripDraftPanel } from './TripDraftPanel.js';
 import { ArrangementForm, TripDayForm } from './TripForms.js';
 import './trip.css';
@@ -102,19 +104,28 @@ export function TripPanel({ onSessionExpired }: { onSessionExpired: (error: unkn
   const [editor, setEditor] = useState<Editor | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [weak, setWeak] = useState(false);
   const reportSession = useEffectEvent(onSessionExpired);
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
+    const generation = cacheGeneration();
     void (async () => {
       try {
         const list = await listTrips(signal);
         const selected = list.current_trip_id
           ? await getTripDetail(list.current_trip_id, signal)
           : null;
-        if (!signal.aborted) setState({ list, selected });
+        if (!signal.aborted) {
+          if (selected) rememberTrip(selected, generation);
+          setState({ list, selected });
+          setWeak(false);
+        }
       } catch (failure) {
-        if (!signal.aborted && !reportSession(failure)) setError(messageOf(failure));
+        if (!signal.aborted && !reportSession(failure)) {
+          setWeak(failure instanceof ApiError && (failure.status === 0 || failure.status >= 500));
+          setError(messageOf(failure));
+        }
       }
     })();
     return () => controller.abort();
@@ -138,8 +149,10 @@ export function TripPanel({ onSessionExpired }: { onSessionExpired: (error: unkn
     if (busy || !state) return;
     setBusy(true);
     setError('');
+    const generation = cacheGeneration();
     try {
       const trip = await run();
+      rememberTrip(trip, generation);
       const summary = { trip_id: trip.trip_id, revision: trip.revision, day: trip.day };
       const { list } = state;
       const trips = creating
@@ -248,6 +261,7 @@ export function TripPanel({ onSessionExpired }: { onSessionExpired: (error: unkn
             </button>
           )}
         </div>
+        {weak && !state && <OfflineTrip />}
         {!state && !error && <p role="status">正在读取行程…</p>}
         {state && !selected && (
           <p className="note">还没有已加入的地点。新建旅行，或从机会雷达加入地点。</p>

@@ -14,20 +14,28 @@ export async function proposeRadar({
   map,
   withRuntime,
   now,
+  signal,
+  bindTrip,
 }: {
   request: RadarRequest;
   map: RadarMap;
   withRuntime: <T>(run: (runtime: UserRuntime) => Promise<T>) => Promise<T>;
   now: () => number;
+  signal: AbortSignal;
+  bindTrip: (id: string) => void;
 }) {
   const startedAt = now();
-  const expectedTrip = await withRuntime(readActiveTrip);
+  const expectedTrip = await withRuntime(async (runtime) => {
+    const trip = await readActiveTrip(runtime);
+    if (trip) bindTrip(trip.trip_id);
+    return trip;
+  });
   const fixed = effectiveFixed(
     nextFixedStop(expectedTrip, startedAt),
     request.fixed_mode,
     startedAt,
   );
-  const routeBudget = AbortSignal.timeout(6500);
+  const routeBudget = AbortSignal.any([signal, AbortSignal.timeout(6500)]);
   const evidence = await map.walk(request, routeBudget);
   const onward =
     fixed && Date.parse(fixed.starts_at) > startedAt

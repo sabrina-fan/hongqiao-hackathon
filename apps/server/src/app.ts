@@ -9,6 +9,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { createGuestSessions } from './guest-session.js';
 import { checkPostOrigin, HttpFault, readJson, send, sendError } from './http.js';
 import { createImportHandler, importRoute, type ImportVision } from './imports/http.js';
+import { handlePrivacy, privacyRoute } from './privacy/http.js';
 import type { RadarMap } from './radar/amap.js';
 import { acceptRadar, getRadar, getRadarHistory } from './radar/store.js';
 import { radarAcceptanceRoute } from './radar/acceptance-http.js';
@@ -73,6 +74,7 @@ export function createApp(options?: Options) {
     const view = sessionId && !member?.[2] && request.method === 'GET';
     const imports = importRoute(request.method, path);
     const wishlist = wishlistRoute(request.method, path);
+    const privacy = privacyRoute(request.method, path);
     if (
       !(
         createSession ||
@@ -86,14 +88,28 @@ export function createApp(options?: Options) {
         acceptance ||
         view ||
         imports ||
-        wishlist
+        wishlist ||
+        privacy
       )
     )
       throw new HttpFault('NOT_IMPLEMENTED');
-    if (!sessions || !withUser) throw new HttpFault('RADAR_NOT_CONFIGURED');
+    if (!options || !sessions || !withUser) throw new HttpFault('RADAR_NOT_CONFIGURED');
     const userId = sessions.read(request.headers.cookie);
+    if (privacy)
+      return handlePrivacy({
+        route: privacy,
+        response,
+        userId,
+        withUser,
+        dataDir: options.dataDir,
+        clearCookie: sessions.clear,
+      });
+    if (userId && (await withUser.isRevoked(userId))) throw new HttpFault('SESSION_REQUIRED');
     if (createSession) {
-      if (!userId) response.setHeader('set-cookie', sessions.issue());
+      if (!userId) {
+        response.setHeader('set-cookie', sessions.issue());
+        response.setHeader('x-nextstop-new-session', '1');
+      }
       return send(response, 204);
     }
     if (!userId) throw new HttpFault('SESSION_REQUIRED');
@@ -109,6 +125,7 @@ export function createApp(options?: Options) {
         response,
         route: wishlist,
         params: url.searchParams,
+        map,
         withUser: (run) => withUser(userId, run),
       });
     if (imports && handleImport)
@@ -136,12 +153,16 @@ export function createApp(options?: Options) {
       return send(
         response,
         201,
-        await proposeRadar({
-          request: input,
-          map,
-          now,
-          withRuntime: (run) => withUser(userId, run),
-        }),
+        await withUser.task(userId, (signal, bindTrip) =>
+          proposeRadar({
+            request: input,
+            map,
+            now,
+            signal,
+            bindTrip,
+            withRuntime: (run) => withUser(userId, run),
+          }),
+        ),
       );
     }
     if (trip) return send(response, 200, await withUser(userId, (runtime) => getTrip({ runtime })));

@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpFault, readJson, send } from '../http.js';
 import type { createUserAccess } from '../radar/user-access.js';
+import { readActiveTrip } from '../trip/store.js';
 import {
   batchItem,
   confirmBatch,
@@ -87,10 +88,16 @@ export function createBatchHandler(
             return images.read(userId, imageId);
           });
           if (!data) continue;
-          const result = await review.image(imageId, {
-            data: data.toString('base64'),
-            mimeType: item.image_type,
-          });
+          const result = await withUser.task(userId, (signal) =>
+            review.image(
+              imageId,
+              {
+                data: data.toString('base64'),
+                mimeType: item.image_type,
+              },
+              signal,
+            ),
+          );
           const reason =
             result.extraction.kind === 'vision_unavailable'
               ? 'vision'
@@ -134,7 +141,8 @@ export function createBatchHandler(
       if (receivingBatch) throw new HttpFault('IMPORT_BUSY');
       reserveWorker();
       receivingBatch = true;
-      const stored: Processing[] = [];
+      const stored: { item: Processing; image: Awaited<ReturnType<typeof prepareImportImage>> }[] =
+        [];
       try {
         const id = `bat-${randomUUID()}`;
         const items: ImportBatchItem[] = [];
@@ -153,17 +161,25 @@ export function createBatchHandler(
             continue;
           }
           const item: Processing = { ...base, image_type: prepared.mimeType, kind: 'processing' };
-          stored.push(item);
-          await images.put(userId, item.import_id, prepared);
+          stored.push({ item, image: prepared });
           items.push(item);
         }
         const batch = { batch_id: id, revision: 1, items };
-        await withUser(userId, (runtime) => saveBatch(runtime, batch));
-        start(userId, id, stored, withUser);
+        await withUser(userId, async (runtime) => {
+          const tripId = (await readActiveTrip(runtime))?.trip_id;
+          for (const { item, image } of stored) await images.put(userId, item.import_id, image);
+          await saveBatch(runtime, batch, tripId);
+        });
+        start(
+          userId,
+          id,
+          stored.map(({ item }) => item),
+          withUser,
+        );
         return send(response, 202, batch);
       } catch (error) {
         workers -= 1;
-        await Promise.allSettled(stored.map(({ import_id }) => images.remove(userId, import_id)));
+        await Promise.allSettled(stored.map(({ item }) => images.remove(userId, item.import_id)));
         throw error;
       } finally {
         receivingBatch = false;

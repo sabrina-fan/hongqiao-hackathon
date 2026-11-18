@@ -5,6 +5,7 @@ import {
   filterWishlist,
   StoredWishlistSchema,
   type EditWishlist,
+  type PlaceOption,
   type SavedPlace,
   type Wishlist,
   type WishlistFilter,
@@ -137,6 +138,36 @@ export async function editSavedPlace(
     return value;
   }, BACKGROUND_CONTEXT);
   return present(updated, await readScheduledPoiIds(runtime));
+}
+
+export async function correctSavedPlace(runtime: UserRuntime, id: string, choice: PlaceOption) {
+  const updated = await runtime.conversation.commit(async (tx) => {
+    const { places } = await wishlistDocument(runtime, tx);
+    const index = places.findIndex(({ poi_id }) => poi_id === id);
+    const place = places[index];
+    if (!place) throw new HttpFault('WISHLIST_NOT_FOUND');
+    if (choice.id !== id && places.some(({ poi_id }) => poi_id === choice.id))
+      throw new HttpFault('WISHLIST_CORRECTION_CONFLICT');
+    const value = {
+      ...place,
+      poi_id: choice.id,
+      name: choice.name,
+      address: choice.address,
+      sources: place.sources.map((source) => ({ ...source })),
+    };
+    places[index] = value;
+    return value;
+  }, BACKGROUND_CONTEXT);
+  return present(updated, await readScheduledPoiIds(runtime));
+}
+
+export async function removeImageSources(runtime: UserRuntime, tx: Tx, ids: ReadonlySet<string>) {
+  const { places } = await wishlistDocument(runtime, tx);
+  for (const place of places) {
+    place.sources = place.sources.filter(
+      (source) => source.kind !== 'image' || !ids.has(source.import_id),
+    );
+  }
 }
 
 export function removeSavedPlace(runtime: UserRuntime, poiId: string) {

@@ -1,4 +1,5 @@
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
+import type { Tx } from '@earendil-works/pi-durable';
 import { compile } from '@earendil-works/pi-schema';
 import {
   acceptRadarValidator,
@@ -307,6 +308,33 @@ function readResult(runtime: UserRuntime, sessionId: string) {
     sessionId,
     BACKGROUND_CONTEXT,
   );
+}
+
+export async function prepareRadarRetirement(runtime: UserRuntime, tripId: string) {
+  const scope = runtime.conversation.id;
+  const sessionIds = new Set<string>();
+  for (const id of await runtime.familyKeys(RadarResults.definition.kind)) {
+    const record = await readResult(runtime, id);
+    if (record?.outcome?.binding.trip_id === tripId) sessionIds.add(id);
+  }
+  for (const id of await runtime.familyKeys(RadarAcceptances.definition.kind)) {
+    const record = await runtime.harness.snapshot(RadarAcceptances, scope, id, BACKGROUND_CONTEXT);
+    if (record?.acceptance?.receipt.trip_id === tripId) sessionIds.add(id);
+  }
+  const receiptKeys: string[] = [];
+  for (const key of await runtime.familyKeys(AcceptReceipts.definition.kind)) {
+    const record = await runtime.harness.snapshot(AcceptReceipts, scope, key, BACKGROUND_CONTEXT);
+    if (record?.entry?.receipt.trip_id === tripId) receiptKeys.push(key);
+  }
+  return async (tx: Tx) => {
+    for (const id of sessionIds) {
+      await tx.retireDoc(RadarResults, scope, id);
+      await tx.retireDoc(RadarAcceptances, scope, id);
+    }
+    for (const key of receiptKeys) await tx.retireDoc(AcceptReceipts, scope, key);
+    const history = await tx.doc(RadarHistory, scope, HISTORY_KEY, HISTORY_KEY);
+    if (history.latest && sessionIds.has(history.latest)) history.latest = null;
+  };
 }
 
 export async function getRadarHistory(runtime: UserRuntime, at: number) {

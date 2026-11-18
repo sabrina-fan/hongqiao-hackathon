@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import type { EditWishlist, SavedPlace, WishlistPlace } from '@nextstop/core';
+import type { EditWishlist, PlaceOption, SavedPlace, WishlistPlace } from '@nextstop/core';
 import { ApiError } from './api.js';
+import { PlaceField } from './PlaceField.js';
 import {
+  correctSavedPlace,
   editSavedPlace,
   getSavedPlace,
   importImagePath,
@@ -27,6 +29,9 @@ export function WishlistDetail({ placeKey, onBack }: { placeKey: PlaceKey; onBac
   const [state, setState] = useState<DetailState>({ kind: 'loading' });
   const [retry, setRetry] = useState(0);
   const [note, setNote] = useState('');
+  const [correcting, setCorrecting] = useState(false);
+  const [replacement, setReplacement] = useState<PlaceOption | null>(null);
+  const effectiveKey = state.kind === 'ready' ? state.place : placeKey;
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [failure, setFailure] = useState('');
@@ -64,7 +69,7 @@ export function WishlistDetail({ placeKey, onBack }: { placeKey: PlaceKey; onBac
 
   function update(edit: EditWishlist, message: string) {
     void run(async () => {
-      const place = await editSavedPlace(placeKey, edit);
+      const place = await editSavedPlace(effectiveKey, edit);
       setState({ kind: 'ready', place });
       if (edit.note !== undefined) setNote(place.note);
       setNotice(message);
@@ -101,6 +106,61 @@ export function WishlistDetail({ placeKey, onBack }: { placeKey: PlaceKey; onBac
       {state.kind === 'ready' && (
         <>
           <PlaceFacts place={state.place} />
+          {correcting ? (
+            <section className="panel wishlist-detail-panel">
+              <PlaceField
+                id="wishlist-replacement"
+                label="搜索正确地点"
+                placeholder="输入名称，核对地址"
+                value={replacement}
+                onSelect={setReplacement}
+                onSessionExpired={() => false}
+              />
+              <p>更正会更新收藏的地图地点和地址。已保存的行程仍保留原有安排。</p>
+              <div className="library-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    setCorrecting(false);
+                    setReplacement(null);
+                  }}
+                >
+                  取消更正
+                </button>
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={busy || !replacement}
+                  onClick={() => {
+                    if (!replacement) return;
+                    void run(async () => {
+                      const place = await correctSavedPlace(effectiveKey, {
+                        query: replacement.name,
+                        poi_id: replacement.id,
+                      });
+                      setState({ kind: 'ready', place });
+                      setCorrecting(false);
+                      setReplacement(null);
+                      setNotice('地点更正已保存');
+                    });
+                  }}
+                >
+                  确认更正
+                </button>
+              </div>
+            </section>
+          ) : (
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy}
+              onClick={() => setCorrecting(true)}
+            >
+              更正地图地点
+            </button>
+          )}
           <form
             className="panel wishlist-detail-panel"
             onSubmit={(event) => {
@@ -153,7 +213,7 @@ export function WishlistDetail({ placeKey, onBack }: { placeKey: PlaceKey; onBac
                   disabled={busy}
                   onClick={() =>
                     void run(async () => {
-                      await removeSavedPlace(placeKey);
+                      await removeSavedPlace(effectiveKey);
                       onBack();
                     })
                   }

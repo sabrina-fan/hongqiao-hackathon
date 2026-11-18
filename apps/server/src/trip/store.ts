@@ -128,6 +128,13 @@ export async function findTrip(runtime: UserRuntime, id: string) {
   return { key, trip };
 }
 
+export async function retireTrip(runtime: UserRuntime, tx: Tx, key: string) {
+  const scope = runtime.conversation.id;
+  const directory = await tx.doc(TripDirectory, scope, DIRECTORY_KEY, DIRECTORY_KEY);
+  directory.keys = directory.keys.filter((entry) => entry !== key);
+  await tx.retireDoc(Trips, scope, key);
+}
+
 export async function getTripDetail(runtime: UserRuntime, id: string): Promise<TripDetail> {
   return tripDetail((await findTrip(runtime, id)).trip);
 }

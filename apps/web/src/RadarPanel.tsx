@@ -18,9 +18,16 @@ import {
   getRadarContext,
   getRadarHistory,
   getRadarSession,
+  getTripDetail,
   isCancellation,
   undoRadarAcceptance,
 } from './api.js';
+import {
+  cacheGeneration,
+  invalidateTripData,
+  radarPointerKey as draftKey,
+  rememberTrip,
+} from './offline-trip.js';
 import { RadarAcceptanceCard, type UndoState } from './RadarAcceptanceCard.js';
 import { fixedClock, Icon, PickCard, RadarForm } from './RadarScreens.js';
 import { TripPanel } from './TripPanel.js';
@@ -34,7 +41,6 @@ type Result =
   | { kind: 'shown'; view: RadarView; failure?: string }
   | { kind: 'accepting'; view: RadarView }
   | { kind: 'accepted'; sessionId: string; acceptance: RadarAcceptance; undo: UndoState };
-const draftKey = 'nextstop.radar-session';
 function draftId() {
   try {
     return sessionStorage.getItem(draftKey);
@@ -49,6 +55,16 @@ function remember(id: string | null) {
   } catch {
     /* Restoring a form is optional. Confirmation does not depend on browser storage. */
   }
+}
+function refreshOfflineTrip(tripId: string, generation: string | null, signal: AbortSignal) {
+  void getTripDetail(tripId, signal).then(
+    (trip) => {
+      if (!signal.aborted) rememberTrip(trip, generation);
+    },
+    () => {
+      /* Online confirmation does not depend on caching. */
+    },
+  );
 }
 function messageOf(error: unknown) {
   return error instanceof ApiError ? error.message : '无法读取服务响应，请重试。';
@@ -82,7 +98,7 @@ export function RadarPanel({
 
   function sessionExpired(error: unknown) {
     if (!(error instanceof ApiError) || error.code !== 'SESSION_REQUIRED') return false;
-    remember(null);
+    invalidateTripData(null, false);
     setResult({ kind: 'idle' });
     setSession({ kind: 'failed', message: '匿名会话已过期，请重新建立会话。' });
     return true;
@@ -272,6 +288,7 @@ export function RadarPanel({
     locked.current = true;
     setResult({ kind: 'accepting', view });
     const binding = view.outcome.binding;
+    const generation = cacheGeneration();
     try {
       // One choice per proposal. Every tab and retry can reconstruct the same confirmation key.
       await acceptRadar(
@@ -283,6 +300,7 @@ export function RadarPanel({
       const acceptance = await getRadarAcceptance(binding.session_id, signal);
       if (signal.aborted) return;
       if (!acceptance) throw new Error('Missing confirmation status');
+      refreshOfflineTrip(acceptance.receipt.trip_id, generation, signal);
       setResult({
         kind: 'accepted',
         sessionId: binding.session_id,
@@ -309,11 +327,15 @@ export function RadarPanel({
     )
       return;
     const { sessionId, acceptance } = result;
+    const generation = cacheGeneration();
     locked.current = true;
     setResult({ ...result, undo: { kind: 'pending' } });
     try {
       const updated = await undoRadarAcceptance(sessionId, acceptance.receipt.stop.stop_id, signal);
-      if (!signal.aborted) setResult({ ...result, acceptance: updated, undo: { kind: 'idle' } });
+      if (!signal.aborted) {
+        refreshOfflineTrip(updated.receipt.trip_id, generation, signal);
+        setResult({ ...result, acceptance: updated, undo: { kind: 'idle' } });
+      }
     } catch (error) {
       if (signal.aborted || isCancellation(error) || sessionExpired(error)) return;
       // The transaction may have committed even if the response did not reach this tab.

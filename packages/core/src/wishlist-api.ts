@@ -52,14 +52,14 @@ const placeFields = {
   city: lit('苏州'),
   name: str({ minLength: 1, maxLength: 200 }),
   address: str({ maxLength: 500 }),
-  sources: arr(ImportSource, { minItems: 1 }),
+  sources: arr(ImportSource),
 };
 export const WishlistPlaceSchema = obj(placeFields);
 const Visit = oneOf(['unvisited', 'visited']);
 const Schedule = oneOf(['unscheduled', 'scheduled']);
 const Evidence = oneOf(['unknown', 'verified', 'estimated', 'stale']);
 const Note = str({ maxLength: 500 });
-const SavedPlaceSchema = obj({
+export const SavedPlaceSchema = obj({
   ...placeFields,
   visit: Visit,
   note: Note,

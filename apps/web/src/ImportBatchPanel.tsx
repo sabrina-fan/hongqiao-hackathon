@@ -17,10 +17,9 @@ import {
   uploadBatch,
 } from './import-batch-client.js';
 import type { Choices, ReviewableImage } from './import-batch-review.js';
+import { batchPointerKey as lastBatchKey } from './offline-trip.js';
 import { getWishlist } from './wishlist-client.js';
 import './import-batch.css';
-
-const lastBatchKey = 'nextstop:last-import-batch';
 const messageOf = (error: unknown) =>
   error instanceof ApiError ? error.message : '服务暂不可用，请重试。';
 function lastBatch() {

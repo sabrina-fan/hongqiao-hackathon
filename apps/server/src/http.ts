@@ -18,6 +18,7 @@ export class HttpFault extends Error {
       | 'IMPORT_INVALID_CHOICE'
       | 'IMPORT_BUSY'
       | 'WISHLIST_NOT_FOUND'
+      | 'WISHLIST_CORRECTION_CONFLICT'
       | 'DRAFT_STALE'
       | 'DRAFT_INVALID_EDIT'
       | 'DRAFT_NO_SCHEDULE'
@@ -39,6 +40,7 @@ const errors = {
   IMPORT_INVALID_CHOICE: [409, '请选择当前核对中的地图候选。'],
   IMPORT_BUSY: [503, '图片处理繁忙，请稍后重试。'],
   WISHLIST_NOT_FOUND: [404, '未找到此收藏。'],
+  WISHLIST_CORRECTION_CONFLICT: [409, '目标地点已经收藏。为保留两处记录，请先处理目标收藏。'],
   DRAFT_STALE: [409, '草案或行程已更新，请重新核对草案。'],
   DRAFT_INVALID_EDIT: [409, '无法调整这项活动，请检查锁定和跳过状态。'],
   DRAFT_NO_SCHEDULE: [409, '草案没有可应用的活动。'],

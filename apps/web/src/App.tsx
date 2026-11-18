@@ -3,6 +3,9 @@ import type { Capabilities } from '@nextstop/core';
 import { useEffect, useState } from 'react';
 import { RadarPanel } from './RadarPanel.js';
 import { LibraryPanel } from './LibraryPanel.js';
+import { OfflineTrip } from './OfflineTrip.js';
+import { watchTripData } from './offline-trip.js';
+import { SettingsPanel } from './SettingsPanel.js';
 
 type Page = 'radar' | 'library' | 'trip' | 'settings';
 const tabs: readonly { page: Page; label: string }[] = [
@@ -46,7 +49,25 @@ export function App() {
 
   const [connection, setConnection] = useState<Connection>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const [sessionEpoch, setSessionEpoch] = useState(0);
+  const [offline, setOffline] = useState(() => !navigator.onLine);
+  useEffect(() => watchTripData(() => setSessionEpoch((value) => value + 1)), []);
   useEffect(() => {
+    const disconnected = () => setOffline(true);
+    const reconnected = () => {
+      setConnection({ kind: 'loading' });
+      setOffline(false);
+      setAttempt((value) => value + 1);
+    };
+    window.addEventListener('offline', disconnected);
+    window.addEventListener('online', reconnected);
+    return () => {
+      window.removeEventListener('offline', disconnected);
+      window.removeEventListener('online', reconnected);
+    };
+  }, []);
+  useEffect(() => {
+    if (offline) return;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
     let disposed = false;
@@ -71,55 +92,55 @@ export function App() {
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [attempt]);
+  }, [attempt, offline]);
 
+  const ready = !offline && connection.kind === 'ready' ? connection.capabilities : null;
   return (
     <div className="shell">
       <main id="screen">
-        {connection.kind === 'ready' && (
+        {ready && (
           <RadarPanel
-            capabilities={connection.capabilities}
+            key={`radar-${sessionEpoch}`}
+            capabilities={ready}
             page={page === 'radar' || page === 'trip' ? page : null}
           />
         )}
-        {connection.kind !== 'ready' && (page === 'radar' || page === 'trip') && (
+        {!ready && (page === 'radar' || page === 'trip') && (
           <header className="bar">
             <h1>{page === 'radar' ? '机会雷达' : '我的行程'}</h1>
           </header>
         )}
-        {page === 'library' && connection.kind === 'ready' && (
+        {!ready && (offline || connection.kind === 'failed') && page === 'trip' && <OfflineTrip />}
+        {page === 'library' && ready && (
           <LibraryPanel
-            canImport={connection.capabilities.imports}
-            canRead={connection.capabilities.trip_writes}
-            canRecognize={connection.capabilities.model_calls}
+            key={sessionEpoch}
+            canImport={ready.imports}
+            canRead={ready.trip_writes}
+            canRecognize={ready.model_calls}
           />
         )}
-        {page === 'library' && connection.kind !== 'ready' && (
+        {page === 'library' && !ready && (
           <header className="bar">
             <h1>我的灵感库</h1>
           </header>
         )}
-        {page === 'settings' && (
-          <section className="profile-top">
-            <h1>我的</h1>
-            <p>访客模式 · 使用当前浏览器保存你的行程</p>
-            <p>偏好及数据管理功能尚未开放。</p>
-          </section>
-        )}
-        {(page === 'settings' || connection.kind !== 'ready') && (
+        {page === 'settings' && <SettingsPanel available={ready?.trip_writes ?? false} />}
+        {(page === 'settings' || !ready) && (
           <section className="panel service padded-panel" aria-labelledby="service-heading">
             <h2 id="service-heading">服务连接</h2>
-            <p role="status" className={`connection ${connection.kind}`}>
-              {connection.kind === 'loading'
-                ? '正在检查连接…'
-                : connection.kind === 'ready'
-                  ? '服务连接正常'
-                  : '连接失败，请确认后端已启动'}
+            <p role="status" className={`connection ${offline ? 'failed' : connection.kind}`}>
+              {offline
+                ? '当前离线'
+                : connection.kind === 'loading'
+                  ? '正在检查连接…'
+                  : connection.kind === 'ready'
+                    ? '服务连接正常'
+                    : '连接失败，请确认后端已启动'}
             </p>
-            {connection.kind === 'ready' && (
+            {ready && (
               <p className="muted">
-                雷达接口：{connection.capabilities.radar ? '已开放' : '待配置'} · 导入接口：
-                {connection.capabilities.imports ? '已开放' : '待接入'}
+                雷达接口：{ready.radar ? '已开放' : '待配置'} · 导入接口：
+                {ready.imports ? '已开放' : '待接入'}
               </p>
             )}
             <button

@@ -1,9 +1,10 @@
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
-import { defineDocFamily } from '@earendil-works/pi-durable';
-import { compile, nullable, obj, type Static } from '@earendil-works/pi-schema';
+import { defineDocFamily, type Tx } from '@earendil-works/pi-durable';
+import { compile, nullable, obj, opt, type Static } from '@earendil-works/pi-schema';
 import {
   ConfirmBatchSchema,
   ImportBatchSchema,
+  IdentifierSchema,
   type ConfirmBatch,
   type ConfirmImport,
   type ImportBatch,
@@ -18,6 +19,7 @@ import { writeBatchChoices } from './store.js';
 const BatchRecordSchema = obj({
   batch: nullable(ImportBatchSchema),
   confirmation: nullable(ConfirmBatchSchema),
+  trip_id: opt(IdentifierSchema),
 });
 const batchRecord = compile(BatchRecordSchema);
 type BatchRecord = Static<typeof BatchRecordSchema>;
@@ -42,13 +44,61 @@ function checkedBatch(record: BatchRecord | undefined, id: string) {
   return record.batch;
 }
 
-export function saveBatch(runtime: UserRuntime, batch: ImportBatch) {
+export function saveBatch(runtime: UserRuntime, batch: ImportBatch, tripId?: string) {
   const id = batch.batch_id;
   return runtime.conversation.commit(async (tx) => {
     const record = await tx.doc(Batches, runtime.conversation.id, id, id);
     if (record.batch) throw new Error('Import batch ID collision');
     record.batch = batch;
+    if (tripId) record.trip_id = tripId;
   }, BACKGROUND_CONTEXT);
+}
+
+export async function listImportBatches(runtime: UserRuntime) {
+  const scope = runtime.conversation.id;
+  return Promise.all(
+    (await runtime.familyKeys(Batches.definition.kind)).map(async (id) => {
+      const record = await runtime.harness.snapshot(Batches, scope, id, BACKGROUND_CONTEXT);
+      const batch = checkedBatch(record, id);
+      return { batch, tripId: record?.trip_id ?? null };
+    }),
+  );
+}
+
+export async function removeBatchImages({
+  runtime,
+  tx,
+  ids,
+  batches,
+  tripId,
+}: {
+  runtime: UserRuntime;
+  tx: Tx;
+  ids: ReadonlySet<string>;
+  batches: Awaited<ReturnType<typeof listImportBatches>>;
+  tripId?: string;
+}) {
+  const scope = runtime.conversation.id;
+  for (const entry of batches) {
+    const { batch_id, items } = entry.batch;
+    const owned = tripId !== undefined && entry.tripId === tripId;
+    if (!owned && !items.some(({ import_id }) => ids.has(import_id))) continue;
+    const retained = items.filter(
+      (item) => !ids.has(item.import_id) && (!owned || item.kind !== 'invalid'),
+    );
+    if (retained.length === 0) {
+      await tx.retireDoc(Batches, scope, batch_id);
+    } else {
+      const record = await tx.doc(Batches, scope, batch_id, batch_id);
+      record.batch = {
+        ...entry.batch,
+        revision: entry.batch.revision + 1,
+        items: retained.map((item) => structuredClone(item)),
+      };
+      record.confirmation = null;
+      if (owned) delete record.trip_id;
+    }
+  }
 }
 
 export async function readBatch(runtime: UserRuntime, id: string) {

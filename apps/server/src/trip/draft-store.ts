@@ -1,5 +1,5 @@
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
-import { defineDocFamily } from '@earendil-works/pi-durable';
+import { defineDocFamily, type Tx } from '@earendil-works/pi-durable';
 import { compile, nullable, obj, type Static } from '@earendil-works/pi-schema';
 import {
   RevisionSchema,
@@ -47,6 +47,12 @@ const DraftReceipts = defineDocFamily<Static<typeof ReceiptState>, string>({
   initial: () => ({ receipt: null }),
   checkpointWhen: () => true,
 });
+
+export async function retireTripDraft(runtime: UserRuntime, tx: Tx, id: string) {
+  const scope = runtime.conversation.id;
+  await tx.retireDoc(Drafts, scope, id);
+  await tx.retireDoc(DraftReceipts, scope, id);
+}
 
 export type RunForGuest = <T>(run: (runtime: UserRuntime) => Promise<T>) => Promise<T>;
 

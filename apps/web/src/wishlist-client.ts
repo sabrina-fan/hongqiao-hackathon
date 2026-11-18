@@ -5,6 +5,7 @@ import {
   wishlistPlaceValidator,
   wishlistValidator,
   type ConfirmImport,
+  type CorrectPlace,
   type EditWishlist,
   type WishlistPlace,
 } from '@nextstop/core';
@@ -29,6 +30,8 @@ export const getSavedPlace = (key: Parameters<typeof savedPath>[0], signal?: Abo
   requestJson(savedPath(key), {}, savedPlaceValidator.check, signal);
 export const editSavedPlace = (key: Parameters<typeof savedPath>[0], edit: EditWishlist) =>
   requestJson(savedPath(key), { ...post(edit), method: 'PATCH' }, savedPlaceValidator.check);
+export const correctSavedPlace = (key: Parameters<typeof savedPath>[0], input: CorrectPlace) =>
+  requestJson(`${savedPath(key)}/correction`, post(input), savedPlaceValidator.check);
 export async function removeSavedPlace(key: Parameters<typeof savedPath>[0]) {
   await request(savedPath(key), { method: 'DELETE' });
 }

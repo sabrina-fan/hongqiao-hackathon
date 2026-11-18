@@ -1,6 +1,6 @@
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { createRegistry, Harness } from '@earendil-works/pi-durable';
-import type { Conversation } from '@earendil-works/pi-durable';
+import type { Conversation, Cursor } from '@earendil-works/pi-durable';
 import { openNodeSqliteStorage } from '@earendil-works/pi-durable/storage/sqlite/node';
 import { compile } from '@earendil-works/pi-schema';
 import { IdentifierSchema } from '@nextstop/core';
@@ -14,6 +14,7 @@ const openPaths = new Set<string>();
 export type UserRuntime = {
   harness: Harness;
   conversation: Conversation;
+  familyKeys(kind: string): Promise<string[]>;
   close(): Promise<void>;
 };
 
@@ -42,10 +43,26 @@ export async function openUserRuntime(input: {
     );
     const conversation = await harness.root(BACKGROUND_CONTEXT);
     const opened = harness;
+    const store = storage;
     let closing: Promise<void> | undefined;
     return {
       harness: opened,
       conversation,
+      async familyKeys(kind) {
+        const query = {
+          kind,
+          at: 'current',
+          scope: { kind: 'conversation', conversationId: conversation.id },
+        } satisfies Parameters<typeof store.scanDocuments>[0];
+        const keys: string[] = [];
+        let cursor: Cursor | undefined;
+        do {
+          const page = await store.scanDocuments(query, 100, cursor, BACKGROUND_CONTEXT);
+          for (const { key } of page.items) if (key !== undefined) keys.push(key);
+          cursor = page.next;
+        } while (cursor !== undefined);
+        return keys;
+      },
       close() {
         closing ??= opened.close(BACKGROUND_CONTEXT).finally(() => openPaths.delete(file));
         return closing;

@@ -53,12 +53,13 @@ export function createVisionExtractor<T>(
     );
     return model;
   });
-  return async (image: VisionImage): Promise<T> => {
+  return async (image: VisionImage, signal?: AbortSignal): Promise<T> => {
     const context: Context = {
       systemPrompt,
       messages: [{ role: 'user', content: [{ type: 'image', ...image }], timestamp: Date.now() }],
     };
-    const deadline = AbortSignal.timeout(20_000);
+    const budget = AbortSignal.timeout(20_000);
+    const deadline = signal ? AbortSignal.any([signal, budget]) : budget;
     for (const model of routes) {
       if (deadline.aborted) break;
       try {

@@ -20,7 +20,7 @@ export default defineConfig(() => {
           icons: [{ src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
         },
         workbox: {
-          globPatterns: ['**/*.{js,css,html,svg}'],
+          globPatterns: ['**/*.{js,css,html,svg}', 'prototype/assets/nav-*.png'],
           navigateFallbackDenylist: [/^\/api\//, /^\/health\//],
           cleanupOutdatedCaches: true,
         },

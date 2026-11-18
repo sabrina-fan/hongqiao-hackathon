@@ -1,10 +1,11 @@
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { defineDocFamily, type Tx } from '@earendil-works/pi-durable';
-import { compile, nullable, obj, union, lit } from '@earendil-works/pi-schema';
+import { compile, nullable, obj, opt, union, lit } from '@earendil-works/pi-schema';
 import type { Static } from '@earendil-works/pi-schema';
 import {
   ConfirmImportSchema,
   ImportReviewSchema,
+  IdentifierSchema,
   WishlistPlaceSchema,
   type ConfirmImport,
   type ImportReview,
@@ -19,6 +20,7 @@ const ImportRecordSchema = obj({
   review: nullable(ImportReviewSchema),
   image_type: nullable(union([lit('image/png'), lit('image/jpeg')])),
   receipt: nullable(ReceiptSchema),
+  trip_id: opt(IdentifierSchema),
 });
 const importRecordValidator = compile(ImportRecordSchema);
 type ImportRecord = Static<typeof ImportRecordSchema>;
@@ -47,10 +49,12 @@ export function saveImport({
   runtime,
   review,
   imageType,
+  tripId,
 }: {
   runtime: UserRuntime;
   review: ImportReview;
   imageType: ImportRecord['image_type'];
+  tripId?: string;
 }) {
   const id = review.import_id;
   return runtime.conversation.commit(async (tx) => {
@@ -58,7 +62,41 @@ export function saveImport({
     if (record.review) throw new Error('Import ID collision');
     record.review = review;
     record.image_type = imageType;
+    if (tripId) record.trip_id = tripId;
   }, BACKGROUND_CONTEXT);
+}
+
+export async function listImportRecords(runtime: UserRuntime) {
+  return Promise.all(
+    (await runtime.familyKeys(Imports.definition.kind)).map((id) => readImport(runtime, id)),
+  );
+}
+
+export async function removeImportRecords(
+  runtime: UserRuntime,
+  tx: Tx,
+  ids: ReadonlySet<string>,
+  records: Awaited<ReturnType<typeof listImportRecords>>,
+  tripId?: string,
+) {
+  const scope = runtime.conversation.id;
+  for (const { review, record } of records) {
+    const { import_id: id } = review;
+    if (ids.has(id)) {
+      await tx.retireDoc(Imports, scope, id);
+      continue;
+    }
+    const unlinkTrip = tripId !== undefined && record.trip_id === tripId;
+    const unlinkSource = record.receipt?.place.sources.some((source) => ids.has(source.import_id));
+    if (!unlinkTrip && !unlinkSource) continue;
+    const current = await tx.doc(Imports, scope, id, id);
+    if (unlinkTrip) delete current.trip_id;
+    if (unlinkSource && current.receipt) {
+      current.receipt.place.sources = current.receipt.place.sources.filter(
+        (source) => !ids.has(source.import_id),
+      );
+    }
+  }
 }
 
 export async function readImport(runtime: UserRuntime, id: string) {

@@ -11,7 +11,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { WalkingEvidence } from './evidence.js';
 
 export type RadarMap = {
-  search(query: string): Promise<PlaceOption[]>;
+  search(query: string, signal?: AbortSignal): Promise<PlaceOption[]>;
   walk(
     request: Pick<RadarRequest, 'poi_id'> &
       (
@@ -187,11 +187,12 @@ export function createAmap({
     };
   }
   return {
-    async search(query) {
+    async search(query, signal) {
+      const budget = AbortSignal.timeout(6500);
       const body = await request(
         '/v5/place/text',
         { keywords: query, region: '苏州', city_limit: 'true', page_size: '10' },
-        AbortSignal.timeout(6500),
+        signal ? AbortSignal.any([signal, budget]) : budget,
       );
       if (!places.check(body)) throw new MapFault('MAP_UNAVAILABLE');
       return body.pois.map(toOption);

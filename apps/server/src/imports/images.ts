@@ -129,5 +129,8 @@ export function createImportImages(dataDir: string) {
     remove(userId: string, id: string) {
       return rm(location(userId, id), { recursive: true, force: true });
     },
+    removeAll(userId: string) {
+      return rm(join(dataDir, 'import-images', userId), { recursive: true, force: true });
+    },
   };
 }

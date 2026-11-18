@@ -1,0 +1,139 @@
+.settings-screen {
+  color: #122657;
+}
+.settings-header {
+  padding: 24px 20px 18px;
+  border-radius: 0 0 24px 24px;
+  background:
+    radial-gradient(circle at 90% 30%, #dcf3fd 0 16%, #d4efeb 16% 24%, transparent 24%),
+    linear-gradient(110deg, #edf9fd, #d8effd);
+}
+.settings-header h1 {
+  margin: 12px 0 2px;
+  font-size: 24px;
+}
+.settings-header p {
+  margin: 0;
+  color: #3e647c;
+}
+.settings-body {
+  padding: 14px 14px 0;
+  display: grid;
+  gap: 14px;
+}
+.settings-guest {
+  padding: 14px;
+  border: 1px solid #c1e8d6;
+  border-radius: 14px;
+  background: #eefbeb;
+  color: #186050;
+}
+.settings-guest p {
+  margin: 5px 0 0;
+  font-size: 14px;
+}
+.settings-group {
+  overflow: hidden;
+  border: 1px solid #d9e6f0;
+  border-radius: 14px;
+  background: #fff;
+}
+.settings-group > * + * {
+  border-top: 1px solid #e1e9f0;
+}
+.settings-row summary,
+.settings-link {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 13px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  background: none;
+  text-decoration: none;
+  cursor: pointer;
+}
+button.settings-link {
+  border-inline: 0;
+  border-bottom: 0;
+  border-radius: 0;
+}
+.settings-row summary {
+  list-style: none;
+}
+.settings-row summary::-webkit-details-marker {
+  display: none;
+}
+.settings-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #edf5ff;
+  color: #075fce;
+  font-size: 19px;
+}
+.settings-link small,
+.settings-row small {
+  display: block;
+  margin-top: 2px;
+  color: #49647c;
+  font-size: 12px;
+}
+.settings-chevron {
+  color: #59738a;
+  font-size: 22px;
+}
+.settings-row[open] .settings-chevron {
+  transform: rotate(90deg);
+}
+.settings-content {
+  padding: 0 14px 12px;
+  color: #3e566e;
+  font-size: 14px;
+}
+.settings-content p {
+  margin: 4px 0 9px;
+}
+.settings-list {
+  display: grid;
+  gap: 8px;
+  margin: 2px 0;
+  padding: 0;
+  list-style: none;
+}
+.settings-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.settings-danger {
+  border: 1px solid #f0b9b4;
+  border-radius: 10px;
+  background: #fdf3f1;
+  color: #ae302a;
+  padding: 8px 12px;
+  min-height: 40px;
+  white-space: nowrap;
+}
+.settings-erase {
+  width: 100%;
+}
+.settings-confirm h2 {
+  margin: 0;
+}
+.settings-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.settings-screen :disabled {
+  opacity: 0.6;
+  cursor: default;
+}

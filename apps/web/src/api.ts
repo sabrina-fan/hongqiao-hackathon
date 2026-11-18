@@ -17,6 +17,8 @@ import type {
   TripDay,
 } from '@nextstop/core';
 
+import { invalidateTripData } from './offline-trip.js';
+
 const REQUEST_TIMEOUT_MS = 10_000;
 
 export class ApiError extends Error {
@@ -99,9 +101,14 @@ let startingSession: Promise<Response> | undefined;
 export async function createSession(signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted();
   // Both tabs can load together. Share the initial cookie-setting request.
-  startingSession ??= request('/api/v1/sessions', { method: 'POST' }).finally(() => {
-    startingSession = undefined;
-  });
+  startingSession ??= request('/api/v1/sessions', { method: 'POST' })
+    .then((response) => {
+      if (response.headers.get('x-nextstop-new-session') === '1') invalidateTripData(null, false);
+      return response;
+    })
+    .finally(() => {
+      startingSession = undefined;
+    });
   await startingSession;
   signal?.throwIfAborted();
 }

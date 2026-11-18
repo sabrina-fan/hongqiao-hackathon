@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpFault, readJson, send } from '../http.js';
 import type { RadarMap } from '../radar/amap.js';
 import type { createUserAccess } from '../radar/user-access.js';
+import { readActiveTrip } from '../trip/store.js';
 import { batchRoute, createBatchHandler } from './batch-http.js';
 import { createImportImages, readImportImage, sendImportImage } from './images.js';
 import { createImportReview, type ImportVision } from './review.js';
@@ -52,10 +53,12 @@ export function createImportHandler({
         return send(response, 200, review);
       }
       case 'image': {
-        const { record } = await withUser(userId, (runtime) => readImport(runtime, route.id));
-        if (!record.image_type) throw new HttpFault('IMPORT_NOT_FOUND');
-        const data = await images.read(userId, route.id);
-        return sendImportImage(response, record.image_type, data);
+        const { data, imageType } = await withUser(userId, async (runtime) => {
+          const { record } = await readImport(runtime, route.id);
+          if (!record.image_type) throw new HttpFault('IMPORT_NOT_FOUND');
+          return { data: await images.read(userId, route.id), imageType: record.image_type };
+        });
+        return sendImportImage(response, imageType, data);
       }
       case 'confirm': {
         const selection = await readJson(request, confirmImportValidator.check);
@@ -96,14 +99,31 @@ export function createImportHandler({
         try {
           const image = await readImportImage(request);
           const id = `imp-${randomUUID()}`;
-          const review = await reviewImage.image(id, {
-            data: image.data,
-            mimeType: image.mimeType,
-          });
-          await images.put(userId, id, image);
-          await withUser(userId, (runtime) =>
-            saveImport({ runtime, review, imageType: image.mimeType }),
+          const review = await withUser.task(userId, (signal) =>
+            reviewImage.image(
+              id,
+              {
+                data: image.data,
+                mimeType: image.mimeType,
+              },
+              signal,
+            ),
           );
+          await withUser(userId, async (runtime) => {
+            const tripId = (await readActiveTrip(runtime))?.trip_id;
+            try {
+              await images.put(userId, id, image);
+              await saveImport({
+                runtime,
+                review,
+                imageType: image.mimeType,
+                ...(tripId && { tripId }),
+              });
+            } catch (error) {
+              await images.remove(userId, id);
+              throw error;
+            }
+          });
           return send(response, 201, review);
         } finally {
           activeUploads -= 1;
