@@ -14,6 +14,7 @@ import { acceptRadar, getRadar, getRadarHistory } from './radar/store.js';
 import { getRadarContext, proposeRadar } from './radar/propose.js';
 import { createUserAccess } from './radar/user-access.js';
 
+import { draftRoute } from './trip/draft-routes.js';
 import { getTrip } from './trip/store.js';
 import { tripRoute } from './trip/routes.js';
 import { handleWishlist, wishlistRoute } from './wishlist/http.js';
@@ -62,7 +63,8 @@ export function createApp(options?: Options) {
     const context = request.method === 'GET' && path === '/api/v1/radar/context';
     const history = request.method === 'GET' && path === '/api/v1/radar/history';
     const trip = request.method === 'GET' && path === '/api/v1/trip';
-    const manageTrip = tripRoute(request.method, path);
+    const manageTrip =
+      draftRoute(request.method, path, map, now) ?? tripRoute(request.method, path);
     const member = /^\/api\/v1\/radar\/sessions\/([A-Za-z0-9_-]{1,100})(\/accept)?$/.exec(path);
     const sessionId = member?.[1];
     const accept = Boolean(member?.[2]) && request.method === 'POST';

@@ -8,6 +8,7 @@ import {
   listTrips,
   saveArrangement,
 } from './api.js';
+import { TripDraftPanel } from './TripDraftPanel.js';
 import { ArrangementForm, TripDayForm } from './TripForms.js';
 import './trip.css';
 
@@ -267,6 +268,33 @@ export function TripPanel({ onSessionExpired }: { onSessionExpired: (error: unkn
           >
             ＋ 添加固定安排
           </button>
+        )}
+        {selected?.day && (
+          <TripDraftPanel
+            key={selected.trip_id}
+            trip={selected}
+            disabled={busy}
+            onSessionExpired={onSessionExpired}
+            onTripChange={(trip) =>
+              setState((previous) => {
+                if (
+                  previous?.selected?.trip_id !== trip.trip_id ||
+                  previous.selected.revision > trip.revision
+                )
+                  return previous;
+                const { trip_id, revision, day } = trip;
+                return {
+                  selected: trip,
+                  list: {
+                    ...previous.list,
+                    trips: previous.list.trips.map((row) =>
+                      row.trip_id === trip_id ? { trip_id, revision, day } : row,
+                    ),
+                  },
+                };
+              })
+            }
+          />
         )}
       </section>
     </>

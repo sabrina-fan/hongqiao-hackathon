@@ -5,6 +5,7 @@ export {
   ModelProposalInputSchema,
   RadarOutcomeSchema,
   ReadySchema,
+  RevisionSchema,
   capabilitiesValidator,
   modelProposalInputValidator,
   radarOutcomeValidator,
@@ -18,3 +19,4 @@ export * from './radar-api.js';
 export * from './trip-api.js';
 export * from './wishlist-api.js';
 export * from './import-batch-api.js';
+export * from './draft-api.js';

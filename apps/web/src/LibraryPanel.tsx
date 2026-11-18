@@ -121,6 +121,11 @@ export function LibraryPanel({
             }
           />
         )}
+        {list.kind === 'ready' && list.value.places.length > 0 && (
+          <a className="secondary full" href="#trip">
+            前往行程生成草案
+          </a>
+        )}
         {canImport && list.kind === 'ready' ? (
           <div className="library-actions">
             <button
