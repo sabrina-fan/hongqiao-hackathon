@@ -1,6 +1,6 @@
-import type { SettingsData } from '@nextstop/core';
+import type { SettingsData, SettingsView } from '@nextstop/core';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ApiError, readWithGuestSession } from './api.js';
+import { ApiError } from './api.js';
 import {
   deleteData,
   downloadData,
@@ -21,6 +21,7 @@ type ConfirmationTarget =
 
 const emptyData: SettingsData = { trips: [], places: [], uploads: [] };
 const eraseAll = { kind: 'all' } satisfies DeleteTarget;
+const resumeErase = { kind: 'all', recoveryOnly: true } satisfies DeleteTarget;
 const deletionNotice = {
   all: '已删除全部匿名数据。',
   trip: '已删除此旅行。',
@@ -79,7 +80,9 @@ export function SettingsPanel({
   dataRevision: number;
   onFeedbackChanged: () => void;
 }) {
-  const [data, setData] = useState<SettingsData | null>(null);
+  const [settings, setSettings] = useState<SettingsView | null>(null);
+  const recoveringErase = settings !== null && 'kind' in settings;
+  const data = recoveringErase ? null : settings;
   const [attempt, setAttempt] = useState(0);
   const [target, setTarget] = useState<ConfirmationTarget | null>(null);
   const [pending, setPending] = useState<'export' | 'delete' | 'feedback' | null>(null);
@@ -98,15 +101,15 @@ export function SettingsPanel({
 
   useEffect(() => {
     if (!available) {
-      setData(null);
+      setSettings(null);
       return;
     }
     const controller = new AbortController();
     const { signal } = controller;
     setReadError('');
-    void readWithGuestSession(() => readSettingsData(signal), signal).then(
+    void readSettingsData(signal).then(
       (value) => {
-        if (!signal.aborted) setData(value);
+        if (!signal.aborted) setSettings(value);
       },
       (error: unknown) => {
         if (!signal.aborted) setReadError(messageOf(error));
@@ -122,7 +125,10 @@ export function SettingsPanel({
   }
 
   function dismissConfirmation() {
-    if (actionError && target?.kind !== 'all') setAttempt((value) => value + 1);
+    if (actionError) {
+      if (target?.kind === 'all' && !recoveringErase) setSettings(null);
+      setAttempt((value) => value + 1);
+    }
     setTarget(null);
     setActionError('');
   }
@@ -153,10 +159,10 @@ export function SettingsPanel({
         setTarget(null);
         setNotice(deletionNotice[target.kind]);
         if (target.kind === 'all') {
-          setData(emptyData);
+          setSettings(emptyData);
           setReadError('');
         } else {
-          setData(null);
+          setSettings(null);
           setAttempt((value) => value + 1);
         }
       },
@@ -194,6 +200,23 @@ export function SettingsPanel({
           <p className="note state-card" data-state="success" role="status">
             {notice}
           </p>
+        )}
+        {recoveringErase && (
+          <section
+            className="settings-group settings-content settings-cleanup"
+            aria-labelledby="erase-recovery-title"
+          >
+            <h2 id="erase-recovery-title">全部匿名数据删除尚未确认</h2>
+            <p>原匿名会话已停用。请继续删除，完成后即可使用新的匿名会话。</p>
+            <button
+              type="button"
+              className="settings-danger"
+              disabled={!available || busy || target !== null}
+              onClick={() => confirm(resumeErase)}
+            >
+              继续删除全部匿名数据
+            </button>
+          </section>
         )}
         {pendingDeletions.length > 0 && (
           <section
@@ -234,11 +257,11 @@ export function SettingsPanel({
             )}
           </section>
         )}
-        <div className="settings-group">
+        <div className="settings-group" hidden={recoveringErase}>
           <SettingsSection icon="☷" title="本次偏好与反馈" hint="仅当前雷达会话生效">
             <SettingsFeedback
               key={dataRevision}
-              available={available}
+              available={available && !recoveringErase}
               busy={busy || target !== null}
               onChanged={onFeedbackChanged}
               onClear={(action) => run('feedback', action, '未能确认清除反馈。')}
@@ -297,7 +320,7 @@ export function SettingsPanel({
             </span>
           </a>
         </div>
-        <div className="settings-group">
+        <div className="settings-group" hidden={recoveringErase}>
           <SettingsSection icon="▦" title="旅行数据" hint="管理或删除已保存旅行">
             {data &&
               (data.trips.length ? (
@@ -382,7 +405,7 @@ export function SettingsPanel({
           </button>
         </div>
         {!available && <p className="note">联网后可以查看和管理个人数据。</p>}
-        {available && !data && !readError && (
+        {available && !settings && !readError && (
           <p className="state-card" data-state="pending" role="status">
             正在读取个人数据…
           </p>
@@ -437,14 +460,16 @@ export function SettingsPanel({
             </div>
           </dialog>
         ) : (
-          <button
-            type="button"
-            className="settings-danger settings-erase"
-            disabled={!available || busy}
-            onClick={() => confirm(eraseAll)}
-          >
-            删除全部匿名数据
-          </button>
+          !recoveringErase && (
+            <button
+              type="button"
+              className="settings-danger settings-erase"
+              disabled={!available || busy || (!settings && !readError)}
+              onClick={() => confirm(eraseAll)}
+            >
+              删除全部匿名数据
+            </button>
+          )
         )}
         {(pending === 'export' || pending === 'feedback') && (
           <p className="note state-card" data-state="pending" role="status">

@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 
 const sessionPath = '/api/v1/sessions';
 const dataPath = '/api/v1/me/data';
+const settingsPath = `${dataPath}?include=pending_deletions&include_retired_batch_removals=1&include_erase_recovery=1`;
 const wishlistPath = '/api/v1/wishlist';
 const sessionReady = () => new Response(null, { status: 204 });
 const sessionRequired = () =>
@@ -134,10 +135,38 @@ it('loads settings with the original anonymous-data response from an older serve
   vi.stubGlobal('fetch', fetcher);
   const { readSettingsData } = await import('./settings-client.js');
 
-  await expect(readSettingsData()).resolves.toEqual(legacy);
-  expect(fetcher.mock.calls[0]?.[0]).toBe(
-    `${dataPath}?include=pending_deletions&include_retired_batch_removals=1`,
-  );
+  await expect(readSettingsData(new AbortController().signal)).resolves.toEqual(legacy);
+  expect(fetcher.mock.calls.map(([path]) => path)).toEqual([settingsPath]);
+});
+
+it('reads deletion recovery without creating a session or issuing a DELETE', async () => {
+  const recovery = { kind: 'erase_recovery' };
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json(recovery));
+  vi.stubGlobal('fetch', fetcher);
+  const { readSettingsData } = await import('./settings-client.js');
+
+  await expect(readSettingsData(new AbortController().signal)).resolves.toEqual(recovery);
+  expect(fetcher.mock.calls.map(([path, init]) => [path, init?.method ?? 'GET'])).toEqual([
+    [settingsPath, 'GET'],
+  ]);
+});
+
+it('initializes the guest and retries settings once when no signed session is present', async () => {
+  const empty = { trips: [], uploads: [], places: [] };
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockResolvedValueOnce(sessionRequired())
+    .mockResolvedValueOnce(sessionReady())
+    .mockResolvedValueOnce(Response.json(empty));
+  vi.stubGlobal('fetch', fetcher);
+  const { readSettingsData } = await import('./settings-client.js');
+
+  await expect(readSettingsData(new AbortController().signal)).resolves.toEqual(empty);
+  expect(fetcher.mock.calls.map(([path, init]) => [path, init?.method ?? 'GET'])).toEqual([
+    [settingsPath, 'GET'],
+    [sessionPath, 'POST'],
+    [settingsPath, 'GET'],
+  ]);
 });
 
 it('continues an import with the plain batch snapshot from an older server', async () => {

@@ -1,27 +1,35 @@
-import type { ServerResponse } from 'node:http';
-import { RETIRED_BATCH_REMOVALS_QUERY } from '@nextstop/core';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import {
+  ERASE_RECOVERY_HEADER,
+  ERASE_RECOVERY_QUERY,
+  RETIRED_BATCH_REMOVALS_QUERY,
+  type SettingsView,
+} from '@nextstop/core';
 import { HttpFault, send } from '../http.js';
 import { createImportImages } from '../imports/images.js';
 import type { createUserAccess } from '../radar/user-access.js';
 import { eraseSource, eraseTrip, exportData, readSettingsData } from './store.js';
 
 type Route =
-  | { kind: 'export' | 'read' | 'erase' }
-  | { kind: 'settings'; includeRetiredBatchRemovals: boolean }
+  | { kind: 'export' | 'read' }
+  | { kind: 'erase'; recoveryOnly: boolean }
+  | { kind: 'settings'; includeRetiredBatchRemovals: boolean; includeEraseRecovery: boolean }
   | { kind: 'trip' | 'source'; id: string };
 
-export function privacyRoute(method: string | undefined, url: URL): Route | null {
+export function privacyRoute({ method, headers }: IncomingMessage, url: URL): Route | null {
   const path = url.pathname;
   if (method === 'GET' && path === '/api/v1/me/data') {
     if (url.searchParams.get('include') !== 'pending_deletions') return { kind: 'read' };
     return {
       kind: 'settings',
       includeRetiredBatchRemovals: url.searchParams.get(RETIRED_BATCH_REMOVALS_QUERY) === '1',
+      includeEraseRecovery: url.searchParams.get(ERASE_RECOVERY_QUERY) === '1',
     };
   }
   if (method === 'GET' && path === '/api/v1/me/export') return { kind: 'export' };
   if (method !== 'DELETE') return null;
-  if (path === '/api/v1/me/data') return { kind: 'erase' };
+  if (path === '/api/v1/me/data')
+    return { kind: 'erase', recoveryOnly: headers[ERASE_RECOVERY_HEADER] === '1' };
   const source = /^\/api\/v1\/imports\/(imp-[a-f0-9-]{36})$/.exec(path)?.[1];
   if (source) return { kind: 'source', id: source };
   const trip = /^\/api\/v1\/trips\/([A-Za-z0-9_-]{1,100})$/.exec(path)?.[1];
@@ -45,6 +53,9 @@ export async function handlePrivacy({
 }) {
   const images = createImportImages(dataDir);
   if (route.kind === 'erase') {
+    // A confirmation opened for a revoked guest must never erase a replacement guest.
+    if (route.recoveryOnly && (!userId || !(await withUser.isRevoked(userId))))
+      throw new HttpFault('SESSION_REQUIRED');
     if (userId) await withUser.erase(userId, () => images.removeAll(userId));
     response.setHeader('set-cookie', clearCookie());
     return send(response, 204);
@@ -53,14 +64,21 @@ export async function handlePrivacy({
   switch (route.kind) {
     case 'read':
       return send(response, 200, await withUser(userId, exportData));
-    case 'settings':
-      return send(
-        response,
-        200,
-        await withUser(userId, (runtime) =>
-          readSettingsData(runtime, route.includeRetiredBatchRemovals),
-        ),
-      );
+    case 'settings': {
+      const settings = await withUser(userId, (runtime) =>
+        readSettingsData(runtime, route.includeRetiredBatchRemovals),
+      ).catch((error: unknown): SettingsView => {
+        // withUser rejects a revoked guest inside the same queue used by erase, before opening SQLite.
+        if (
+          route.includeEraseRecovery &&
+          error instanceof HttpFault &&
+          error.code === 'SESSION_REQUIRED'
+        )
+          return { kind: 'erase_recovery' };
+        throw error;
+      });
+      return send(response, 200, settings);
+    }
     case 'export': {
       const data = await withUser(userId, exportData);
       response.setHeader('content-disposition', 'attachment; filename="nextstop-data.json"');

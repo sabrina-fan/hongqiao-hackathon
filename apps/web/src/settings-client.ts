@@ -1,22 +1,27 @@
 import {
+  ERASE_RECOVERY_HEADER,
+  ERASE_RECOVERY_QUERY,
   RETIRED_BATCH_REMOVALS_QUERY,
-  settingsDataValidator,
+  settingsViewValidator,
   type SettingsData,
 } from '@nextstop/core';
-import { ApiError, request, requestJson } from './api.js';
+import { ApiError, readWithGuestSession, request, requestJson } from './api.js';
 import { removeBatchItem } from './import-batch-client.js';
 import { invalidateTripData } from './offline-trip.js';
 
 const dataPath = '/api/v1/me/data';
-export const readSettingsData = (signal?: AbortSignal) =>
-  requestJson(
-    `${dataPath}?include=pending_deletions&${RETIRED_BATCH_REMOVALS_QUERY}=1`,
-    {},
-    settingsDataValidator.check,
+const settingsPath = `${dataPath}?include=pending_deletions&${RETIRED_BATCH_REMOVALS_QUERY}=1&${ERASE_RECOVERY_QUERY}=1`;
+export const readSettingsData = (signal: AbortSignal) =>
+  // A revoked cookie can read recovery status but cannot pass session initialization.
+  readWithGuestSession(
+    () => requestJson(settingsPath, {}, settingsViewValidator.check, signal),
     signal,
+    { readFirst: true },
   );
 
-export type DeleteTarget = NonNullable<SettingsData['pending_deletions']>[number] | { kind: 'all' };
+export type DeleteTarget =
+  | NonNullable<SettingsData['pending_deletions']>[number]
+  | { kind: 'all'; recoveryOnly?: true };
 
 export async function deleteData(target: DeleteTarget) {
   if (target.kind === 'batch_item') {
@@ -31,13 +36,24 @@ export async function deleteData(target: DeleteTarget) {
     target.kind === 'all'
       ? dataPath
       : `/api/v1/${target.kind === 'trip' ? 'trips' : 'imports'}/${encodeURIComponent(target.id)}`;
+  const recoveryOnly = target.kind === 'all' && target.recoveryOnly;
+  let skippedRecovery = false;
   try {
-    const response = await request(path, { method: 'DELETE' });
+    const response = await request(path, {
+      method: 'DELETE',
+      ...(recoveryOnly && { headers: { [ERASE_RECOVERY_HEADER]: '1' } }),
+    });
     if (response.status !== 204)
       throw new ApiError('INVALID_RESPONSE', '服务响应格式无效。', response.status);
+  } catch (error) {
+    skippedRecovery = Boolean(
+      recoveryOnly && error instanceof ApiError && error.code === 'SESSION_REQUIRED',
+    );
+    throw error;
   } finally {
-    // The server may have committed even if the reply was lost. Never serve the affected cache offline after an attempt.
-    if (target.kind !== 'source') invalidateTripData(target.kind === 'trip' ? target.id : null);
+    // A stale recovery cannot touch the replacement guest. Other failures may have committed.
+    if (!skippedRecovery && target.kind !== 'source')
+      invalidateTripData(target.kind === 'trip' ? target.id : null);
   }
 }
 

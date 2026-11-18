@@ -41,7 +41,11 @@ it('exports only the current guest without mutating trips and revokes only that 
         }),
       });
       expect(response.status).toBe(201);
-      return (path: string, method = 'GET') => fetch(`${base}${path}`, { headers, method });
+      return (path: string, method = 'GET', init?: { recovery?: boolean }) =>
+        fetch(`${base}${path}`, {
+          headers: { ...headers, ...(init?.recovery && { 'x-nextstop-erase-recovery': '1' }) },
+          method,
+        });
     }
     const first = await guest('访客甲的苏州');
     const [firstDb] = await readdir(join(dataDir, 'users'));
@@ -60,9 +64,34 @@ it('exports only the current guest without mutating trips and revokes only that 
     const failed = await first('/me/data', 'DELETE');
     expect(failed.status).toBe(500);
     expect(failed.headers.has('set-cookie')).toBe(false);
-    expect((await first('/trips')).status).toBe(401);
+    const legacySettings = '/me/data?include=pending_deletions&include_retired_batch_removals=1';
+    const settings = `${legacySettings}&include_erase_recovery=1`;
+    for (const path of ['/me/data', legacySettings, '/me/export', '/trips']) {
+      expect((await first(path)).status).toBe(401);
+    }
+    const blockedSession = await first('/sessions', 'POST');
+    expect(blockedSession.status).toBe(401);
+    expect(blockedSession.headers.has('set-cookie')).toBe(false);
+    expect((await first('/trips', 'POST')).status).toBe(401);
+    expect((await fetch(`${base}${settings}`)).status).toBe(401);
+    const recovery = await first(settings);
+    expect(recovery.status).toBe(200);
+    expect(recovery.headers.get('cache-control')).toBe('no-store');
+    expect(recovery.headers.has('set-cookie')).toBe(false);
+    expect(await recovery.json()).toEqual({ kind: 'erase_recovery' });
+    expect((await stat(blockedSidecar)).isDirectory()).toBe(true);
+    const retry = await first('/me/data', 'DELETE', { recovery: true });
+    expect(retry.status).toBe(500);
+    expect(retry.headers.has('set-cookie')).toBe(false);
+    expect(await (await first(settings)).json()).toEqual({ kind: 'erase_recovery' });
+    expect(await (await second(settings)).json()).toEqual(
+      await (await second(legacySettings)).json(),
+    );
+    const wrongGuest = await second('/me/data', 'DELETE', { recovery: true });
+    expect(wrongGuest.status).toBe(401);
+    expect(wrongGuest.headers.has('set-cookie')).toBe(false);
     await rmdir(blockedSidecar);
-    const deleted = await first('/me/data', 'DELETE');
+    const deleted = await first('/me/data', 'DELETE', { recovery: true });
     expect(deleted.status).toBe(204);
     expect(deleted.headers.get('set-cookie')).toContain('Max-Age=0');
     expect((await first('/me/export')).status).toBe(401);

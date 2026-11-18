@@ -125,8 +125,12 @@ export async function createSession(signal?: AbortSignal): Promise<void> {
 }
 
 /** A read can validate an existing HttpOnly guest cookie without a preliminary POST. */
-export async function readWithGuestSession<T>(read: () => Promise<T>, signal: AbortSignal) {
-  if (!establishedGuest || startingSession) await createSession(signal);
+export async function readWithGuestSession<T>(
+  read: () => Promise<T>,
+  signal: AbortSignal,
+  { readFirst = false } = {},
+) {
+  if (!readFirst && (!establishedGuest || startingSession)) await createSession(signal);
   signal.throwIfAborted();
   const guestAtRead = establishedGuest;
   try {

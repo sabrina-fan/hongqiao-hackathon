@@ -56,6 +56,13 @@ const SettingsDataSchema = obj({
 export const settingsDataValidator = compile(SettingsDataSchema);
 export type SettingsData = Static<typeof SettingsDataSchema>;
 
+export const ERASE_RECOVERY_QUERY = 'include_erase_recovery';
+export const ERASE_RECOVERY_HEADER = 'x-nextstop-erase-recovery';
+const EraseRecoverySchema = obj({ kind: lit('erase_recovery') });
+const SettingsViewSchema = union([SettingsDataSchema, EraseRecoverySchema]);
+export const settingsViewValidator = compile(SettingsViewSchema);
+export type SettingsView = Static<typeof SettingsViewSchema>;
+
 const CorrectPlaceSchema = obj({
   query: str({ minLength: 1, maxLength: 100, pattern: '\\S' }),
   poi_id: IdentifierSchema,
