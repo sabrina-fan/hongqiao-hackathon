@@ -276,7 +276,7 @@ export function ImportBatchPanel({
   }
   const stage = reviewing ? 2 : batch ? 1 : 0;
   return (
-    <section className="library-screen batch-screen">
+    <section className={`library-screen batch-screen${reviewing ? ' batch-review-screen' : ''}`}>
       <header className="bar library-heading">
         <button
           className="library-back"

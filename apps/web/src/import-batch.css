@@ -323,3 +323,42 @@
 .batch-screen form > .full + .full {
   margin-top: 8px;
 }
+
+.batch-review-screen .batch-steps {
+  margin-block: 8px 13px;
+}
+.batch-summary li {
+  min-height: 70px;
+}
+.batch-summary strong {
+  font-size: 24px;
+  line-height: 1.1;
+}
+.batch-review-group h2 {
+  margin-inline: 4px;
+}
+.batch-review-card {
+  border-radius: 18px;
+}
+.batch-review-source > div {
+  flex: 1;
+  min-width: 0;
+}
+.batch-review-source h3 {
+  overflow-wrap: anywhere;
+}
+.batch-review-card summary,
+.batch-review-source > div a {
+  min-height: 44px;
+  align-content: center;
+}
+.batch-review-source > div a {
+  display: inline-grid;
+}
+.batch-review-card .option:has(input:checked) {
+  background: #edffdf;
+  border-color: #a5db60;
+}
+.batch-review-card .option {
+  min-height: 54px;
+}

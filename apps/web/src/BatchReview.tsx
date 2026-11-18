@@ -62,19 +62,12 @@ function ReviewImage({
         ? `可能想去 · ${extraction.name}`
         : item.name || '来源截图';
   const image = batchImagePath(batchId, item.import_id);
-  return (
-    <article className="panel library-review batch-review-card">
-      <div className="batch-review-source">
-        <a href={image} target="_blank" rel="noreferrer" aria-label={`查看原图 ${item.name}`}>
-          <img src={image} alt="" loading="lazy" />
-        </a>
-        <div>
-          <h3>{title}</h3>
-          <a href={image} target="_blank" rel="noreferrer">
-            查看来源截图
-          </a>
-        </div>
-      </div>
+  const group = groupFor(item);
+  const badge = { matched: '已匹配', ambiguous: '有歧义', guess: '待确认', unmatched: '未匹配' }[
+    group
+  ];
+  const controls = (
+    <>
       {source.kind === 'image' && source.excerpt && (
         <p className="library-excerpt">「{source.excerpt}」</p>
       )}
@@ -152,6 +145,30 @@ function ReviewImage({
           删除
         </button>
       </div>
+    </>
+  );
+  return (
+    <article className="panel library-review batch-review-card">
+      <div className="batch-review-source">
+        <a href={image} target="_blank" rel="noreferrer" aria-label={`查看原图 ${item.name}`}>
+          <img src={image} alt="" loading="lazy" />
+        </a>
+        <div>
+          <h3>{title}</h3>
+          <a href={image} target="_blank" rel="noreferrer">
+            查看来源截图
+          </a>
+        </div>
+        <span className={`badge ${group === 'matched' ? 'green' : ''}`}>{badge}</span>
+      </div>
+      {group === 'matched' ? (
+        <details className="batch-matched-controls">
+          <summary>核对或更换地点</summary>
+          {controls}
+        </details>
+      ) : (
+        controls
+      )}
     </article>
   );
 }
