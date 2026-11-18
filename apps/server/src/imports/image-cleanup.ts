@@ -1,7 +1,12 @@
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { defineDocFamily, type Tx } from '@earendil-works/pi-durable';
 import { arr, compile, obj, str, type Static } from '@earendil-works/pi-schema';
-import { pendingDeletionValidator, type PendingDeletion } from '@nextstop/core';
+import {
+  pendingBatchRemovalValidator,
+  pendingDeletionValidator,
+  type PendingBatchRemoval,
+  type PendingDeletion,
+} from '@nextstop/core';
 import type { UserRuntime } from '../runtime/open-user-runtime.js';
 
 type Deletion =
@@ -41,6 +46,42 @@ export async function listPendingDeletions(runtime: UserRuntime): Promise<Pendin
   return deletions;
 }
 
+async function readCleanup(runtime: UserRuntime, key: string) {
+  const pending = await runtime.harness.snapshot(
+    ImageCleanups,
+    runtime.conversation.id,
+    key,
+    BACKGROUND_CONTEXT,
+  );
+  if (pending !== undefined && !cleanupValidator.check(pending))
+    throw new Error('Invalid stored screenshot cleanup');
+  return pending;
+}
+
+// Called only after a live batch has been read in the same per-user queue.
+export async function listPendingBatchRemovals(runtime: UserRuntime, batchId: string) {
+  const prefix = `batch_item:${batchId}:`;
+  const removals: PendingBatchRemoval[] = [];
+  for (const key of await runtime.familyKeys(ImageCleanups.definition.kind)) {
+    if (!key.startsWith(prefix)) continue;
+    const pending = await readCleanup(runtime, key);
+    if (!pending?.image_ids.length) continue;
+    const [import_id, originalRevision] = key.slice(prefix.length).split(':');
+    const revision = Number(originalRevision);
+    const removal = { import_id, revision };
+    if (
+      !pendingBatchRemovalValidator.check(removal) ||
+      !Number.isSafeInteger(revision) ||
+      cleanupKey({ kind: 'batch_item', batchId, imageId: removal.import_id, revision }) !== key ||
+      pending.image_ids.length !== 1 ||
+      pending.image_ids[0] !== removal.import_id
+    )
+      throw new Error('Invalid stored batch removal');
+    removals.push(removal);
+  }
+  return removals;
+}
+
 export async function recordImageCleanup(
   runtime: UserRuntime,
   tx: Tx,
@@ -62,9 +103,8 @@ export async function resumeImageCleanup(
 ) {
   const scope = runtime.conversation.id;
   const key = cleanupKey(deletion);
-  const pending = await runtime.harness.snapshot(ImageCleanups, scope, key, BACKGROUND_CONTEXT);
+  const pending = await readCleanup(runtime, key);
   if (pending === undefined) return false;
-  if (!cleanupValidator.check(pending)) throw new Error('Invalid stored screenshot cleanup');
   // A partial cleanup leaves the committed list in place. Removing an absent directory is safe.
   for (const id of pending.image_ids) await remove(id);
   if (deletion.kind === 'batch_item' && pending.image_ids.length === 0) return true;

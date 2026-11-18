@@ -342,7 +342,45 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
       if (fault === 'before unlink') {
         assert.deepEqual(await readFile(join(target.directory, 'original')), target.original);
       }
+      const batchRecoveryPath = `${batchPath}?include=pending_removals`;
       if (operation === 'batch') {
+        const recovered = await call(batchRecoveryPath);
+        assert.equal(recovered.status, 200);
+        assert.equal(recovered.headers.get('cache-control'), 'no-store');
+        assert.deepEqual(await recovered.json(), {
+          ...expectedBatch,
+          pending_removals: [{ import_id: target.id, revision: saved.revision }],
+        });
+        await expectError(await fetch(base + batchRecoveryPath), 401, 'SESSION_REQUIRED');
+        const foreignSession = await fetch(`${base}/sessions`, { method: 'POST' });
+        const foreignCookie = foreignSession.headers.get('set-cookie')?.split(';')[0];
+        assert(foreignCookie && foreignCookie !== cookie);
+        await expectError(
+          await fetch(base + batchRecoveryPath, { headers: { cookie: foreignCookie } }),
+          404,
+          'IMPORT_NOT_FOUND',
+        );
+        const eraseForeign = await fetch(`${base}/me/data`, {
+          method: 'DELETE',
+          headers: { cookie: foreignCookie },
+        });
+        assert.equal(eraseForeign.status, 204);
+        const otherForm = new FormData();
+        otherForm.append('images', new File(['not a screenshot'], 'invalid.png'));
+        const otherBatch = await checkedJson(
+          await post('/import-batches', otherForm),
+          202,
+          importBatchValidator.check,
+        );
+        const otherPath = `/import-batches/${otherBatch.batch_id}`;
+        const otherRecovery = await call(`${otherPath}?include=pending_removals`);
+        assert.equal(otherRecovery.status, 200);
+        assert.deepEqual(await otherRecovery.json(), { ...otherBatch, pending_removals: [] });
+        await expectError(
+          await post(`${otherPath}/items/${target.id}/remove`, { revision: otherBatch.revision }),
+          404,
+          'IMPORT_NOT_FOUND',
+        );
         await expectError(await remove(saved.revision - 1), 409, 'IMPORT_STALE');
         await expectError(await remove(expectedBatch.revision), 404, 'IMPORT_NOT_FOUND');
         await expectError(
@@ -372,6 +410,9 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
       const targetRemovals = [...targetDirectories, ...targetDirectories];
       expect(imageRemovals()).toEqual(targetRemovals);
       if (operation === 'batch') {
+        const recovered = await call(batchRecoveryPath);
+        assert.equal(recovered.status, 200);
+        assert.deepEqual(await recovered.json(), { ...expectedBatch, pending_removals: [] });
         assert.equal((await call(importPath(singleImage.id), 'DELETE')).status, 204);
         const latest = {
           ...expectedBatch,
@@ -493,8 +534,18 @@ it('acknowledges an exact removal replay after trip deletion retires the empty b
     try {
       await expectError(await remove(), 500, 'INTERNAL_ERROR');
       expect(await readBatch()).toEqual({ ...ready, revision: ready.revision + 1, items: [] });
+      const recoveryPath = `${batchPath}?include=pending_removals`;
+      const liveRecovery = await call(recoveryPath);
+      expect(liveRecovery.status).toBe(200);
+      expect(await liveRecovery.json()).toEqual({
+        ...ready,
+        revision: ready.revision + 1,
+        items: [],
+        pending_removals: [{ import_id: item.import_id, revision: ready.revision }],
+      });
       assert.equal((await call(`/trips/${owned.trip_id}`, 'DELETE')).status, 204);
       await expectError(await call(batchPath), 404, 'IMPORT_NOT_FOUND');
+      await expectError(await call(recoveryPath), 404, 'IMPORT_NOT_FOUND');
       await expectError(await remove(), 500, 'INTERNAL_ERROR');
     } finally {
       diskRemove.mockImplementation(realRemove);

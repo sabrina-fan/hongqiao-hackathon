@@ -138,6 +138,18 @@ it('loads settings with the original anonymous-data response from an older serve
   expect(fetcher.mock.calls[0]?.[0]).toBe(`${dataPath}?include=pending_deletions`);
 });
 
+it('continues an import with the plain batch snapshot from an older server', async () => {
+  const legacy = { batch_id: 'bat-00000000-0000-4000-8000-000000000000', revision: 3, items: [] };
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json(legacy));
+  vi.stubGlobal('fetch', fetcher);
+  const { getBatchWithPendingRemovals } = await import('./import-batch-client.js');
+
+  await expect(getBatchWithPendingRemovals(legacy.batch_id)).resolves.toEqual(legacy);
+  expect(fetcher.mock.calls[0]?.[0]).toBe(
+    `/api/v1/import-batches/${legacy.batch_id}?include=pending_removals`,
+  );
+});
+
 it('requires the DELETE completion status before acknowledging source deletion', async () => {
   const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response(null, { status: 202 }));
   vi.stubGlobal('fetch', fetcher);

@@ -1,4 +1,4 @@
-import { arr, compile, int, lit, obj, oneOf, str, union } from '@earendil-works/pi-schema';
+import { arr, compile, int, lit, obj, oneOf, opt, str, union } from '@earendil-works/pi-schema';
 import type { Static } from '@earendil-works/pi-schema';
 import { IdentifierSchema, RevisionSchema } from './contracts.js';
 import { ImportReviewSchema } from './wishlist-api.js';
@@ -17,11 +17,25 @@ const item = union([
   obj({ ...stored, kind: lit('skipped') }),
   obj({ ...stored, kind: lit('saved') }),
 ]);
-export const ImportBatchSchema = obj({
+const batch = {
   batch_id: IdentifierSchema,
   revision: RevisionSchema,
   items: arr(item, { maxItems: IMPORT_BATCH_MAX_IMAGES }),
+};
+export const ImportBatchSchema = obj(batch);
+const pendingBatchRemoval = obj({
+  import_id: str({ pattern: '^imp-[a-f0-9-]{36}$' }),
+  revision: RevisionSchema,
 });
+// The optional field also accepts an older server's plain batch snapshot.
+const importBatchView = obj({
+  ...batch,
+  pending_removals: opt(arr(pendingBatchRemoval, { maxItems: IMPORT_BATCH_MAX_IMAGES })),
+});
+export type PendingBatchRemoval = Static<typeof pendingBatchRemoval>;
+export type ImportBatchView = Static<typeof importBatchView>;
+export const pendingBatchRemovalValidator = compile(pendingBatchRemoval);
+export const importBatchViewValidator = compile(importBatchView);
 export const ConfirmBatchSchema = obj({
   revision: RevisionSchema,
   new_count: int({ minimum: 0, maximum: IMPORT_BATCH_MAX_IMAGES }),

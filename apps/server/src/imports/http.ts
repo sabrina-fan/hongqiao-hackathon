@@ -11,12 +11,13 @@ import { createImportReview, type ImportVision } from './review.js';
 import { confirmImport, readImport, saveImport, updateMatch } from './store.js';
 
 export type { ImportVision } from './review.js';
-export function importRoute(method: string | undefined, path: string) {
+export function importRoute(method: string | undefined, url: URL) {
+  const path = url.pathname;
   if (method === 'POST' && path === '/api/v1/imports') return { kind: 'upload' } as const;
   if (method === 'POST' && path === '/api/v1/imports/search') return { kind: 'manual' } as const;
   const match = /^\/api\/v1\/imports\/(imp-[a-f0-9-]{36})(?:\/(confirm|search|image))?$/.exec(path);
   const id = match?.[1];
-  if (!id) return batchRoute(method, path);
+  if (!id) return batchRoute(method, url);
   if (method === 'POST' && match[2] === 'confirm') return { kind: 'confirm', id } as const;
   if (method === 'POST' && match[2] === 'search') return { kind: 'search', id } as const;
   if (method === 'GET' && match[2] === 'image') return { kind: 'image', id } as const;

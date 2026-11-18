@@ -4,6 +4,8 @@ import {
   type ConfirmBatch,
   type ImportBatch,
   type ImportBatchItem,
+  type ImportBatchView,
+  type PendingBatchRemoval,
   type Wishlist,
 } from '@nextstop/core';
 import { useEffect, useState } from 'react';
@@ -13,6 +15,7 @@ import {
   batchImagePath,
   editBatchItem,
   getBatch,
+  getBatchWithPendingRemovals,
   removeBatchItem,
   saveBatchChoices,
   uploadBatch,
@@ -150,6 +153,22 @@ function BatchProgress({
   );
 }
 
+function mergeBatch(
+  prior: ImportBatchView,
+  next: ImportBatchView,
+  completed?: PendingBatchRemoval,
+): ImportBatchView {
+  const snapshot = prior.revision > next.revision ? prior : next;
+  const pending = next.pending_removals ?? prior.pending_removals;
+  const remaining = completed
+    ? pending?.filter(
+        ({ import_id, revision }) =>
+          import_id !== completed.import_id || revision !== completed.revision,
+      )
+    : pending;
+  return { ...snapshot, ...(remaining && { pending_removals: remaining }) };
+}
+
 export function ImportBatchPanel({
   canRecognize,
   onBack,
@@ -160,7 +179,7 @@ export function ImportBatchPanel({
   onManual: () => void;
 }) {
   const [files, setFiles] = useState<SelectedImage[]>([]);
-  const [batch, setBatch] = useState<ImportBatch | null>(null);
+  const [batch, setBatch] = useState<ImportBatchView | null>(null);
   const [resumable, setResumable] = useState(lastBatch);
   const [reviewing, setReviewing] = useState(false);
   const [choices, setChoices] = useState<Choices>(new Map());
@@ -171,11 +190,12 @@ export function ImportBatchPanel({
   const [pollError, setPollError] = useState('');
   const [notice, setNotice] = useState('');
   const batchId = batch?.batch_id;
+  const pendingRemovals = batch?.pending_removals ?? [];
   const processing = batch?.items.some(({ kind }) => kind === 'processing') ?? false;
 
-  function acceptBatch(next: ImportBatch) {
+  function acceptBatch(next: ImportBatchView, completed?: PendingBatchRemoval) {
     setBatch((prior) =>
-      prior?.batch_id === next.batch_id && prior.revision > next.revision ? prior : next,
+      prior?.batch_id === next.batch_id ? mergeBatch(prior, next, completed) : next,
     );
   }
 
@@ -193,9 +213,7 @@ export function ImportBatchPanel({
         if (controller.signal.aborted) return;
         setPollError('');
         // A late poll cannot restore a batch after its removal receipt reset the screen.
-        setBatch((prior) =>
-          prior?.batch_id === id && prior.revision <= current.revision ? current : prior,
-        );
+        setBatch((prior) => (prior?.batch_id === id ? mergeBatch(prior, current) : prior));
       } catch (error) {
         if (!controller.signal.aborted) setPollError(`无法刷新进度。${messageOf(error)}`);
       }
@@ -219,7 +237,7 @@ export function ImportBatchPanel({
       setFailure(messageOf(error));
       if (batchId && error instanceof ApiError && error.code === 'IMPORT_STALE') {
         try {
-          acceptBatch(await getBatch(batchId));
+          acceptBatch(await getBatchWithPendingRemovals(batchId));
           if (reviewing) setWishlist(await getWishlist());
         } catch (error) {
           setFailure(`读取最新结果失败。${messageOf(error)}`);
@@ -235,37 +253,62 @@ export function ImportBatchPanel({
       new Map(prior).set(item.import_id, { reviewRevision: item.review.revision, poiId }),
     );
   }
-  function edit(item: ImportBatchItem, action: ImageAction | { action: 'retry' }) {
-    if (!batch) return;
-    const message = {
-      search: '正在搜索地点…',
-      retry: '正在重试识别…',
-      skip: '正在跳过截图…',
-      remove: '正在移除截图…',
-    }[action.action];
-    void run(message, async () => {
-      const input = { id: batch.batch_id, imageId: item.import_id, revision: batch.revision };
-      const next =
-        action.action === 'remove'
-          ? await removeBatchItem(input)
-          : await editBatchItem({ ...input, ...action });
-      if (!next) {
-        forgetBatch(input.id);
-        setResumable((prior) => (prior === input.id ? null : prior));
+  function clearChoice(imageId: string) {
+    setChoices((prior) => {
+      const next = new Map(prior);
+      next.delete(imageId);
+      return next;
+    });
+  }
+  function remove(removal: PendingBatchRemoval, isRetry = false) {
+    if (!batchId) return;
+    const id = batchId;
+    void run(isRetry ? '正在清理截图文件…' : '正在移除截图…', async () => {
+      let next;
+      try {
+        next = await removeBatchItem({
+          id,
+          imageId: removal.import_id,
+          revision: removal.revision,
+        });
+      } catch (error) {
+        // The logical removal may already be committed even though the request failed.
+        if (!(error instanceof ApiError && error.status >= 400 && error.status < 500)) {
+          const current = await getBatchWithPendingRemovals(id).catch(() => null);
+          if (current?.pending_removals) acceptBatch(current);
+        }
+        throw error;
+      }
+      if (next) {
+        acceptBatch(next, removal);
+        clearChoice(removal.import_id);
+      } else {
+        forgetBatch(id);
+        setResumable((prior) => (prior === id ? null : prior));
         setBatch(null);
         setReviewing(false);
         setChoices(new Map());
         setWishlist(null);
         setPollError('');
-        setNotice('截图已移除。');
-        return;
       }
-      acceptBatch(next);
-      setChoices((prior) => {
-        const next = new Map(prior);
-        next.delete(item.import_id);
-        return next;
-      });
+      if (isRetry || !next) setNotice('截图已移除。');
+    });
+  }
+  function edit(item: ImportBatchItem, action: ImageAction | { action: 'retry' }) {
+    if (!batch) return;
+    const { batch_id: id, revision } = batch;
+    if (action.action === 'remove') {
+      remove({ import_id: item.import_id, revision });
+      return;
+    }
+    const message = {
+      search: '正在搜索地点…',
+      retry: '正在重试识别…',
+      skip: '正在跳过截图…',
+    }[action.action];
+    void run(message, async () => {
+      acceptBatch(await editBatchItem({ id, imageId: item.import_id, revision, ...action }));
+      clearChoice(item.import_id);
     });
   }
   function confirm(input: ConfirmBatch) {
@@ -342,6 +385,22 @@ export function ImportBatchPanel({
           </p>
         )}
       </div>
+      {pendingRemovals.length > 0 && (
+        <div className="state-card">
+          <p>已移除的截图还有文件待清理。</p>
+          {pendingRemovals.map((removal, index) => (
+            <button
+              key={removal.import_id}
+              className="secondary full"
+              type="button"
+              disabled={busy}
+              onClick={() => remove(removal, true)}
+            >
+              {pendingRemovals.length > 1 ? `重试清理截图 ${index + 1}` : '重试清理截图'}
+            </button>
+          ))}
+        </div>
+      )}
       {!batch && (
         <form
           onSubmit={(event) => {
@@ -419,7 +478,7 @@ export function ImportBatchPanel({
               onClick={() =>
                 void run('正在读取上次导入…', async () => {
                   try {
-                    acceptBatch(await getBatch(resumable));
+                    acceptBatch(await getBatchWithPendingRemovals(resumable));
                   } catch (error) {
                     if (error instanceof ApiError && error.status === 404) setResumable(null);
                     throw error;
@@ -445,7 +504,7 @@ export function ImportBatchPanel({
                 disabled={busy}
                 onClick={() =>
                   void run('正在读取核对结果…', async () => {
-                    acceptBatch(await getBatch(batch.batch_id));
+                    acceptBatch(await getBatchWithPendingRemovals(batch.batch_id));
                     setWishlist(await getWishlist());
                   })
                 }

@@ -85,7 +85,7 @@ export function createApp(options?: Options) {
     const reject = member?.[2] === '/reject' && request.method === 'POST';
     const recheck = member?.[2] === '/recheck' && request.method === 'POST';
     const view = sessionId && !member?.[2] && request.method === 'GET';
-    const imports = importRoute(request.method, path);
+    const imports = importRoute(request.method, url);
     const wishlist = wishlistRoute(request.method, path);
     const privacy = privacyRoute(request.method, url);
     if (

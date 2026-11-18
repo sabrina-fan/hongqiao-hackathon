@@ -28,9 +28,11 @@ import {
   sendImportImage,
   type createImportImages,
 } from './images.js';
+import { listPendingBatchRemovals } from './image-cleanup.js';
 import type { createImportReview } from './review.js';
 
-export function batchRoute(method: string | undefined, path: string) {
+export function batchRoute(method: string | undefined, url: URL) {
+  const path = url.pathname;
   if (method === 'POST' && path === '/api/v1/import-batches')
     return { kind: 'create_batch' } as const;
   const match =
@@ -40,7 +42,12 @@ export function batchRoute(method: string | undefined, path: string) {
   const id = match?.[1];
   if (!id) return null;
   const [, , confirm, imageId, action] = match;
-  if (method === 'GET' && !confirm && !imageId) return { kind: 'read_batch', id } as const;
+  if (method === 'GET' && !confirm && !imageId)
+    return {
+      kind: 'read_batch',
+      id,
+      includePendingRemovals: url.searchParams.get('include') === 'pending_removals',
+    } as const;
   if (method === 'POST' && confirm) return { kind: 'confirm_batch', id } as const;
   if (!imageId) return null;
   if (method === 'GET' && action === 'image') return { kind: 'batch_image', id, imageId } as const;
@@ -191,13 +198,16 @@ export function createBatchHandler(
     if (route.kind === 'read_batch') {
       const batch = await withUser(userId, async (runtime) => {
         const current = await readBatch(runtime, id);
-        return current.items.some(
+        const batch = current.items.some(
           (item) => item.kind === 'processing' && !scheduled.has(item.import_id),
         )
-          ? replaceProcessing(runtime, id, (item) =>
+          ? await replaceProcessing(runtime, id, (item) =>
               scheduled.has(item.import_id) ? null : interrupted(item),
             )
           : current;
+        return route.includePendingRemovals
+          ? { ...batch, pending_removals: await listPendingBatchRemovals(runtime, id) }
+          : batch;
       });
       return send(response, 200, batch);
     }

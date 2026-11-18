@@ -1,6 +1,7 @@
 import {
   ALLOW_RETIRED_REMOVAL_HEADER,
   importBatchValidator,
+  importBatchViewValidator,
   type ConfirmBatch,
 } from '@nextstop/core';
 import { readResponseJson, request, requestJson } from './api.js';
@@ -16,8 +17,10 @@ const post = (body: unknown, headers?: Record<string, string>): RequestInit => (
 });
 
 export const batchImagePath = (id: string, imageId: string) => `${itemPath(id, imageId)}/image`;
-export const getBatch = (id: string, signal?: AbortSignal) =>
+export const getBatch = (id: string, signal: AbortSignal) =>
   requestJson(batchPath(id), {}, importBatchValidator.check, signal);
+export const getBatchWithPendingRemovals = (id: string) =>
+  requestJson(`${batchPath(id)}?include=pending_removals`, {}, importBatchViewValidator.check);
 export function uploadBatch(files: readonly File[]) {
   const body = new FormData();
   for (const file of files) body.append('images', file);
