@@ -5,6 +5,7 @@ import { RadarPanel } from './RadarPanel.js';
 import { LibraryPanel } from './LibraryPanel.js';
 import { OfflineTrip } from './OfflineTrip.js';
 import { watchTripData } from './offline-trip.js';
+import { PwaUpdate } from './PwaUpdate.js';
 import { SettingsPanel } from './SettingsPanel.js';
 
 type Page = 'radar' | 'library' | 'trip' | 'settings';
@@ -162,6 +163,7 @@ export function App() {
           </section>
         )}
       </main>
+      <PwaUpdate />
       <nav id="tabs" aria-label="一级导航">
         {tabs.map((tab) => (
           <a

@@ -1,4 +1,31 @@
 /* Screen structure and base components are shared with the reference HTML. */
+.shell {
+  grid-template-rows: minmax(0, 1fr) auto auto;
+}
+.pwa-update {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right));
+  border-top: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 13px;
+}
+.pwa-update p {
+  margin: 0;
+}
+.pwa-update a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding-inline: 8px;
+  color: var(--blue);
+  font-weight: 700;
+  text-decoration: underline;
+  white-space: nowrap;
+}
 #screen {
   scroll-padding-bottom: 12px;
 }
