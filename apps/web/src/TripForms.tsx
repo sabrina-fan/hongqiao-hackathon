@@ -7,16 +7,24 @@ function submitForm(event: FormEvent<HTMLFormElement>) {
   return (name: string) => String(fields.get(name) ?? '');
 }
 
-function TimeFields({ start, end }: { start: string | undefined; end: string | undefined }) {
+function TimeFields({
+  start,
+  end,
+  busy,
+}: {
+  start: string | undefined;
+  end: string | undefined;
+  busy: boolean;
+}) {
   return (
     <div className="trip-times">
       <label className="field">
         开始时间
-        <input name="start" type="time" required defaultValue={start} />
+        <input name="start" type="time" required disabled={busy} defaultValue={start} />
       </label>
       <label className="field">
         结束时间
-        <input name="end" type="time" required defaultValue={end} />
+        <input name="end" type="time" required disabled={busy} defaultValue={end} />
       </label>
     </div>
   );
@@ -66,24 +74,26 @@ export function TripDayForm({
         <input
           name="destination"
           required
+          disabled={busy}
           maxLength={100}
           defaultValue={day?.destination ?? '苏州'}
         />
       </label>
       <label className="field">
         旅行日期
-        <input name="date" type="date" required defaultValue={day?.date} />
+        <input name="date" type="date" required disabled={busy} defaultValue={day?.date} />
       </label>
       <label className="field">
         时区
         <input
           name="time_zone"
           required
+          disabled={busy}
           maxLength={100}
           defaultValue={day?.time_zone ?? 'Asia/Shanghai'}
         />
       </label>
-      <TimeFields start={day?.start ?? '09:00'} end={day?.end ?? '20:00'} />
+      <TimeFields busy={busy} start={day?.start ?? '09:00'} end={day?.end ?? '20:00'} />
       <Actions busy={busy} save="保存旅行" cancel={cancel} />
     </form>
   );
@@ -117,15 +127,20 @@ export function ArrangementForm({
       <h2>{item ? '编辑固定安排' : '添加固定安排'}</h2>
       <label className="field">
         活动名称
-        <input name="name" required maxLength={200} defaultValue={item?.name} />
+        <input name="name" required disabled={busy} maxLength={200} defaultValue={item?.name} />
       </label>
-      <TimeFields start={item?.start} end={item?.end} />
+      <TimeFields busy={busy} start={item?.start} end={item?.end} />
       <label className="field">
         地点地址
-        <input name="address" maxLength={500} defaultValue={item?.address} />
+        <input name="address" disabled={busy} maxLength={500} defaultValue={item?.address} />
       </label>
       <label className="trip-lock">
-        <input name="locked" type="checkbox" defaultChecked={item?.locked ?? true} />
+        <input
+          name="locked"
+          type="checkbox"
+          disabled={busy}
+          defaultChecked={item?.locked ?? true}
+        />
         锁定安排
       </label>
       <Actions busy={busy} save="保存固定安排" cancel={cancel} />

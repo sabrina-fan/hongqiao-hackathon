@@ -111,7 +111,8 @@ export function TripPanel({ onSessionExpired }: { onSessionExpired: (error: unkn
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<TripState | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState('');
+  const busy = Boolean(pending);
   const [error, setError] = useState('');
   const [weak, setWeak] = useState(false);
   const reportSession = useEffectEvent(onSessionExpired);
@@ -154,9 +155,9 @@ export function TripPanel({ onSessionExpired }: { onSessionExpired: (error: unkn
     setState(null);
     setAttempt((value) => value + 1);
   };
-  async function update(run: () => Promise<TripDetail>, creating = false) {
+  async function update(message: string, run: () => Promise<TripDetail>, creating = false) {
     if (busy || !state) return;
-    setBusy(true);
+    setPending(message);
     setError('');
     const generation = cacheGeneration();
     try {
@@ -175,7 +176,7 @@ export function TripPanel({ onSessionExpired }: { onSessionExpired: (error: unkn
     } catch (failure) {
       if (!onSessionExpired(failure)) setError(messageOf(failure));
     } finally {
-      setBusy(false);
+      setPending('');
     }
   }
 
@@ -200,7 +201,7 @@ export function TripPanel({ onSessionExpired }: { onSessionExpired: (error: unkn
             className="panel list-row trip-card"
             aria-pressed={selected?.trip_id === trip_id}
             disabled={busy}
-            onClick={() => void update(() => getTripDetail(trip_id))}
+            onClick={() => void update('正在读取旅行…', () => getTripDetail(trip_id))}
           >
             <img src="/prototype/assets/hero.webp" alt="" />
             <span>
@@ -222,7 +223,7 @@ export function TripPanel({ onSessionExpired }: { onSessionExpired: (error: unkn
             key="create"
             busy={busy}
             cancel={cancel}
-            save={(day) => void update(() => createTrip(day), true)}
+            save={(day) => void update('正在保存旅行…', () => createTrip(day), true)}
           />
         )}
         {editor?.kind === 'edit' && selected && (
@@ -231,7 +232,9 @@ export function TripPanel({ onSessionExpired }: { onSessionExpired: (error: unkn
             day={selected.day}
             busy={busy}
             cancel={cancel}
-            save={(day) => void update(() => editTrip(selected.trip_id, selected.revision, day))}
+            save={(day) =>
+              void update('正在保存旅行…', () => editTrip(selected.trip_id, selected.revision, day))
+            }
           />
         )}
         {editor?.kind === 'arrangement' && selected && (
@@ -241,7 +244,7 @@ export function TripPanel({ onSessionExpired }: { onSessionExpired: (error: unkn
             busy={busy}
             cancel={cancel}
             save={(item) =>
-              void update(() =>
+              void update('正在保存固定安排…', () =>
                 saveArrangement(
                   selected.trip_id,
                   selected.revision,
@@ -252,12 +255,15 @@ export function TripPanel({ onSessionExpired }: { onSessionExpired: (error: unkn
             }
           />
         )}
+        <div role="status">{pending && <p className="note">{pending}</p>}</div>
         {error && (
           <div className="note" role="alert">
             {error}{' '}
-            <button className="text-button" type="button" onClick={reload}>
-              重新读取行程
-            </button>
+            {!editor && (
+              <button className="text-button" type="button" onClick={reload}>
+                重新读取行程
+              </button>
+            )}
           </div>
         )}
         <div className="segment trip-segment">

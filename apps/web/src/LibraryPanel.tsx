@@ -51,7 +51,8 @@ export function LibraryPanel({
   const [retry, setRetry] = useState(0);
   const [query, setQuery] = useState('');
   const [choice, setChoice] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState('');
+  const busy = Boolean(pending);
   const [failure, setFailure] = useState('');
   const screenKind = screen.kind;
 
@@ -73,21 +74,22 @@ export function LibraryPanel({
   }, [screenKind, canRead, retry]);
 
   function navigate(next: Screen) {
+    if (next.kind === 'library') setList({ kind: 'loading' });
     setFailure('');
     setChoice('');
     setQuery('');
     setScreen(next);
   }
-  async function run(action: () => Promise<void>) {
+  async function run(message: string, action: () => Promise<void>) {
     if (busy) return;
-    setBusy(true);
+    setPending(message);
     setFailure('');
     try {
       await action();
     } catch (error) {
       setFailure(messageOf(error));
     } finally {
-      setBusy(false);
+      setPending('');
     }
   }
   if (screen.kind === 'library') {
@@ -232,7 +234,7 @@ export function LibraryPanel({
           onSubmit={(event) => {
             event.preventDefault();
             setChoice('');
-            void run(async () => {
+            void run('正在搜索地点…', async () => {
               const updated = await searchImport(query.trim(), review?.import_id);
               setScreen({ kind: 'review', review: updated });
             });
@@ -255,6 +257,7 @@ export function LibraryPanel({
           </div>
         </form>
       </div>
+      <div role="status">{pending && <p className="note">{pending}</p>}</div>
       {failure && <p role="alert">{failure}</p>}
       <p className="note">同一地点会合并为一个收藏，保留每次导入的来源。</p>
       <button
@@ -263,7 +266,7 @@ export function LibraryPanel({
         disabled={!choice || busy}
         onClick={() => {
           if (!review || !choice) return;
-          void run(async () => {
+          void run('正在保存收藏…', async () => {
             const saved = await confirmImport(review.import_id, {
               revision: review.revision,
               provider: 'amap',

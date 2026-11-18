@@ -12,10 +12,19 @@ interface Props {
   label: string;
   placeholder: string;
   value: PlaceOption | null;
+  disabled?: boolean;
   onSelect: (place: PlaceOption | null) => void;
   onSessionExpired: (error: unknown) => boolean;
 }
-export function PlaceField({ id, label, placeholder, value, onSelect, onSessionExpired }: Props) {
+export function PlaceField({
+  id,
+  label,
+  placeholder,
+  value,
+  disabled,
+  onSelect,
+  onSessionExpired,
+}: Props) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -80,6 +89,7 @@ export function PlaceField({ id, label, placeholder, value, onSelect, onSessionE
         aria-controls={options.length ? listId : undefined}
         aria-activedescendant={options[active] ? `${listId}-${active}` : undefined}
         value={value?.name ?? query}
+        disabled={disabled}
         placeholder={placeholder}
         maxLength={100}
         autoComplete="off"

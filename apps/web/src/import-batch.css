@@ -423,13 +423,20 @@
 .batch-confirm-summary li {
   overflow-wrap: anywhere;
 }
-.batch-review-screen .cta {
-  position: sticky;
-  bottom: 10px;
-  z-index: 1;
-  min-height: 46px;
-  box-shadow: 0 0 0 6px var(--paper);
+.batch-review-screen {
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
 }
-#screen:has(.batch-review-screen .cta) {
-  scroll-padding-bottom: 66px;
+.batch-review-results {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scroll-padding-block: 8px;
+  padding-bottom: 8px;
+}
+.batch-review-screen .cta {
+  flex: none;
+  min-height: 46px;
+  margin-top: 8px;
 }

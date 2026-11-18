@@ -174,6 +174,7 @@ export function BatchReview({
   edit,
   confirm,
   busy,
+  onBack,
 }: {
   batch: ImportBatch;
   choices: Choices;
@@ -181,6 +182,7 @@ export function BatchReview({
   wishlist: Wishlist | null;
   edit: (item: ImportBatchItem, action: ImageAction) => void;
   confirm: (input: ConfirmBatch) => void;
+  onBack: () => void;
   busy: boolean;
 }) {
   const groups: Record<ReturnType<typeof groupFor>, ReviewableImage[]> = {
@@ -217,88 +219,93 @@ export function BatchReview({
   const skipped = batch.items.filter(({ kind }) => kind === 'skipped').length;
   return (
     <>
-      <ul className="batch-summary">
-        <li>
-          <strong>{groups.matched.length}</strong>已匹配
-        </li>
-        <li>
-          <strong>{groups.ambiguous.length + groups.guess.length}</strong>待确认
-        </li>
-        <li>
-          <strong>{groups.unmatched.length}</strong>未匹配
-        </li>
-      </ul>
-      <div className="note batch-review-count" role="status">
-        <strong>
-          实际新增 {newCount ?? '—'} 处 · 待处理 {pending} 项
-        </strong>
-        {(saved > 0 || skipped > 0) && (
-          <p>
-            已保存 {saved} 张来源 · 已跳过 {skipped} 项
-          </p>
-        )}
-        <p>重复地点合为一条收藏，每张来源都会保留。你可以先确认已选地点。</p>
-      </div>
-      {matchedByPlace.size > 0 && (
-        <section className="batch-review-group">
-          <h2>已匹配地点（{matchedByPlace.size}）</h2>
-          <div className="panel batch-matched-list">
-            {[...matchedByPlace].map(([key, items]) => {
-              const first = items[0];
-              if (!first) return null;
-              const place = choiceFor(first, choices);
-              return (
-                <details key={key} className="batch-matched-place">
-                  <summary>
-                    <img
-                      src={batchImagePath(batch.batch_id, first.import_id)}
-                      alt=""
-                      loading="lazy"
-                    />
-                    <span>
-                      <strong>{place?.name ?? first.name}</strong>
-                      <small>
-                        来源截图 × {items.length}
-                        {place?.address && ` · ${place.address}`}
-                      </small>
-                    </span>
-                    <span className="badge green">核对</span>
-                  </summary>
-                  {items.map(reviewItem)}
-                </details>
-              );
-            })}
-          </div>
-        </section>
-      )}
-      {sections.map(
-        ({ items, label }) =>
-          items.length > 0 && (
-            <section className="batch-review-group" key={label}>
-              <h2>
-                {label}（{items.length}）
-              </h2>
-              {items.map(reviewItem)}
-            </section>
-          ),
-      )}
-      {places.size > 0 && (
-        <div className="panel batch-confirm-summary">
-          <h2>本次保存预览</h2>
-          <ul>
-            {[...places].map(([id, place]) => (
-              <li key={id}>
-                <strong>{place.name}</strong>
-                <span>
-                  {place.address || '地图未提供地址'} · {place.sources} 张来源
-                  {wishlist && (place.known ? ' · 已有收藏' : ' · 新增')}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p>待处理 {pending} 项将继续留在批次中。</p>
+      <div className="batch-review-results">
+        <ul className="batch-summary">
+          <li>
+            <strong>{groups.matched.length}</strong>已匹配
+          </li>
+          <li>
+            <strong>{groups.ambiguous.length + groups.guess.length}</strong>待确认
+          </li>
+          <li>
+            <strong>{groups.unmatched.length}</strong>未匹配
+          </li>
+        </ul>
+        <div className="note batch-review-count" role="status">
+          <strong>
+            实际新增 {newCount ?? '—'} 处 · 待处理 {pending} 项
+          </strong>
+          {(saved > 0 || skipped > 0) && (
+            <p>
+              已保存 {saved} 张来源 · 已跳过 {skipped} 项
+            </p>
+          )}
+          <p>重复地点合为一条收藏，每张来源都会保留。你可以先确认已选地点。</p>
         </div>
-      )}
+        {matchedByPlace.size > 0 && (
+          <section className="batch-review-group">
+            <h2>已匹配地点（{matchedByPlace.size}）</h2>
+            <div className="panel batch-matched-list">
+              {[...matchedByPlace].map(([key, items]) => {
+                const first = items[0];
+                if (!first) return null;
+                const place = choiceFor(first, choices);
+                return (
+                  <details key={key} className="batch-matched-place">
+                    <summary>
+                      <img
+                        src={batchImagePath(batch.batch_id, first.import_id)}
+                        alt=""
+                        loading="lazy"
+                      />
+                      <span>
+                        <strong>{place?.name ?? first.name}</strong>
+                        <small>
+                          来源截图 × {items.length}
+                          {place?.address && ` · ${place.address}`}
+                        </small>
+                      </span>
+                      <span className="badge green">核对</span>
+                    </summary>
+                    {items.map(reviewItem)}
+                  </details>
+                );
+              })}
+            </div>
+          </section>
+        )}
+        {sections.map(
+          ({ items, label }) =>
+            items.length > 0 && (
+              <section className="batch-review-group" key={label}>
+                <h2>
+                  {label}（{items.length}）
+                </h2>
+                {items.map(reviewItem)}
+              </section>
+            ),
+        )}
+        {places.size > 0 && (
+          <div className="panel batch-confirm-summary">
+            <h2>本次保存预览</h2>
+            <ul>
+              {[...places].map(([id, place]) => (
+                <li key={id}>
+                  <strong>{place.name}</strong>
+                  <span>
+                    {place.address || '地图未提供地址'} · {place.sources} 张来源
+                    {wishlist && (place.known ? ' · 已有收藏' : ' · 新增')}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p>待处理 {pending} 项将继续留在批次中。</p>
+          </div>
+        )}
+        <button className="secondary full" type="button" disabled={busy} onClick={onBack}>
+          返回灵感库
+        </button>
+      </div>
       {selections.length > 0 && (
         <button
           className="primary full cta"

@@ -125,7 +125,7 @@ function BatchProgress({
         </div>
         {total > 0 && <progress max={total} value={ended} aria-label="已结束的截图" />}
         <p>
-          成功 {ended - failures} 张 · 处理中 {processing} 张 · 失败 {failures} 张
+          已处理 {ended - failures} 张 · 处理中 {processing} 张 · 失败 {failures} 张
         </p>
       </div>
       <p className="note batch-source-note">确认后可从收藏核对截图来源。</p>
@@ -156,7 +156,8 @@ export function ImportBatchPanel({
   const [reviewing, setReviewing] = useState(false);
   const [choices, setChoices] = useState<Choices>(new Map());
   const [wishlist, setWishlist] = useState<Wishlist | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState('');
+  const busy = Boolean(pending);
   const [failure, setFailure] = useState('');
   const [pollError, setPollError] = useState('');
   const [notice, setNotice] = useState('');
@@ -195,9 +196,9 @@ export function ImportBatchPanel({
     };
   }, [batchId, processing]);
 
-  async function run(action: () => Promise<void>) {
+  async function run(message: string, action: () => Promise<void>) {
     if (busy) return;
-    setBusy(true);
+    setPending(message);
     setFailure('');
     setNotice('');
     try {
@@ -213,7 +214,7 @@ export function ImportBatchPanel({
         }
       }
     } finally {
-      setBusy(false);
+      setPending('');
     }
   }
 
@@ -224,7 +225,13 @@ export function ImportBatchPanel({
   }
   function edit(item: ImportBatchItem, action: ImageAction | { action: 'retry' }) {
     if (!batch) return;
-    void run(async () => {
+    const message = {
+      search: '正在搜索地点…',
+      retry: '正在重试识别…',
+      skip: '正在跳过截图…',
+      remove: '正在移除截图…',
+    }[action.action];
+    void run(message, async () => {
       acceptBatch(
         await editBatchItem({
           id: batch.batch_id,
@@ -242,7 +249,7 @@ export function ImportBatchPanel({
   }
   function confirm(input: ConfirmBatch) {
     if (!batch) return;
-    void run(async () => {
+    void run('正在保存收藏…', async () => {
       acceptBatch(await saveBatchChoices(batch.batch_id, input));
       setNotice(`已保存 ${input.selections.length} 张来源，新增 ${input.new_count} 处收藏。`);
       setWishlist(null);
@@ -251,7 +258,7 @@ export function ImportBatchPanel({
   }
   function openReview() {
     setReviewing(true);
-    void run(async () => setWishlist(await getWishlist()));
+    void run('正在读取核对结果…', async () => setWishlist(await getWishlist()));
   }
   function back() {
     if (reviewing) {
@@ -307,17 +314,13 @@ export function ImportBatchPanel({
           {pollError}
         </p>
       )}
-      {notice && (
-        <p className="note" role="status">
-          {notice}
-        </p>
-      )}
+      <div role="status">{(pending || notice) && <p className="note">{pending || notice}</p>}</div>
       {!batch && (
         <form
           onSubmit={(event) => {
             event.preventDefault();
             if (!files.length) return;
-            void run(async () => {
+            void run('正在上传并校验截图…', async () => {
               const next = await uploadBatch(files.map(({ file }) => file));
               rememberBatch(next.batch_id);
               setResumable(next.batch_id);
@@ -387,7 +390,7 @@ export function ImportBatchPanel({
               type="button"
               disabled={busy}
               onClick={() =>
-                void run(async () => {
+                void run('正在读取上次导入…', async () => {
                   try {
                     acceptBatch(await getBatch(resumable));
                   } catch (error) {
@@ -414,7 +417,7 @@ export function ImportBatchPanel({
                 type="button"
                 disabled={busy}
                 onClick={() =>
-                  void run(async () => {
+                  void run('正在读取核对结果…', async () => {
                     acceptBatch(await getBatch(batch.batch_id));
                     setWishlist(await getWishlist());
                   })
@@ -431,10 +434,8 @@ export function ImportBatchPanel({
               wishlist={wishlist}
               busy={busy}
               confirm={confirm}
+              onBack={onBack}
             />
-            <button className="secondary full" type="button" disabled={busy} onClick={onBack}>
-              返回灵感库
-            </button>
           </>
         ) : (
           <BatchProgress

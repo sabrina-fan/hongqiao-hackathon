@@ -32,7 +32,8 @@ export function WishlistDetail({ placeKey, onBack }: { placeKey: PlaceKey; onBac
   const [correcting, setCorrecting] = useState(false);
   const [replacement, setReplacement] = useState<PlaceOption | null>(null);
   const effectiveKey = state.kind === 'ready' ? state.place : placeKey;
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState('');
+  const busy = Boolean(pending);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [failure, setFailure] = useState('');
   const [notice, setNotice] = useState('');
@@ -53,9 +54,9 @@ export function WishlistDetail({ placeKey, onBack }: { placeKey: PlaceKey; onBac
     return () => controller.abort();
   }, [provider, poi_id, retry]);
 
-  async function run(action: () => Promise<void>) {
+  async function run(message: string, action: () => Promise<void>) {
     if (busy) return;
-    setBusy(true);
+    setPending(message);
     setFailure('');
     setNotice('');
     try {
@@ -63,12 +64,12 @@ export function WishlistDetail({ placeKey, onBack }: { placeKey: PlaceKey; onBac
     } catch (error) {
       setFailure(errorMessage(error));
     } finally {
-      setBusy(false);
+      setPending('');
     }
   }
 
   function update(edit: EditWishlist, message: string) {
-    void run(async () => {
+    void run(edit.note !== undefined ? '正在保存备注…' : '正在更新访问状态…', async () => {
       const place = await editSavedPlace(effectiveKey, edit);
       setState({ kind: 'ready', place });
       if (edit.note !== undefined) setNote(place.note);
@@ -119,6 +120,7 @@ export function WishlistDetail({ placeKey, onBack }: { placeKey: PlaceKey; onBac
                 label="搜索正确地点"
                 placeholder="输入名称，核对地址"
                 value={replacement}
+                disabled={busy}
                 onSelect={setReplacement}
                 onSessionExpired={() => false}
               />
@@ -141,7 +143,7 @@ export function WishlistDetail({ placeKey, onBack }: { placeKey: PlaceKey; onBac
                   disabled={busy || !replacement}
                   onClick={() => {
                     if (!replacement) return;
-                    void run(async () => {
+                    void run('正在保存地点更正…', async () => {
                       const place = await correctSavedPlace(effectiveKey, {
                         query: replacement.name,
                         poi_id: replacement.id,
@@ -196,11 +198,9 @@ export function WishlistDetail({ placeKey, onBack }: { placeKey: PlaceKey; onBac
               {failure}
             </p>
           )}
-          {notice && (
-            <p role="status" className="note">
-              {notice}
-            </p>
-          )}
+          <div role="status">
+            {(pending || notice) && <p className="note">{pending || notice}</p>}
+          </div>
           {confirmRemove ? (
             <div className="panel wishlist-detail-panel">
               <p>从灵感库移除「{state.place.name}」？已保存的行程和导入记录仍会保留。</p>
@@ -218,7 +218,7 @@ export function WishlistDetail({ placeKey, onBack }: { placeKey: PlaceKey; onBac
                   className="primary"
                   disabled={busy}
                   onClick={() =>
-                    void run(async () => {
+                    void run('正在移除收藏…', async () => {
                       await removeSavedPlace(effectiveKey);
                       onBack();
                     })
