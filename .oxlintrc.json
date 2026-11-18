@@ -1,6 +1,6 @@
 {
   "plugins": ["typescript", "unicorn", "oxc", "vitest", "import"],
-  "jsPlugins": [{ "name": "workspace", "specifier": "./scripts/workspace-imports.mjs" }],
+  "jsPlugins": [{ "name": "workspace", "specifier": "./scripts/oxlint-rules.mjs" }],
   "categories": { "correctness": "error" },
   "rules": {
     "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "ignoreRestSiblings": true }],
@@ -30,6 +30,11 @@
     "test-results/**"
   ],
   "overrides": [
+    {
+      "files": ["apps/*/src/**/*.{ts,tsx}", "packages/*/src/**/*.{ts,tsx}"],
+      "excludeFiles": ["**/*.{test,spec}.{ts,tsx}"],
+      "rules": { "workspace/no-chained-type-assertions": "error" }
+    },
     {
       "files": ["scripts/**/*.mjs", "evals/**/*.mjs", "e2e/**/*.mjs"],
       "rules": { "no-console": "off" }

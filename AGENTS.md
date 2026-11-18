@@ -158,9 +158,9 @@ NextStop 的功能开发统一采用 pstack 主流程，按 6.1 的顺序推进�
 
 | 规则 | 执行入口 |
 | --- | --- |
-| 模块依赖方向、跨包导入、循环依赖与 Node 内置模块前缀 | .oxlintrc.json、scripts/workspace-imports.mjs，经 pnpm lint 执行 |
+| 模块依赖方向、跨包导入、循环依赖、Node 内置模块前缀与生产 TS/TSX 双重断言 | `.oxlintrc.json`、`scripts/oxlint-rules.mjs`，经 `pnpm lint` 执行 |
 | 测试修饰符检查、扫描与收集范围统一、扫描文件确实执行 | scripts/test-policy.ts、scripts/check-test-skips.mjs、vitest.config.ts，经 pnpm test 执行 |
-| 真实环境文件不入库、模板接受密钥扫描 | `pnpm secrets:check-env` 调用 `scripts/check-env-boundary.mjs`。`pnpm secrets:scan` 同时运行环境检查与使用 `.gitleaks.toml` 的密钥扫描，CI 也执行这两项检查 |
+| 真实环境文件不入库，模板和提交历史接受密钥扫描 | `scripts/check-env-boundary.mjs` 检查 Git 索引。`pnpm secrets:scan` 同时检查环境文件并按 `.gitleaks-dir.toml` 扫描工作区。CI 另按 `.gitleaks.toml` 扫描 push/PR 的 Git 历史 |
 
 ### 6.4 审查与执行边界
 

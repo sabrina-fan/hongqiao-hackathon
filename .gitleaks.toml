@@ -1,17 +1,4 @@
-title = "NextStop secret scanning"
+title = "NextStop committed content"
 
 [extend]
 useDefault = true
-
-# Local dir scans exclude only these known private env files. The committable
-# .env.example is scanned; secrets:check-env rejects tracked private env files.
-[allowlist]
-paths = [
-  '''(^|/)\.env$''',
-  '''(^|/)\.env\.jev\.local$''',
-  '''(^|/)node_modules/''',
-  '''(^|/)dist/''',
-  '''(^|/)data/''',
-  '''(^|/)\.git/''',
-  '''(^|/)test-results/'''
-]

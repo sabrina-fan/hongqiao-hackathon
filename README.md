@@ -22,7 +22,7 @@ git config --local core.hooksPath .githooks
 pnpm dev
 ```
 
-每次克隆后只需设置一次 `core.hooksPath`。提交前 Git 会运行 `pnpm lint`，推送前会运行 `pnpm test`（单元和集成测试）。检查失败会阻止对应操作。Git 客户端的 `PATH` 需要能找到上表要求的 Node 和 pnpm。
+每次克隆后只需设置一次 `core.hooksPath`。提交前 Git 通过 `node --run lint` 直接运行与 `pnpm lint` 相同的全仓检查，其中一条规则会拦截生产 TS/TSX 的双重类型断言（如 `value as unknown as T`）。推送分支或标签更新时运行一次 `pnpm test`（单元和集成测试）。空推送或仅删除远端引用时直接结束。检查失败会阻止对应操作。Git 客户端的 `PATH` 需要能找到上表要求的 Node 和 pnpm。
 
 TypeScript、Vite、Vitest、fast-check、Oxlint 和 Oxfmt 随仓库依赖安装。SQLite 使用 Node 内置模块。
 
@@ -105,7 +105,7 @@ pnpm qa                          # 含 ego-lite 验收；同样需要运行中�
 
 **浏览器验收使用 ego-lite（`ego-browser` CLI）**，连接已启动的本地应用与真实 API，不再安装另一套浏览器测试 SDK 或 Chromium。`pnpm test:e2e` 校验 390×844 页面、服务断线提示和恢复重试，使用 CDP 只阻断本页面的健康请求；结果和截图存入 Git 忽略的 `test-results/ego-*/`。必须完成全部 4 项并取得本次运行的新报告才算通过；CLI 缺失、浏览器未连接、应用未启动或报告缺失都会失败。查看 `mobile.png` 完成视觉确认。可用 `E2E_BASE_URL=http://127.0.0.1:5174 pnpm test:e2e` 指定其他本地端口，脚本只接受 loopback origin。取消探针覆盖网络拒绝、HTTP 503 和响应不符合契约三种情况，验证任一接口失败后，另一项悬挂请求随即取消，页面可重试。每次探针结束后重新加载页面，恢复真实 HTTP 客户端。
 
-GitHub 托管 Linux CI 执行安装、lint、格式、类型、单元/集成测试、构建、依赖审计和 gitleaks；桌面浏览器验收在本机通过 `pnpm test:e2e` 执行，CI 通过不代表浏览器验收已通过。`pnpm secrets:scan` 需要单独安装 gitleaks；CI 使用固定版本容器。
+GitHub 托管 Linux CI 执行 lint、全量格式检查、类型检查、单元/集成测试、构建和依赖审计。同一分支有更新时会取消旧的代码检查。密钥检查独立并行运行，用固定版本的 Gitleaks 同时扫描检出的文件和 push/PR 引入的提交。新建分支或找不到原提交时，扫描新提交可达的全部历史。真实 `.env` 的本地目录豁免仅用于工作区扫描，提交历史使用完整规则。本地 `pnpm secrets:scan` 需要安装 Gitleaks。桌面浏览器验收在本机通过 `pnpm test:e2e` 执行。
 
 ```sh
 pnpm test:model

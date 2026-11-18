@@ -1,2 +1,7 @@
 #!/bin/sh
-exec pnpm test
+# Git supplies one line per ref update. A push with nothing to send has no lines.
+while read -r local_ref rest; do
+  if [ "$local_ref" != '(delete)' ]; then
+    exec pnpm test </dev/null
+  fi
+done

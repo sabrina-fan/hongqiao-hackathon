@@ -1,2 +1,4 @@
 #!/bin/sh
-exec pnpm lint
+set -e
+node scripts/check-node.mjs
+exec node --run lint

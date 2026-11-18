@@ -8,6 +8,25 @@ function workspace(path) {
 
 export default {
   rules: {
+    'no-chained-type-assertions': {
+      meta: {
+        type: 'problem',
+        schema: [],
+        messages: {
+          chained: '双重类型断言绕过了类型检查；请在输入边界用 schema 校验或用类型守卫收窄。',
+        },
+      },
+      create(context) {
+        function check(node) {
+          let inner = node.expression;
+          while (inner.type === 'ParenthesizedExpression') inner = inner.expression;
+          if (inner.type === 'TSAsExpression' || inner.type === 'TSTypeAssertion') {
+            context.report({ node, messageId: 'chained' });
+          }
+        }
+        return { TSAsExpression: check, TSTypeAssertion: check };
+      },
+    },
     'public-imports': {
       meta: {
         type: 'problem',

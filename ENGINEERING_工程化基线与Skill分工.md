@@ -99,7 +99,7 @@
 | **ego-lite** | `pnpm test:e2e` 经 `ego-browser nodejs` 操作已启动的本地应用；390×844 页面、断线和重试，报告与截图存 `test-results/ego-*/`；不依赖浏览器测试 SDK |
 | **Langfuse** | 复用已有观测/评测服务；官方 SDK 运行 `vision.extract` / `reason.*` / `fast.*` 数据集实验；20 张小红书图仅本地，不上传原图/原文到 Langfuse |
 | **skip 门禁** | `check-test-skips.mjs`：拒绝 only / skip / todo / 条件跳过；零用例、非成功或无法解析的 JSON 报告都失败 |
-| **gitleaks + audit** | CI 每次跑 `secrets:scan`、`audit:prod`；`.env.example` 和测试桩进 allowlist |
+| **gitleaks + audit** | CI 扫描工作区和本次提交历史，包含 `.env.example` 与测试桩，并执行 `audit:prod` |
 | **QA / acceptance** | `pnpm qa` 串 lint/format/typecheck/test/build/ego-lite 验收；本地需先启动应用并连接桌面浏览器。未来真实写入验收另需 `ACCEPTANCE_CONFIRM_WRITES=1` |
 | **baseline lint** | 新项目基线设为 0；只有引入遗留代码时才建 baseline |
 | **Stryker** | 只对 `packages/core` 纯函数跑；每周/手动，不进 PR 必跑 |
@@ -181,7 +181,7 @@ scripts/ evals/ e2e/ testdata/
 
 ### 3.4 CI
 
-- 托管 Linux CI：`install --frozen-lockfile` → lint → format:check → typecheck → unit → integration → build → gitleaks/audit。
+- 托管 Linux CI 在安装依赖后依次运行 lint、全量格式检查、类型检查、单元与集成测试、构建和依赖审计。环境文件与密钥扫描作为独立作业并行运行。
 - 本机桌面验收：先启动 Web/API 并连接 ego-lite，再运行 `pnpm test:e2e`；浏览器步骤失败、报告缺失或未完成全部断言均不通过。截图另做视觉确认；CI 绿不代表浏览器已验收。
 - PR 自动测试不调用真实模型；模型响应由 mock fetch / `fauxProvider()` 提供。ego-lite 验收连接真实本地 API，故障分支用 CDP 仅阻断该页面的健康请求。
 - `model-eval` 手动/定时运行 Langfuse 实验，设预算上限；实验脚本显式断言阈值并在失败时退出非零，失败不阻塞合并、阻塞发布。仅在 Langfuse 记录结果不算门禁通过。
