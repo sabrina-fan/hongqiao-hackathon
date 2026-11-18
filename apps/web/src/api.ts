@@ -100,14 +100,18 @@ function post(body: unknown, headers: Record<string, string> = {}): RequestInit 
 }
 
 let startingSession: Promise<Response> | undefined;
-let establishedGuest = false;
+let establishedGuest: symbol | undefined;
 export async function createSession(signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted();
   // Views can load together. Share the cookie-setting request.
   startingSession ??= request('/api/v1/sessions', { method: 'POST' })
     .then((response) => {
-      if (response.headers.get('x-nextstop-new-session') === '1') invalidateTripData(null, false);
-      establishedGuest = true;
+      if (response.headers.get('x-nextstop-new-session') === '1') {
+        invalidateTripData(null, false);
+        establishedGuest = Symbol();
+      } else {
+        establishedGuest ??= Symbol();
+      }
       return response;
     })
     .finally(() => {
@@ -119,17 +123,17 @@ export async function createSession(signal?: AbortSignal): Promise<void> {
 
 /** A read can validate an existing HttpOnly guest cookie without a preliminary POST. */
 export async function readWithGuestSession<T>(read: () => Promise<T>, signal: AbortSignal) {
-  if (!establishedGuest || startingSession) {
-    await createSession(signal);
-    return read();
-  }
+  if (!establishedGuest || startingSession) await createSession(signal);
   signal.throwIfAborted();
+  const guestAtRead = establishedGuest;
   try {
     return await read();
   } catch (error) {
     if (!(error instanceof ApiError) || error.code !== 'SESSION_REQUIRED') throw error;
-    establishedGuest = false;
-    await createSession(signal);
+    signal.throwIfAborted();
+    // A late 401 from an older read must not invalidate a session already refreshed by another read.
+    if (establishedGuest === guestAtRead) establishedGuest = undefined;
+    if (!establishedGuest || startingSession) await createSession(signal);
     return read();
   }
 }
