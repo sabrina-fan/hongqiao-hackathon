@@ -8,7 +8,8 @@ export default defineConfig(() => {
     plugins: [
       react(),
       VitePWA({
-        registerType: 'prompt',
+        // The legacy page has no update listener. Activate the new shell for future navigations.
+        injectRegister: null,
         manifest: {
           name: '下一站 NextStop',
           short_name: '下一站',
@@ -20,6 +21,8 @@ export default defineConfig(() => {
           icons: [{ src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
         },
         workbox: {
+          skipWaiting: true,
+          clientsClaim: true,
           globPatterns: ['**/*.{js,css,html,svg}', 'prototype/assets/nav-*.png'],
           navigateFallbackDenylist: [/^\/api\//, /^\/health\//],
           cleanupOutdatedCaches: true,
