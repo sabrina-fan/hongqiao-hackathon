@@ -19,6 +19,7 @@
     "test:unit": "pnpm build:packages && vitest run --project unit",
     "test:integration": "pnpm build:packages && vitest run --project integration",
     "test:e2e": "pnpm build:packages && node e2e/run-ego.mjs",
+    "test:e2e:actions": "pnpm build && node e2e/run-ego.mjs && node --import tsx apps/server/test/run-ego-actions.mjs && node --import tsx apps/server/test/run-settings-actions.mjs",
     "test:model": "node evals/run-model-evals.mjs",
     "test:model:local": "node evals/run-model-evals.mjs --local",
     "verify:code": "pnpm build && node --run typecheck:built && node --run test:built",
