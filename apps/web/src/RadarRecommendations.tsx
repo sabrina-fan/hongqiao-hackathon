@@ -53,10 +53,19 @@ function CandidateMap({
   const east = Math.max(...points.map(({ longitude }) => longitude));
   const south = Math.min(...points.map(({ latitude }) => latitude));
   const north = Math.max(...points.map(({ latitude }) => latitude));
-  const style = ({ longitude, latitude }: RoutePoint) => ({
-    left: `${east > west ? 12 + (76 * (longitude - west)) / (east - west) : 50}%`,
-    top: `${north > south ? 82 - (64 * (latitude - south)) / (north - south) : 50}%`,
+  const project = ({ longitude, latitude }: RoutePoint) => ({
+    x: east > west ? 12 + (76 * (longitude - west)) / (east - west) : 50,
+    y: north > south ? 82 - (64 * (latitude - south)) / (north - south) : 50,
   });
+  const style = (point: RoutePoint) => {
+    const { x, y } = project(point);
+    return { left: `${x}%`, top: `${y}%` };
+  };
+  const schematicStops = [
+    markers.origin,
+    markers.destination,
+    ...(markers.next ? [markers.next] : []),
+  ].map(project);
   // Exact overlapping pins cannot be independently tapped. The numbered list takes over.
   if (
     new Set(options.map(({ point }) => `${point.longitude},${point.latitude}`)).size <
@@ -69,8 +78,27 @@ function CandidateMap({
     );
   }
   return (
-    <figure className="radar-route-preview">
+    <figure className="radar-route-preview candidate-preview">
       <div className="radar-route-points radar-candidate-map" role="group" aria-label="候选地图">
+        {schematicStops.slice(1).map((stop, index) => {
+          const previous = schematicStops[index];
+          if (!previous) return null;
+          const dx = stop.x - previous.x;
+          const dy = (stop.y - previous.y) / 1.78;
+          return (
+            <span
+              key={index}
+              className="radar-map-segment"
+              aria-hidden="true"
+              style={{
+                left: `${previous.x}%`,
+                top: `${previous.y}%`,
+                width: `${Math.hypot(dx, dy)}%`,
+                rotate: `${Math.atan2(dy, dx)}rad`,
+              }}
+            />
+          );
+        })}
         {anchors.map(({ id, label, point }) => (
           <span className="radar-map-anchor" key={id} style={style(point)}>
             {label}
@@ -92,7 +120,7 @@ function CandidateMap({
           </button>
         ))}
       </div>
-      <figcaption>高德坐标 · 位置示意 · {active.place.name}</figcaption>
+      <figcaption>高德坐标 · 连线仅示意 · {active.place.name}</figcaption>
     </figure>
   );
 }
@@ -179,26 +207,37 @@ export function RadarRecommendations({
       />
       {view.candidates && view.candidates.length > 1 && (
         <div className="radar-card-list" role="group" aria-label="推荐卡片">
-          {view.candidates.map(({ place, valid_until }, index) => (
-            <button
-              className="panel radar-card-choice"
-              type="button"
-              key={place.id}
-              aria-pressed={place.id === selected}
-              disabled={accepting}
-              onClick={() => setSelected(place.id)}
-            >
-              <span className="radar-card-number" aria-hidden="true">
-                {index + 1}
-              </span>
-              <span>
-                <strong>{place.name}</strong>
-                <small>
-                  {Date.parse(valid_until) <= at ? '证据已过期' : index === 0 ? '优先推荐' : '备选'}
-                </small>
-              </span>
-            </button>
-          ))}
+          {view.candidates
+            .map((entry, index) => ({ entry, index }))
+            .sort(
+              (a, b) =>
+                Number(a.entry.place.id === outcome.best.choice.poi_id) -
+                Number(b.entry.place.id === outcome.best.choice.poi_id),
+            )
+            .map(({ entry: { place, valid_until }, index }) => (
+              <button
+                className="panel radar-card-choice"
+                type="button"
+                key={place.id}
+                aria-pressed={place.id === selected}
+                disabled={accepting}
+                onClick={() => setSelected(place.id)}
+              >
+                <span className="radar-card-number" aria-hidden="true">
+                  {index + 1}
+                </span>
+                <span>
+                  <strong>{place.name}</strong>
+                  <small>
+                    {Date.parse(valid_until) <= at
+                      ? '证据已过期'
+                      : index === 0
+                        ? '优先推荐'
+                        : '备选'}
+                  </small>
+                </span>
+              </button>
+            ))}
         </div>
       )}
       <RadarExclusions entries={view.excluded} />

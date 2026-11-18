@@ -1,7 +1,3 @@
-.radar-candidate-map {
-  min-height: 186px;
-}
-
 .radar-map-pin,
 .radar-map-anchor {
   position: absolute;
@@ -84,4 +80,15 @@
 .radar-exclusions {
   margin: 12px 4px;
   color: var(--muted);
+}
+
+.radar-map-segment {
+  position: absolute;
+  height: 0;
+  border-top: 3px dashed #1370e3;
+  transform-origin: left center;
+  pointer-events: none;
+}
+.radar-map-anchor {
+  box-shadow: 0 2px 8px #173b5a23;
 }

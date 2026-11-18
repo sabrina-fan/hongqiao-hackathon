@@ -496,22 +496,24 @@ export function RadarPanel({
       </header>
       <section className="result" aria-live="polite">
         {shown && (
-          <p className="context">
-            <Icon>⌖</Icon> {shown.origin.name} · <Icon>◷</Icon> {shown.available_min} 分钟 · 步行
-          </p>
-        )}
-        {shown?.window && (
-          <p className="radar-hint">
-            手选上限 {shown.window.manual_min} 分钟
-            {shown.window.fixed &&
-              ` · ${fixedClock(shown.window.fixed)} ${shown.window.fixed.name}`}
-            {' · '}
-            {shown.window.limited_by === 'fixed'
-              ? '按固定截止'
-              : shown.window.limited_by === 'both'
-                ? '两项上限相同'
-                : '按手选上限'}
-          </p>
+          <div className="context">
+            <p>
+              <Icon>⌖</Icon> {shown.origin.name} · <Icon>◷</Icon> {shown.available_min} 分钟
+              {shown.window?.fixed
+                ? ` · ${fixedClock(shown.window.fixed)} ${shown.window.fixed.name}`
+                : ' · 步行'}
+            </p>
+            {shown.window && (
+              <small>
+                手选上限 {shown.window.manual_min} 分钟 ·{' '}
+                {shown.window.limited_by === 'fixed'
+                  ? '按固定截止'
+                  : shown.window.limited_by === 'both'
+                    ? '两项上限相同'
+                    : '按手选上限'}
+              </small>
+            )}
+          </div>
         )}
         {result.kind === 'history' && (
           <p className="note" role="status">

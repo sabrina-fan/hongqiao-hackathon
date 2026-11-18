@@ -130,3 +130,100 @@
   background: currentColor;
   mask: var(--nav-icon) center / contain no-repeat;
 }
+
+.radar-home-bar {
+  margin-bottom: 9px;
+}
+.hero {
+  min-height: 146px;
+}
+.hero::before {
+  background-image:
+    linear-gradient(90deg, #e3f5fd, transparent 40%), url('/prototype/assets/hero.webp');
+}
+.radar-form section {
+  padding-block: 2px;
+}
+.radar-form .location-title {
+  min-height: 36px;
+}
+.radar-form .radar-hint {
+  margin-top: 3px;
+  font-size: 11px;
+}
+.radar-form .destination-row {
+  gap: 3px;
+}
+.home-action {
+  margin-top: 12px;
+}
+.result .context {
+  margin-block: 2px 8px;
+  padding-block: 5px;
+}
+.result .context small {
+  display: block;
+  color: #3f6280;
+  font-size: 10px;
+}
+.result .context .icon {
+  line-height: 1;
+}
+.radar-result-bar {
+  min-height: 44px;
+  margin-bottom: 5px;
+}
+.result .title-row {
+  margin-block: 7px 6px;
+}
+.result .pick-top {
+  padding: 8px 10px;
+}
+.result .place-mark {
+  max-height: 64px;
+}
+.result .reason {
+  padding-block: 7px;
+}
+.result .times {
+  padding-block: 6px;
+}
+.result .pick-bottom > p {
+  margin-block: 2px;
+}
+.result .pick-bottom .actions {
+  margin-top: 6px;
+}
+
+.radar-form .radar-preference-row {
+  display: flex;
+  align-items: center;
+  gap: 6px 9px;
+  flex-wrap: wrap;
+}
+.radar-form .radar-preference-row h2 {
+  margin-bottom: 0;
+}
+.radar-result-bar {
+  margin-bottom: 2px;
+}
+.result .context {
+  margin-bottom: 5px;
+}
+.result .candidate-preview {
+  position: relative;
+  margin-top: 5px;
+}
+.result .candidate-preview figcaption {
+  position: absolute;
+  bottom: 6px;
+  right: 8px;
+  max-width: 75%;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: #f5fbf8e8;
+  font-size: 10px;
+}
+.result .radar-map-anchor {
+  white-space: nowrap;
+}

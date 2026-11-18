@@ -220,7 +220,7 @@ export function RadarForm({
                 !fixed.hint && <p className="locked">今天暂无待开始的固定安排</p>
               )}
             </section>
-            <section>
+            <section className="radar-preference-row">
               <h2>
                 <Icon>☷</Icon> 本次偏好 <small>（可选）</small>
               </h2>
@@ -376,7 +376,10 @@ export function PickCard({
           共约 {total} 分钟
           {remaining != null && ` · 计算时剩余 ${remaining} 分钟`}
         </p>
-        <p className="muted">高德步行估算 · {clock(pick.evidence.fetched_at)} 获取</p>
+        <p className="muted">
+          高德步行估算 · {clock(pick.evidence.fetched_at)} 获取
+          {!expired && !historical && ` · ${clock(expiry)} 前可加入`}
+        </p>
         <p className="muted">
           营业 {facts?.opening ? `高德今日 ${facts.opening.today}（已查询）` : '待核验'} · 预约{' '}
           {facts?.booking
@@ -384,11 +387,7 @@ export function PickCard({
             : '待核验'}{' '}
           · 价格 {facts?.price ? `高德参考 ${facts.price.text}（估计）` : '待核验'}
         </p>
-        {expired ? (
-          <p role="status">本项证据已过期，请重新计算。</p>
-        ) : (
-          !historical && <p className="muted">{clock(expiry)} 前可加入</p>
-        )}
+        {expired && <p role="status">本项证据已过期，请重新计算。</p>}
         <div className="actions">
           <button
             className="secondary"
