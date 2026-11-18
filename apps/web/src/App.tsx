@@ -100,11 +100,49 @@ export function App() {
           </header>
         )}
         {page === 'settings' && (
-          <section className="profile-top">
-            <h1>我的</h1>
-            <p>访客模式 · 使用当前浏览器保存你的行程</p>
-            <p>偏好及数据管理功能尚未开放。</p>
-          </section>
+          <div className="profile">
+            <header className="profile-top">
+              <div className="brand">
+                <img src="/prototype/assets/logo.webp" alt="" />
+                <span>
+                  NEXTSTOP <small>/ 下一站</small>
+                </span>
+              </div>
+              <h1 className="sr-only">我的</h1>
+              <p>个人设置与数据管理</p>
+            </header>
+            <section className="panel profile-anon">
+              <h2>匿名使用 · 轻量出行助手</h2>
+              <p>访客模式 · 使用当前浏览器保存你的行程</p>
+            </section>
+            <section className="panel profile-links" aria-label="当前可用入口">
+              <a href="#radar">
+                <span className="nav-icon nav-radar" aria-hidden="true" />
+                <span>
+                  <strong>位置与雷达</strong>
+                  <small>主动使用定位，也可以手动选择出发地</small>
+                </span>
+                <span aria-hidden="true">›</span>
+              </a>
+              <a href="#library">
+                <span className="nav-icon nav-library" aria-hidden="true" />
+                <span>
+                  <strong>截图与收藏</strong>
+                  <small>从灵感库查看已确认地点及来源</small>
+                </span>
+                <span aria-hidden="true">›</span>
+              </a>
+              <a href="#trip">
+                <span className="nav-icon nav-trip" aria-hidden="true" />
+                <span>
+                  <strong>旅行与行程</strong>
+                  <small>查看和编辑当前旅行</small>
+                </span>
+                <span aria-hidden="true">›</span>
+              </a>
+            </section>
+            <p className="note">偏好及数据管理功能尚未开放。</p>
+          </div>
         )}
         {(page === 'settings' || connection.kind !== 'ready') && (
           <section className="panel service padded-panel" aria-labelledby="service-heading">
