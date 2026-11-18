@@ -170,6 +170,11 @@ export function LibraryPanel({
           ) : (
             <p className="note">还没有收藏。导入截图并确认地点后，收藏会显示在这里。</p>
           ))}
+        {list.kind === 'ready' && list.value.places.length > 0 && (
+          <a className="secondary full" href="#trip">
+            前往行程生成草案
+          </a>
+        )}
         {canImport && list.kind === 'ready' ? (
           <div className="library-actions">
             <button

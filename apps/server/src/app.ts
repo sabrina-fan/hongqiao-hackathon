@@ -13,6 +13,7 @@ import type { RadarMap } from './radar/amap.js';
 import { acceptRadar, createRadar, getRadar } from './radar/store.js';
 import { createUserAccess } from './radar/user-access.js';
 
+import { draftRoute } from './trip/draft-routes.js';
 import { getTrip } from './trip/store.js';
 import { tripRoute } from './trip/routes.js';
 
@@ -57,7 +58,8 @@ export function createApp(options?: Options) {
     const search = request.method === 'GET' && path === '/api/v1/places';
     const create = request.method === 'POST' && path === '/api/v1/radar/sessions';
     const trip = request.method === 'GET' && path === '/api/v1/trip';
-    const manageTrip = tripRoute(request.method, path);
+    const manageTrip =
+      draftRoute(request.method, path, map, now) ?? tripRoute(request.method, path);
     const member = /^\/api\/v1\/radar\/sessions\/([A-Za-z0-9_-]{1,100})(\/accept)?$/.exec(path);
     const sessionId = member?.[1];
     const accept = Boolean(member?.[2]) && request.method === 'POST';

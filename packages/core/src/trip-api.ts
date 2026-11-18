@@ -5,6 +5,7 @@ import {
   lit,
   nullable,
   obj,
+  opt,
   str,
   union,
   type Static,
@@ -12,26 +13,30 @@ import {
 import { IdentifierSchema, RevisionSchema } from './contracts.js';
 import { tripFields } from './radar-api.js';
 
-const Time = str({ pattern: '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$' });
+export const LocalTimeSchema = str({ pattern: '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$' });
 export const TripDaySchema = obj({
   destination: str({ minLength: 1, maxLength: 100, pattern: '\\S' }),
   date: str({ pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' }),
   time_zone: str({ minLength: 1, maxLength: 100 }),
-  start: Time,
-  end: Time,
+  start: LocalTimeSchema,
+  end: LocalTimeSchema,
 });
 export type TripDay = Static<typeof TripDaySchema>;
 export const tripDayValidator = compile(TripDaySchema);
 export const tripEditValidator = compile(obj({ revision: RevisionSchema, day: TripDaySchema }));
 
 const arrangementFields = {
-  name: str({ minLength: 1, maxLength: 100, pattern: '\\S' }),
-  start: Time,
-  end: Time,
+  name: str({ minLength: 1, maxLength: 200, pattern: '\\S' }),
+  start: LocalTimeSchema,
+  end: LocalTimeSchema,
   address: str({ maxLength: 500 }),
   locked: bool(),
 };
-export const ArrangementSchema = obj({ arrangement_id: IdentifierSchema, ...arrangementFields });
+export const ArrangementSchema = obj({
+  arrangement_id: IdentifierSchema,
+  ...arrangementFields,
+  poi_id: opt(IdentifierSchema),
+});
 export type Arrangement = Static<typeof ArrangementSchema>;
 export const arrangementWriteValidator = compile(
   obj({
@@ -39,7 +44,7 @@ export const arrangementWriteValidator = compile(
     arrangement: obj(arrangementFields),
   }),
 );
-export type ArrangementInput = Omit<Arrangement, 'arrangement_id'>;
+export type ArrangementInput = Omit<Arrangement, 'arrangement_id' | 'poi_id'>;
 
 const Warning = union([
   obj({ kind: lit('missing_location'), arrangement_id: IdentifierSchema }),
