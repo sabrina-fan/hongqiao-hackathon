@@ -31,6 +31,7 @@ import {
 } from '../runtime/documents.js';
 import { activeTripDocument, readActiveTrip } from '../trip/store.js';
 import { effectiveFixed, nextFixedStop } from './fixed-stop.js';
+import { RadarAcceptances } from './acceptance.js';
 import type { UserRuntime } from '../runtime/open-user-runtime.js';
 import { RadarFault, WalkingEvidenceSchema, type WalkingEvidence } from './evidence.js';
 import { checkedRecall } from './recall-store.js';
@@ -403,12 +404,13 @@ export async function acceptRadar({
     const at = now();
     const view = checkedView(record, sessionId, tripDoc.trip, at);
     if (view.outcome.kind === 'empty') throw new RadarFault('NO_FEASIBLE_OPTION');
-    const destination = view.candidates
-      ? view.candidates.find(({ place }) => place.id === input.poi_id)?.place
+    const selected = view.candidates
+      ? view.candidates.find(({ place }) => place.id === input.poi_id)
       : view.destination.id === input.poi_id
-        ? view.destination
+        ? { place: view.destination, markers: view.markers }
         : undefined;
-    if (!destination) throw new RadarFault('NOT_FOUND');
+    if (!selected) throw new RadarFault('NOT_FOUND');
+    const { place: destination, markers } = selected;
     if (
       record.recall &&
       !screenRecall(record.recall.snapshot, at).eligible.some(
@@ -432,8 +434,15 @@ export async function acceptRadar({
       stops: [...(prior?.stops.map((item) => ({ ...item })) ?? []), stop],
     };
     const receipt = { trip_id: trip.trip_id, trip_revision: trip.revision, stop };
+    const confirmation = await tx.doc(RadarAcceptances, conversationId, sessionId, sessionId);
     tripDoc.trip = trip;
     idem.entry = { fingerprint: identity, receipt };
+    confirmation.acceptance = {
+      status: 'added',
+      receipt,
+      destination,
+      ...(markers ? { point: { ...markers.destination } } : {}),
+    };
     return receipt;
   }, BACKGROUND_CONTEXT);
 }

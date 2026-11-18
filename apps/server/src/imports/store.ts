@@ -1,5 +1,5 @@
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
-import { defineDocFamily } from '@earendil-works/pi-durable';
+import { defineDocFamily, type Tx } from '@earendil-works/pi-durable';
 import { compile, nullable, obj, union, lit } from '@earendil-works/pi-schema';
 import type { Static } from '@earendil-works/pi-schema';
 import {
@@ -12,7 +12,7 @@ import {
 } from '@nextstop/core';
 import { HttpFault } from '../http.js';
 import type { UserRuntime } from '../runtime/open-user-runtime.js';
-import { saveWishlistSource } from '../wishlist/store.js';
+import { checkWishlistNewCount, saveWishlistSource } from '../wishlist/store.js';
 
 const ReceiptSchema = obj({ selection: ConfirmImportSchema, place: WishlistPlaceSchema });
 const ImportRecordSchema = obj({
@@ -98,6 +98,57 @@ export function updateMatch({
   }, BACKGROUND_CONTEXT);
 }
 
+type WishlistWrite = {
+  selection: ConfirmImport;
+  review: ImportReview;
+  chosen: Extract<ImportReview['match'], { kind: 'results' }>['candidates'][number];
+};
+
+function wishlistSource({ selection, review, chosen }: WishlistWrite): WishlistPlace {
+  return {
+    provider: selection.provider,
+    poi_id: chosen.id,
+    city: '苏州',
+    name: chosen.name,
+    address: chosen.address,
+    sources: [{ ...review.source }],
+  };
+}
+
+export async function writeBatchChoices({
+  runtime,
+  tx,
+  choices,
+  newCount,
+}: {
+  runtime: UserRuntime;
+  tx: Tx;
+  choices: (WishlistWrite & { imageType: ImportRecord['image_type'] })[];
+  newCount: number;
+}) {
+  await checkWishlistNewCount({
+    runtime,
+    tx,
+    selections: choices.map(({ selection }) => selection),
+    newCount,
+  });
+  const scope = runtime.conversation.id;
+  for (const choice of choices) {
+    const id = choice.review.import_id;
+    const record = await tx.doc(Imports, scope, id, id);
+    if (record.review) throw new Error('Import ID collision');
+    const place = await saveWishlistSource({
+      runtime,
+      tx,
+      incoming: wishlistSource(choice),
+      preservePlaceDetails: true,
+    });
+    record.review = choice.review;
+    record.image_type = choice.imageType;
+    record.receipt = { selection: choice.selection, place };
+  }
+}
+
 export function confirmImport({
   runtime,
   id,
@@ -129,14 +180,7 @@ export function confirmImport({
     const place = await saveWishlistSource({
       runtime,
       tx,
-      incoming: {
-        provider: selection.provider,
-        poi_id: chosen.id,
-        city: '苏州',
-        name: chosen.name,
-        address: chosen.address,
-        sources: [{ ...review.source }],
-      },
+      incoming: wishlistSource({ selection, review, chosen }),
     });
     record.receipt = { selection, place };
     return place;

@@ -155,3 +155,13 @@ export const AcceptReceiptSchema = obj({
 });
 export type AcceptReceipt = Static<typeof AcceptReceiptSchema>;
 export const acceptReceiptValidator = compile(AcceptReceiptSchema);
+
+export const RadarAcceptanceSchema = obj({
+  status: oneOf(['added', 'undone']),
+  receipt: AcceptReceiptSchema,
+  destination: PlaceOptionSchema,
+  point: opt(RoutePointSchema),
+});
+export type RadarAcceptance = Static<typeof RadarAcceptanceSchema>;
+export const radarAcceptanceValidator = compile(RadarAcceptanceSchema);
+export const undoRadarValidator = compile(obj({ stop_id: IdentifierSchema }));

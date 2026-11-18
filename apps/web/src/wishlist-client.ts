@@ -32,17 +32,6 @@ export const editSavedPlace = (key: Parameters<typeof savedPath>[0], edit: EditW
 export async function removeSavedPlace(key: Parameters<typeof savedPath>[0]) {
   await request(savedPath(key), { method: 'DELETE' });
 }
-export function uploadImage(file: File) {
-  const body = new FormData();
-  body.set('image', file);
-  return requestJson(
-    imports,
-    { method: 'POST', body },
-    importReviewValidator.check,
-    undefined,
-    45_000,
-  );
-}
 export function searchImport(query: string, id?: string) {
   return requestJson(
     `${id ? importPath(id) : imports}/search`,

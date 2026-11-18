@@ -55,13 +55,15 @@ try {
     radarScreenshot: join(directory, 'radar.png'),
     recallScreenshot: join(directory, 'recall.png'),
     mapFallbackScreenshot: join(directory, 'recall-map-fallback.png'),
+    acceptanceScreenshot: join(directory, 'acceptance.png'),
+    undoScreenshot: join(directory, 'undo.png'),
   };
   console.log(`Browser report and screenshot: ${directory}`);
   runBrowser(`
 const settings = ${JSON.stringify(settings)};
 const assert = (await import('node:assert/strict')).default;
 const { writeFile } = await import('node:fs/promises');
-const task = await taskSpace('NextStop 08 mobile radar recall');
+const task = await taskSpace('NextStop radar integration ' + new URL(settings.fixture).hostname);
 const page = task.page('p1');
 const report = { status: 'running', space_id: task.spaceId, checks: [], screenshot: settings.screenshot };
 const save = () => writeFile(settings.report, JSON.stringify(report, null, 2));
@@ -176,7 +178,29 @@ try {
   await wait(() => document.querySelector('.pick')?.textContent.includes('约 7 分钟'));
   await heading('推荐结果');
   await page.screenshot({path:settings.proposalScreenshot});
-  // Lose a successful acknowledgement. The second explicit confirmation must replay it.
+  await page.click(confirm, {label:'Add an existing itinerary stop'});
+  await wait(() => document.querySelector('.radar-acceptance [role=status]')?.textContent.includes('已加入行程：验收书店'));
+  const existingStops = JSON.parse((await page.fetch('/api/v1/trip')).body).stops;
+  assert.deepEqual(existingStops.map(({poi_id}) => poi_id), ['qa-stop']);
+
+  const edit = 'loc=role:button[name="修改条件"]';
+  await page.click(edit, {label:'Open the recall conditions'});
+  await page.click('loc=role:button[name="联合搜索"]', {label:'Search saved and nearby places'});
+  await propose('75');
+  await wait(() => document.querySelectorAll('.radar-map-pin').length === 3);
+  for (const name of ['验收公园', '验收书店', '验收茶馆']) {
+    await page.click('css=.radar-card-choice:has-text("' + name + '")', {label:'Select a recommendation card'});
+    await wait((name) => document.querySelector('.radar-map-pin[aria-pressed=true]')?.getAttribute('aria-label') === '地图标记 ' + name, name);
+  }
+  await page.click('loc=role:button[name="地图标记 验收公园"]', {label:'Select the park marker'});
+  await wait(() => document.querySelector('.radar-card-choice[aria-pressed=true] strong')?.textContent === '验收公园');
+  await page.click('loc=role:button[name="地图标记 验收茶馆"]', {label:'Select the tea house alternative'});
+  await wait(() => document.querySelector('.radar-card-choice[aria-pressed=true]')?.textContent.includes('备选') && document.querySelector('.pick h3')?.textContent === '验收茶馆');
+  await page.screenshot({path:settings.recallScreenshot});
+  report.checks.push('three-cards-and-map-selection');
+
+  // Lose the alternative's successful acknowledgement and replay the same selection.
+
   await page.evaluate(() => {
     const original = window.fetch;
     window.confirmationKeys = [];
@@ -189,57 +213,91 @@ try {
       return response;
     };
   });
-  await page.click(confirm, {label:'Confirm the first stop'});
+  await page.click(confirm, {label:'Confirm the selected alternative'});
   await wait(() => document.querySelector('.result [role=alert]')?.textContent.includes('确认失败'));
   await page.click(confirm, {label:'Replay the same confirmation'});
-  await wait(() => document.querySelector('.result [role=status]')?.textContent.includes('已加入行程：验收书店'));
+  await wait(() => document.querySelector('.radar-acceptance [role=status]')?.textContent.includes('已加入行程：验收茶馆'));
   assert.ok(await page.evaluate(() => Boolean(document.querySelector('nav a[href="#trip"]'))), '确认成功后，底部导航应提供「我的行程」入口');
   await page.click(tripLink, {label:'Open the saved itinerary'});
   await tripHeading();
   await page.waitForSelector('.trip li');
-  assert.deepEqual(await tripStops(), ['验收书店']);
+  assert.deepEqual(await tripStops(), ['验收书店', '验收茶馆']);
   assert.equal(await page.evaluate(() => document.querySelector('nav [aria-current="page"]')?.hash), '#trip');
   const keys = await page.evaluate(() => window.confirmationKeys);
   assert.equal(keys.length, 2); assert.ok(keys[0]); assert.equal(keys[0], keys[1]);
-  report.checks.push('confirmation-replayed', 'trip-via-bottom-navigation');
+  report.checks.push('alternative-confirmation-replayed', 'trip-via-bottom-navigation');
   await page.reload();
   await tripHeading();
   await page.waitForSelector('.trip li');
-  assert.deepEqual(await tripStops(), ['验收书店']);
+  assert.deepEqual(await tripStops(), ['验收书店', '验收茶馆']);
   await page.screenshot({path:settings.screenshot});
   report.checks.push('trip-after-reload');
-  await page.click(radarLink, {label:'Return to the radar form'});
-  await pick('origin', '验收起点'); await pick('destination', '验收书店'); await propose('90');
+  await page.click(radarLink, {label:'Recover the confirmed alternative'});
+  await wait(() => document.querySelector('.radar-acceptance [role=status]')?.textContent.includes('已加入行程：验收茶馆'));
+  const links = await page.evaluate(() => [...document.querySelectorAll('.radar-acceptance a[target="_blank"]')].map(a => a.href));
+  assert.equal(links.length, 2);
+  for (const [index, href] of links.entries()) {
+    const target = new URL(href);
+    assert.equal(target.origin, 'https://uri.amap.com');
+    assert.equal(target.pathname, '/navigation');
+    assert.equal(target.searchParams.get('to'), '120.098,31.12,验收茶馆');
+    assert.equal(target.searchParams.get('mode'), 'walk');
+    assert.equal(target.searchParams.get('callnative'), index === 0 ? '1' : '0');
+  }
+  // Use a controlled clipboard so the user's real clipboard is untouched.
+  await page.evaluate(() => Object.defineProperty(navigator.clipboard, 'writeText', {
+    value: async (value) => { window.copiedAddress = value; },
+  }));
+  await page.click('loc=role:button[name="复制地址"]', {label:'Copy the confirmed address'});
+  assert.equal(await page.evaluate(() => window.copiedAddress), '测试街四号');
+  await page.screenshot({path:settings.acceptanceScreenshot});
+  report.checks.push('navigation-links-and-copy-after-reload');
+  await page.evaluate(() => {
+    const original = window.fetch;
+    let attempts = 0;
+    window.fetch = async (input, init) => {
+      if (typeof input === 'string' && input.endsWith('/acceptance/undo')) {
+        attempts += 1;
+        if (attempts === 1) throw new TypeError('Undo unavailable');
+        const result = await original(input, init);
+        if (attempts === 2 && result.ok) throw new TypeError('Lost undo acknowledgement');
+        return result;
+      }
+      return original(input, init);
+    };
+  });
+  await page.click('loc=role:button[name="撤销本次加入"]', {label:'Try undo while disconnected'});
+  await wait(() => document.querySelector('.radar-acceptance [role=alert]')?.textContent.includes('撤销未能确认'));
+  assert.deepEqual(JSON.parse((await page.fetch('/api/v1/trip')).body).stops.map(({poi_id}) => poi_id), ['qa-stop', 'qa-tea']);
+  await page.click('loc=role:button[name="重试撤销"]', {label:'Retry undo and recover receipt'});
+  await wait(() => document.querySelector('.radar-acceptance [role=status]')?.textContent.includes('已撤销本次加入：验收茶馆'));
+  await page.reload();
+  await wait(() => document.querySelector('.radar-acceptance [role=status]')?.textContent.includes('已撤销本次加入：验收茶馆'));
+  assert.deepEqual(JSON.parse((await page.fetch('/api/v1/trip')).body).stops, existingStops);
+  await page.screenshot({path:settings.undoScreenshot});
+  report.checks.push('targeted-undo-failure-retry-and-recovery');
+  await page.click(edit, {label:'Return to radar conditions'});
+  await pick('origin', '验收起点');
+  await pick('destination', '验收书店');
+  await propose('90');
   await page.waitForSelector(confirm);
   // A second client of this guest legitimately changes the trip while the first tab is open.
-  const competing = await page.fetch('/api/v1/radar/sessions', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({origin_id:'qa-origin',poi_id:'qa-stop',available_min:90})});
+  const competing = await page.fetch('/api/v1/radar/sessions', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({origin_id:'qa-origin',poi_id:'qa-park',available_min:90})});
   assert.equal(competing.status,201);
   const {outcome} = JSON.parse(competing.body);
-  const added = await page.fetch('/api/v1/radar/sessions/' + outcome.binding.session_id + '/accept', {method:'POST', headers:{'content-type':'application/json','idempotency-key':'other-client'},body:JSON.stringify({binding:outcome.binding,poi_id:'qa-stop'})});
+  const added = await page.fetch('/api/v1/radar/sessions/' + outcome.binding.session_id + '/accept', {method:'POST', headers:{'content-type':'application/json','idempotency-key':'other-client'},body:JSON.stringify({binding:outcome.binding,poi_id:'qa-park'})});
   assert.equal(added.status,200);
   await page.click(confirm, {label:'Confirm the outdated proposal'});
   await wait(() => document.querySelector('.result [role=alert]')?.textContent.includes('PROPOSAL_STALE'));
   const trip = JSON.parse((await page.fetch('/api/v1/trip')).body);
-  assert.equal(trip.stops.length, 2);
+  assert.deepEqual(trip.stops.map(({poi_id}) => poi_id), ['qa-stop', 'qa-park']);
   report.checks.push('stale-keeps-trip');
   await page.click('loc=role:button[name="重新计算"]', {label:'Calculate a current proposal'});
   await page.waitForSelector(confirm);
   await wait(() => !document.querySelector('.result [role=alert]') && document.querySelector('.pick')?.textContent.includes('验收书店'));
   report.checks.push('stale-recalculated');
-  const edit = 'loc=role:button[name="修改条件"]';
   await page.click(edit, {label:'Open the recall conditions'});
   await page.click('loc=role:button[name="联合搜索"]', {label:'Search saved and nearby places'});
-  await propose('75');
-  await wait(() => document.querySelectorAll('.radar-map-pin').length === 3);
-  for (const name of ['验收公园', '验收书店', '验收茶馆']) {
-    await page.click('css=.radar-card-choice:has-text("' + name + '")', {label:'Select a recommendation card'});
-    await wait((name) => document.querySelector('.radar-map-pin[aria-pressed=true]')?.getAttribute('aria-label') === '地图标记 ' + name, name);
-  }
-  await page.click('loc=role:button[name="地图标记 验收书店"]', {label:'Select the bookshop marker'});
-  await wait(() => document.querySelector('.radar-card-choice[aria-pressed=true]')?.textContent.includes('验收书店') && document.querySelector('.pick h3')?.textContent === '验收书店');
-  await page.screenshot({path:settings.recallScreenshot});
-  report.checks.push('three-cards-and-map-selection');
-  await page.click(edit, {label:'Open the recall conditions'});
   await page.evaluate(() => {
     const original = window.fetch;
     window.fetch = async (input, init) => {
@@ -274,12 +332,14 @@ try {
     'pending-request-aborted',
     'capability-pages-and-radar-return',
     'empty-keeps-trip',
-    'confirmation-replayed',
+    'three-cards-and-map-selection',
+    'alternative-confirmation-replayed',
     'trip-via-bottom-navigation',
     'trip-after-reload',
+    'navigation-links-and-copy-after-reload',
+    'targeted-undo-failure-retry-and-recovery',
     'stale-keeps-trip',
     'stale-recalculated',
-    'three-cards-and-map-selection',
     'map-failure-keeps-cards-actionable',
     'tc-18-no-detour',
   ]);

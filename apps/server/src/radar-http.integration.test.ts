@@ -194,8 +194,16 @@ describe('radar through HTTP and per-guest SQLite', () => {
     await expectFault(await confirm(far.id), 404, 'NOT_FOUND');
     await expectFault(await confirm('outside-the-pool'), 404, 'NOT_FOUND');
     expect(await trip(cookie)).toBeNull();
-    expect((await confirm(destination.id)).status).toBe(200);
+    const accepted = await confirm(destination.id);
+    expect(accepted.status).toBe(200);
     expect(await trip(cookie)).toMatchObject({ stops: [{ poi_id: destination.id }] });
+    const recovered = await fetch(`${url}${pathOf(view)}/acceptance`, { headers: { cookie } });
+    expect(recovered.status).toBe(200);
+    expect(await recovered.json()).toMatchObject({
+      status: 'added',
+      receipt: await accepted.json(),
+      destination,
+    });
   });
   it('keeps a fresh alternative confirmable after another option expires', async () => {
     const cookie = await guest();
@@ -444,6 +452,109 @@ describe('radar through HTTP and per-guest SQLite', () => {
       revision: receipt.trip_revision,
       stops: [receipt.stop],
     });
+  });
+  it('recovers a lost confirmation and undoes only its insertion after later edits', async () => {
+    const cookie = await guest();
+    const created = await post(
+      '/trips',
+      {
+        destination: '苏州',
+        date: '2026-11-18',
+        time_zone: 'Asia/Shanghai',
+        start: '09:00',
+        end: '20:00',
+      },
+      cookie,
+    );
+    const planned: unknown = await created.json();
+    if (!tripDetailValidator.check(planned)) throw new Error('Missing planned trip');
+    const path = `/trips/${planned.trip_id}`;
+    const get = (path: string, owner = cookie) => fetch(url + path, { headers: { cookie: owner } });
+    const locked = {
+      name: '预约晚餐',
+      start: '17:30',
+      end: '18:30',
+      address: '平江路 10 号',
+      locked: true,
+    };
+    expect(
+      (
+        await post(
+          `${path}/arrangements`,
+          { revision: planned.revision, arrangement: locked },
+          cookie,
+        )
+      ).status,
+    ).toBe(200);
+    const view = await propose(cookie);
+    const before: unknown = await (await get(path)).json();
+    expect(before).toMatchObject({ arrangements: [locked], stops: [] });
+
+    const lost = await accept(cookie, view, 'lost-receipt');
+    expect(lost.status).toBe(200);
+    await lost.body?.cancel();
+    const replay = await accept(cookie, view, 'lost-receipt');
+    expect(replay.status).toBe(200);
+    const receipt: unknown = await replay.json();
+    if (!acceptReceiptValidator.check(receipt)) throw new Error('Missing replayed receipt');
+    expect(await (await get(path)).json()).toMatchObject({ stops: [receipt.stop] });
+
+    const independent = {
+      name: '夜间散步',
+      start: '19:00',
+      end: '19:30',
+      address: '',
+      locked: false,
+    };
+    const edit = await post(
+      `${path}/arrangements`,
+      { revision: receipt.trip_revision, arrangement: independent },
+      cookie,
+    );
+    expect(edit.status).toBe(200);
+    const second = await propose(cookie);
+    const secondAccept = await accept(cookie, second, 'independent-insertion');
+    expect(secondAccept.status).toBe(200);
+    const secondReceipt: unknown = await secondAccept.json();
+    if (!acceptReceiptValidator.check(secondReceipt)) throw new Error('Missing second receipt');
+    expect(secondReceipt.stop.poi_id).toBe(receipt.stop.poi_id);
+    const switched = await post('/trips', { ...planned.day, date: '2026-11-19' }, cookie);
+    expect(switched.status).toBe(201);
+    const unrelated: unknown = await switched.json();
+    if (!tripDetailValidator.check(unrelated)) throw new Error('Missing newly active trip');
+
+    const acceptance = `${pathOf(view)}/acceptance`;
+    clock += 300_001;
+    await close();
+    await listen();
+    const recovered = await get(acceptance);
+    expect(recovered.status).toBe(200);
+    expect(await recovered.json()).toMatchObject({ status: 'added', receipt, destination });
+    const outsider = await guest();
+    await expectFault(await get(acceptance, outsider), 404, 'NOT_FOUND');
+    await expectFault(
+      await post(`${acceptance}/undo`, { stop_id: receipt.stop.stop_id }, outsider),
+      404,
+      'NOT_FOUND',
+    );
+    await expectFault(
+      await post(`${acceptance}/undo`, { stop_id: secondReceipt.stop.stop_id }, cookie),
+      409,
+      'ACCEPTANCE_MISMATCH',
+    );
+    const undo = () => post(`${acceptance}/undo`, { stop_id: receipt.stop.stop_id }, cookie);
+    for (const response of await Promise.all([undo(), undo()])) {
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ status: 'undone', receipt });
+    }
+    expect(await (await accept(cookie, view, 'lost-receipt')).json()).toEqual(receipt);
+    expect(await (await get(acceptance)).json()).toMatchObject({ status: 'undone', receipt });
+    expect(await (await get(path)).json()).toMatchObject({
+      revision: secondReceipt.trip_revision + 1,
+      arrangements: [locked, independent],
+      stops: [secondReceipt.stop],
+    });
+    expect(await (await get(`/trips/${unrelated.trip_id}`)).json()).toEqual(unrelated);
   });
   it('allows a verified 73-minute plan in 75 minutes and rejects it in 72', async () => {
     const cookie = await guest();
