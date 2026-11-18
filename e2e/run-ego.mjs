@@ -408,7 +408,7 @@ try {
   await page.click(submit, {label:'Calculate with the verified next address'});
   await page.waitForSelector(confirm);
   await wait(() => document.querySelectorAll('.radar-map-pin').length === 3 && [...document.querySelectorAll('.radar-map-anchor')].some((anchor) => anchor.textContent === '下一站'));
-  assert.match(await page.evaluate(() => document.querySelector('.result .radar-hint')?.textContent), /验收演出.*按固定截止/);
+  assert.match(await page.evaluate(() => document.querySelector('.result .context')?.textContent), /验收演出.*按固定截止/s);
   assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.pick .times div')].map((segment) => [...segment.children].map((item) => item.textContent))), [
     ['步行前往', '约 7 分钟'], ['建议停留', '约 40 分钟'], ['下一站', '15 分钟'], ['缓冲', '10 分钟'],
   ]);
@@ -417,7 +417,7 @@ try {
   await page.screenshot({path:settings.fixedRecallScreenshot});
   report.checks.push('default-recall-after-lock-uses-next-stop-and-segments');
 
-  const fixedHint = await page.evaluate(() => document.querySelector('.result .radar-hint')?.textContent);
+  const fixedHint = await page.evaluate(() => document.querySelector('.result .context')?.textContent);
   const previous = await page.evaluate(() => document.querySelector('.pick h3')?.textContent);
   const actions = await page.evaluate(() =>
     [...document.querySelectorAll('.pick .actions button')].map((button) => {
@@ -434,7 +434,7 @@ try {
   const reranked = await page.evaluate(() => document.querySelector('.pick h3')?.textContent);
   await page.reload();
   await wait((name) => document.querySelector('.pick h3')?.textContent === name && document.querySelector('.radar-feedback-note')?.textContent.includes('不感兴趣'), reranked);
-  assert.equal(await page.evaluate(() => document.querySelector('.result .radar-hint')?.textContent), fixedHint);
+  assert.equal(await page.evaluate(() => document.querySelector('.result .context')?.textContent), fixedHint);
   await page.screenshot({path:settings.fixedFeedbackScreenshot});
   report.checks.push('fixed-feedback-rerank-and-reload');
 
