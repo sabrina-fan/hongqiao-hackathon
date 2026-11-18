@@ -27,16 +27,8 @@ const text = async (selector, value) => {
 };
 const main = (value) => text('main', value);
 const alert = (selector) => text(selector, '受控失败');
-const byText = (selector, name) => `css=${selector}:has-text("${name}")`;
-const button = (name) => `loc=role:button[name="${name}"]`;
-const click = async (selector, label) => {
-  try {
-    await page.click(selector, { label });
-  } catch (error) {
-    throw new Error(`Could not click ${label} (${selector}): ${error.message}`, { cause: error });
-  }
-};
-const tap = (name) => click(button(name), name);
+const byText = (selector, text) => ({ selector, text });
+const tap = (name) => click({ selector: 'button', name }, name);
 const nav = (tab) => click(`nav a[href="#${tab}"]`, `打开${tab}页面`);
 const byPlace = (name) => byText('.wishlist-card', name);
 const api = '/api/v1';
@@ -66,22 +58,53 @@ const present = (selector) =>
   wait((selector) => Boolean(document.querySelector(selector)), selector);
 const absent = (selector) => wait((selector) => !document.querySelector(selector), selector);
 
-// Long, independently scrolling action lists need an explicit visible hit target.
-async function clickVisible(selector, label) {
-  await present(selector);
-  const point = await page.evaluate((selector) => {
-    const control = document.querySelector(selector);
-    control.scrollIntoView({ block: 'center', behavior: 'instant' });
-    const bounds = control.getBoundingClientRect();
-    const x = bounds.x + bounds.width / 2;
-    const y = bounds.y + bounds.height / 2;
-    return control.contains(document.elementFromPoint(x, y)) ? { x, y } : null;
-  }, selector);
-  assert.ok(point, `The action must have a visible hit target: ${label}`);
-  await page.mouse.click(point.x, point.y, { label });
+// Check the real hit target after scrolling, then send one pointer action through Ego.
+async function hitTarget(target, label) {
+  const locator = typeof target === 'string' ? { selector: target } : target;
+  const point = await page.evaluate(async ({ selector, name, text, index }) => {
+    const deadline = performance.now() + 5_000;
+    while (performance.now() < deadline) {
+      const controls = [...document.querySelectorAll(selector)].filter((node) => {
+        const title = node.getAttribute('aria-label') ?? node.innerText.replace(/\s+/g, ' ').trim();
+        return (
+          (name === undefined || title === name) && (text === undefined || title.includes(text))
+        );
+      });
+      const control =
+        index === undefined ? (controls.length === 1 ? controls[0] : null) : controls[index];
+      if (control && !control.matches(':disabled') && control.getClientRects().length) {
+        const hitCenter = () => {
+          const bounds = control.getBoundingClientRect();
+          const x = bounds.x + bounds.width / 2;
+          const y = bounds.y + bounds.height / 2;
+          return control.contains(document.elementFromPoint(x, y)) ? { x, y } : null;
+        };
+        const visible = hitCenter();
+        if (visible) return visible;
+        control.scrollIntoView({ block: 'center', behavior: 'instant' });
+        const revealed = hitCenter();
+        if (revealed) return revealed;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return null;
+  }, locator);
+  assert.ok(point, `Could not find a unique, enabled and reachable control for ${label}`);
+  return point;
 }
-const draftAction = (label) =>
-  clickVisible(`.draft-rows button[aria-label="${label}"]:enabled`, label);
+
+async function click(target, label) {
+  const { x, y } = await hitTarget(target, label);
+  await page.mouse.click(x, y, { label });
+}
+
+async function fill(selector, input) {
+  await click(selector, '聚焦要填写的字段');
+  await page.keyboard.press('ControlOrMeta+A');
+  if (input) await page.keyboard.insertText(input);
+  else await page.keyboard.press('Backspace');
+  assert.equal(await value(selector), input, selector);
+}
 
 async function shot(name, anchor) {
   const layout = await page.evaluate((anchor) => {
@@ -146,20 +169,19 @@ async function form(fields) {
         },
         { selector, input },
       );
-    } else await page.fill(selector, input);
+    } else await fill(selector, input);
     assert.equal(await value(selector), input);
   }
 }
 
 async function uploadEntry() {
   await main('我的灵感库');
-  await page.waitForSelector('loc=role:button[name*="导入攻略截图"]');
-  await click('loc=role:button[name*="导入攻略截图"]', '进入批量导入');
+  await click(byText('.wishlist-screen button', '导入攻略截图'), '进入批量导入');
   await text('#batch-privacy', '遮挡');
 }
 
 async function reviewClick(card, label) {
-  await click(`${card} ${byText('button', label).slice(4)}`, label);
+  await click({ selector: `${card} button`, name: label }, label);
 }
 
 async function batchPath() {
@@ -286,11 +308,11 @@ try {
   const unmatched = '.batch-review-card:has(a[aria-label="查看原图 攻略-4.png"])';
   await click(`${unmatched} summary`, '展开未匹配补录');
   const input = `${unmatched} input[type=search]`;
-  await page.fill(input, '虚构地点');
+  await fill(input, '虚构地点');
   await reviewClick(unmatched, '搜索');
   await present(`${unmatched} input[type=search]:enabled`);
   assert.equal((await json(batch)).items[3].review.match.candidates.length, 0);
-  await page.fill(input, '拙政园');
+  await fill(input, '拙政园');
   await arm('POST', `${failedItem}/search`);
   await reviewClick(unmatched, '搜索');
   await held({ message: '正在搜索地点', disabled: `${input}:disabled`, scope: '.batch-screen' });
@@ -299,7 +321,7 @@ try {
   assert.equal(await value(input), '拙政园');
   await reviewClick(unmatched, '搜索');
   await text(`${unmatched} .library-options`, '苏州东北街 178 号');
-  await clickVisible(`${unmatched} .option`, '核对并选择拙政园');
+  await click(`${unmatched} .option`, '核对并选择拙政园');
   await text('.batch-review-count', '实际新增 3 处');
   assert.ok((await json(batch)).items[3].review.match.candidates.some(({ id }) => id === 'garden'));
   const guessed = '.batch-review-card:has(a[aria-label="查看原图 攻略-5.png"])';
@@ -327,7 +349,7 @@ try {
   });
   assert.ok(layout.resultsBottom <= layout.confirmTop && layout.confirmBottom <= layout.tabsTop);
   await shot('04-preview', '.batch-confirm-summary');
-  const confirmBatch = () => click('loc=role:button[name*="确认并加入灵感库"]', '确认保存本批地点');
+  const confirmBatch = () => click('.batch-review-screen .cta', '确认保存本批地点');
   await confirmBatch();
   await held({
     message: '正在保存收藏',
@@ -389,7 +411,7 @@ async function runLibraryAndDetail() {
   await tap('重试读取收藏');
   await main('共 3 处');
   await tap('＋ 手动添加');
-  await page.fill('#library-query', '苏州博物馆');
+  await fill('#library-query', '苏州博物馆');
   await arm('POST', `${api}/imports/search`);
   await tap('搜索');
   await held({ message: '正在搜索地点', disabled: '#library-query:disabled' });
@@ -404,12 +426,12 @@ async function runLibraryAndDetail() {
   await main('已收藏 苏州博物馆');
   assert.equal((await json(place('museum'))).sources[0].kind, 'manual');
   const query = '[aria-label="搜索收藏"]';
-  await page.fill(query, '广济路');
+  await fill(query, '广济路');
   await main('共 1 处');
   await text('.wishlist-card', '山塘街北口');
-  await page.fill(query, '无此收藏');
+  await fill(query, '无此收藏');
   await main('没有符合条件的收藏');
-  await page.fill(query, '');
+  await fill(query, '');
   await main('共 4 处');
   await tap('已去');
   await main('共 0 处');
@@ -449,7 +471,7 @@ async function runLibraryAndDetail() {
   assert.equal(new Set(links).size, 2);
   for (const link of links) assert.equal((await fetch(link)).status, 200);
   await shot('07-detail');
-  await page.fill('#wishlist-note', ' 收藏验收备注 ');
+  await fill('#wishlist-note', ' 收藏验收备注 ');
   await arm('PATCH', place('pingjiang'));
   await tap('保存备注');
   await held({
@@ -471,7 +493,7 @@ async function runLibraryAndDetail() {
   assert.equal((await json(place('pingjiang'))).visit, 'visited');
   await tap('返回灵感库');
   await present(query);
-  await page.fill(query, '收藏验收备注');
+  await fill(query, '收藏验收备注');
   await tap('已去');
   await main('共 1 处');
   await text('.wishlist-card', '平江历史街区');
@@ -484,13 +506,13 @@ async function runLibraryAndDetail() {
   await tap('返回灵感库');
   await present(query);
   await tap('全部');
-  await page.fill(query, '');
+  await fill(query, '');
   await click(byPlace('山塘街北口'), '打开待更正收藏');
   await main('收藏来源（1）');
   await tap('更正地图地点');
   await tap('取消更正');
   await tap('更正地图地点');
-  await page.fill('#wishlist-replacement', '山塘街南口');
+  await fill('#wishlist-replacement', '山塘街南口');
   await click('#wishlist-replacement-options [role=option]', '选择新的地图地址');
   await arm('POST', `${place('north')}/correction`);
   await tap('确认更正');
@@ -632,33 +654,33 @@ async function runTrip() {
   const [a, b, c] = original.map(({ name }) => name);
   const firstVisible = (name) => text('.draft-row:first-child strong', name);
   await present(`button[aria-label="上移 ${a}"]:disabled`);
-  await draftAction(`上移 ${b}`);
+  await tap(`上移 ${b}`);
   await firstVisible(b);
   assert.deepEqual(
     (await ordered()).map(({ name }) => name),
     [b, a, c],
   );
-  await draftAction(`下移 ${b}`);
+  await tap(`下移 ${b}`);
   await firstVisible(a);
   assert.deepEqual(
     (await ordered()).map(({ name }) => name),
     [a, b, c],
   );
-  await draftAction(`锁定 ${a}`);
+  await tap(`锁定 ${a}`);
   await present(`button[aria-label="解锁 ${a}"]`);
   assert.equal((await ordered())[0].locked, true);
-  await draftAction(`解锁 ${a}`);
+  await tap(`解锁 ${a}`);
   await present(`button[aria-label="锁定 ${a}"]`);
   assert.equal((await ordered())[0].locked, false);
-  await draftAction(`锁定 ${a}`);
+  await tap(`锁定 ${a}`);
   await present(`button[aria-label="解锁 ${a}"]`);
-  await draftAction(`跳过 ${c}`);
+  await tap(`跳过 ${c}`);
   await present(`button[aria-label="重新安排 ${c}"]`);
   assert.equal((await ordered()).find(({ name }) => name === c).kind, 'skipped');
-  await draftAction(`重新安排 ${c}`);
+  await tap(`重新安排 ${c}`);
   await present(`button[aria-label="跳过 ${c}"]`);
   assert.equal((await ordered()).find(({ name }) => name === c).kind, 'scheduled');
-  await draftAction(`跳过 ${c}`);
+  await tap(`跳过 ${c}`);
   await present(`button[aria-label="重新安排 ${c}"]`);
   const before = await ordered();
   assert.deepEqual(await json(trip), initial);
@@ -721,7 +743,7 @@ async function runTrip() {
     target,
   );
   assert.ok(index >= 0);
-  const remove = () => click(`${target} button >> nth=${index}`, '删除当前旅行');
+  const remove = () => click({ selector: `${target} button`, index }, '删除当前旅行');
   await remove();
   await text('.settings-confirm', '2026-11-20');
   await tap('取消');
