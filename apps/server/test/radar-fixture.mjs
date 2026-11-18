@@ -42,7 +42,15 @@ function mapResponse(url) {
     const duration =
       url.searchParams.get('destination') === fixedPoint ? '900' : fixedWindow ? '480' : '420';
     data = {
-      results: [{ origin_id: '1', dest_id: '1', distance: '600', duration, info: 'OK' }],
+      results: [
+        {
+          origin_id: '1',
+          dest_id: '1',
+          distance: url.searchParams.get('destination') === '120.098,31.12' ? '1800' : '600',
+          duration,
+          info: 'OK',
+        },
+      ],
     };
   } else throw new Error('Unexpected fixture map endpoint');
   return Response.json({ status: '1', info: 'OK', ...data });

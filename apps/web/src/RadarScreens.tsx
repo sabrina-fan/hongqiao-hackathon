@@ -96,7 +96,7 @@ export function RadarForm({
                   onClick={location.onLocate}
                   disabled={location.locating}
                 >
-                  {location.locating ? '正在定位…' : '使用当前位置'}
+                  <span aria-live="polite">{location.locating ? '正在定位…' : '使用当前位置'}</span>
                 </button>
               </div>
               <div className="between place-row">
@@ -243,7 +243,7 @@ export function RadarForm({
                 <Icon>☷</Icon> 本次偏好 <small>（可选）</small>
               </h2>
               <div className="chips">
-                <span className="chip">步行模式</span>
+                <p className="radar-travel-mode">出行方式：步行</p>
                 <button
                   className="chip"
                   type="button"
@@ -258,7 +258,7 @@ export function RadarForm({
           <div className="home-action">
             <button className="primary full cta" type="submit" disabled={!canSubmit}>
               <Icon>✧</Icon>
-              {busy ? '正在计算…' : '现在去哪'}
+              <span aria-live="polite">{busy ? '正在计算…' : '现在去哪'}</span>
             </button>
           </div>
         </fieldset>
@@ -432,7 +432,7 @@ export function PickCard({
             disabled={accepting || !writable || expired}
             onClick={onConfirm}
           >
-            {accepting ? '正在确认…' : '确认加入行程'}
+            <span aria-live="polite">{accepting ? '正在确认…' : '确认加入行程'}</span>
           </button>
         </div>
       </div>

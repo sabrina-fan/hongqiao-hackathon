@@ -26,7 +26,7 @@ function runBrowser(program) {
   const result = spawnSync('ego-browser', ['nodejs'], {
     input: program,
     encoding: 'utf8',
-    timeout: 150000,
+    timeout: 240000,
     maxBuffer: 2 * 1024 * 1024,
   });
   if (result.stdout) process.stdout.write(result.stdout);
@@ -68,6 +68,8 @@ try {
   runBrowser(`
 const settings = ${JSON.stringify(settings)};
 const assert = (await import('node:assert/strict')).default;
+const { dirname, join } = await import('node:path');
+const capture = (name) => page.screenshot({path:join(dirname(settings.report), name + '.png')});
 const { writeFile } = await import('node:fs/promises');
 const task = await taskSpace('NextStop radar integration ' + new URL(settings.fixture).hostname);
 const page = task.page('p1');
@@ -158,9 +160,26 @@ try {
   if (settings.baseUrl !== settings.fixture) await page.goto(settings.fixture);
   await page.click(radarLink, {label:'Open the radar form'});
   await page.waitForSelector('.radar-form');
+  assert.equal(await page.evaluate(() => [...document.querySelectorAll('.radar-form p')].some((line) => line.textContent.trim() === '出行方式：步行')), true);
+  assert.equal(await page.evaluate(() => [...document.querySelectorAll('.radar-preference-row .chip')].every((chip) => chip instanceof HTMLButtonElement)), true);
   await page.click('loc=role:button[name*="查看上次雷达结果"]', {label:'Check for saved radar history'});
   await wait(() => document.querySelector('.radar-history-link [role=status]')?.textContent.includes('还没有保存的雷达结果'));
-  await pick('origin', '验收起点');
+  await page.evaluate(() => {
+    const original = window.fetch;
+    window.fetch = async (input, init) => {
+      if (typeof input === 'string' && input.startsWith('/api/v1/places?')) {
+        await new Promise((resolve) => { window.releaseSearch = resolve; });
+        window.fetch = original;
+      }
+      return original(input, init);
+    };
+  });
+  await page.click('loc=role:button[name="手动选择出发地"]', {label:'Open the origin search'});
+  await page.fill('#radar-origin', '验收起点');
+  await wait(() => document.querySelector('dialog[open] .hints')?.textContent.includes('搜索中') && typeof window.releaseSearch === 'function');
+  await capture('search-pending');
+  await page.evaluate(() => window.releaseSearch());
+  await page.click('#radar-origin-options [role=option]', {label:'Select the loaded origin'});
   await pick('destination', '验收书店');
   await page.click('loc=role:link[name="灵感库"]', {label:'Open the inspiration library'});
   await heading('我的灵感库');
@@ -227,6 +246,9 @@ try {
     const original = window.fetch;
     window.confirmationKeys = [];
     window.fetch = async (input, init) => {
+      if (typeof input === 'string' && input.endsWith('/accept') && !window.confirmationKeys.length) {
+        await new Promise((resolve) => { window.releaseConfirmation = resolve; });
+      }
       const response = await original(input, init);
       if (typeof input === 'string' && input.endsWith('/accept') && response.ok) {
         window.confirmationKeys.push(new Headers(init.headers).get('idempotency-key'));
@@ -236,6 +258,9 @@ try {
     };
   });
   await page.click(confirm, {label:'Confirm the selected alternative'});
+  await wait(() => document.querySelector('.pick button.primary')?.disabled && document.querySelector('.pick button.primary')?.textContent.includes('正在确认') && typeof window.releaseConfirmation === 'function');
+  await capture('confirmation-pending');
+  await page.evaluate(() => window.releaseConfirmation());
   await wait(() => document.querySelector('.result [role=alert]')?.textContent.includes('确认失败'));
   await page.click(confirm, {label:'Replay the same confirmation'});
   await wait(() => document.querySelector('.radar-acceptance [role=status]')?.textContent.includes('已加入行程：验收茶馆'));
@@ -480,6 +505,102 @@ try {
   assert.deepEqual(afterUndo.stops, []);
   assert.deepEqual(afterUndo.arrangements, plannedTrip.arrangements);
   report.checks.push('fixed-feedback-receipt-and-targeted-undo');
+
+  await page.click(radarLink, {label:'Return to the radar after undo'});
+  await page.goto(settings.fixture + '/#radar');
+  await page.evaluate(async () => {
+    sessionStorage.removeItem('nextstop.radar-session');
+  });
+  await page.reload();
+  await heading('现在去哪？');
+  await page.cdp('Browser.setPermission', {permission:{name:'geolocation'}, setting:'denied', origin:settings.fixture});
+  const locate = 'loc=role:button[name="使用当前位置"]';
+  await page.evaluate(() => {
+    const gps = navigator.geolocation;
+    const request = gps.getCurrentPosition.bind(gps);
+    gps.getCurrentPosition = (...args) => {
+      gps.getCurrentPosition = request;
+      window.releaseLocation = () => request(...args);
+    };
+  });
+  await page.click(locate, {label:'Request a denied location'});
+  await wait(() => document.querySelector('.radar-form')?.textContent.includes('正在定位') && typeof window.releaseLocation === 'function');
+  assert.equal(await page.evaluate(() => document.querySelector('.home-action button').disabled), true);
+  await capture('location-pending');
+  await page.evaluate(() => window.releaseLocation());
+  await wait(() => document.querySelector('.radar-form')?.textContent.includes('定位权限未开启'));
+  await page.cdp('Browser.setPermission', {permission:{name:'geolocation'}, setting:'granted', origin:settings.fixture});
+  await page.cdp('Emulation.setGeolocationOverride', {latitude:31.10, longitude:120.10, accuracy:12});
+  await page.click(locate, {label:'Use fixture GPS coordinates'});
+  await wait(() => document.querySelector('.place-row strong')?.textContent.includes('我的当前位置'));
+  report.checks.push('geolocation-denied-and-granted');
+  await pick('destination', '验收茶馆');
+  await page.evaluate(() => {
+    const fetchRadar = window.fetch;
+    window.walkRequests = [];
+    window.fetch = (input, init) => {
+      if (input === '/api/v1/radar/sessions' && init?.method === 'POST') {
+        window.walkRequests.push(JSON.parse(init.body));
+        if (window.walkRequests.length === 1) {
+          return new Promise((resolve) => {
+            window.releaseCalculation = () => resolve(Response.json({error:{code:'MAP_UNAVAILABLE',message:'地图服务暂不可用'}}, {status:502}));
+          });
+        }
+      }
+      return fetchRadar(input, init);
+    };
+  });
+  const shortWalk = 'loc=role:button[name="轻松步行"]';
+  const pressed = () => page.evaluate(() => document.querySelector('.radar-preference-row button').getAttribute('aria-pressed'));
+  assert.equal(await pressed(), 'false');
+  await page.click(shortWalk, {label:'Enable the short walking preference'});
+  assert.equal(await pressed(), 'true');
+  await propose('105');
+  await wait(() => document.querySelector('.home-action button')?.matches(':disabled') && document.querySelector('.home-action button')?.textContent.includes('正在计算') && typeof window.releaseCalculation === 'function');
+  await capture('calculation-pending');
+  await page.evaluate(() => window.releaseCalculation());
+  await wait(() => document.querySelector('[role=alert]')?.textContent.includes('重试计算'));
+  await capture('supplier-failure');
+  await page.evaluate(() => [...document.querySelectorAll('button')].find((button) => button.textContent.includes('重试计算'))?.scrollIntoView({block:'center'}));
+  await page.click('loc=role:button[name="重试计算"]', {label:'Retry calculation after the supplier failure'});
+  await wait(() => document.querySelector('.result')?.textContent.includes('没有可行方案'));
+  await capture('no-feasible-option');
+  await page.click(edit, {label:'Return to the walking preference'});
+  await page.click(shortWalk, {label:'Disable the short walking preference'});
+  assert.equal(await pressed(), 'false');
+  await propose('105');
+  await wait(() => document.querySelector('.pick h3')?.textContent === '验收茶馆');
+  const walkRequests = await page.evaluate(() => window.walkRequests);
+  assert.equal(walkRequests.length, 3);
+  assert.deepEqual(walkRequests[0], walkRequests[1]);
+  const [, {preference, ...limited}, unrestricted] = walkRequests;
+  assert.equal(preference, 'short_walk');
+  assert.equal(limited.position.system, 'wgs84');
+  assert.deepEqual(limited, unrestricted);
+  report.checks.push('short-walk-changes-request-and-result');
+  await page.click(edit, {label:'Return to the radar form'});
+  await page.click('loc=role:button[name*="查看上次雷达结果"]', {label:'Open saved radar history'});
+  await heading('上次雷达结果');
+  assert.equal(await page.evaluate(() => document.querySelector('.pick button.primary')?.disabled ?? true), true);
+  await page.click('loc=role:button[name="使用上次条件"]', {label:'Restore the saved conditions'});
+  await pick('origin', '验收起点');
+  await page.click('loc=role:button[name="联合搜索"]', {label:'Search nearby and saved places'});
+  for (const [label, reason] of [['太远','too_far'], ['太贵','too_expensive'], ['不想走路','less_walking']]) {
+    await propose('105');
+    await page.waitForSelector('.pick .actions > button.secondary');
+    await page.evaluate(() => document.querySelector('.pick .actions')?.scrollIntoView({block:'center'}));
+    const swap = 'loc=role:button[name="换一个"]';
+    await page.click(swap, {label:'Open the reason sheet'});
+    await page.click('loc=role:button[name="取消"]', {label:'Dismiss the reason sheet'});
+    assert.equal(await page.evaluate(() => Boolean(document.querySelector('.radar-feedback-note'))), false);
+    await page.click(swap, {label:'Reopen the reason sheet'});
+    await page.click('loc=role:button[name="' + label + '"]', {label:'Submit the selected reason'});
+    await wait((label) => document.querySelector('.radar-feedback-note')?.textContent.includes(label), label);
+    await capture('feedback-' + reason);
+    await page.click(edit, {label:'Start a fresh calculation'});
+  }
+  report.checks.push('saved-history-and-all-feedback-reasons');
+
   report.status = 'passed'; await save();
   console.log(await page.snapshot());
 } catch (error) { report.status = 'failed'; report.error = String(error); await save(); throw error; }
@@ -512,6 +633,9 @@ try {
     'settings-clears-fresh-feedback-and-restores-recommendation',
     'settings-clears-stale-feedback-and-preserves-receipt',
     'fixed-feedback-receipt-and-targeted-undo',
+    'geolocation-denied-and-granted',
+    'short-walk-changes-request-and-result',
+    'saved-history-and-all-feedback-reasons',
   ]);
   assert.ok(Number.isInteger(report.space_id));
   runBrowser(
