@@ -21,6 +21,12 @@ type ConfirmationTarget =
 
 const emptyData: SettingsData = { trips: [], places: [], uploads: [] };
 const eraseAll = { kind: 'all' } satisfies DeleteTarget;
+const deletionNotice = {
+  all: '已删除全部匿名数据。',
+  trip: '已删除此旅行。',
+  source: '已删除此截图。',
+  batch_item: '已清理此截图的文件。',
+} satisfies Record<DeleteTarget['kind'], string>;
 
 function SettingsSection({
   icon,
@@ -145,13 +151,7 @@ export function SettingsPanel({
       async () => {
         await deleteData(target);
         setTarget(null);
-        setNotice(
-          target.kind === 'all'
-            ? '已删除全部匿名数据。'
-            : target.kind === 'trip'
-              ? '已删除此旅行。'
-              : '已删除此截图。',
-        );
+        setNotice(deletionNotice[target.kind]);
         if (target.kind === 'all') {
           setData(emptyData);
           setReadError('');
@@ -204,17 +204,24 @@ export function SettingsPanel({
             <p>记录已删除，仍需清理截图文件。</p>
             <ul className="settings-list">
               {pendingDeletions.map((deletion) => {
+                const batchItem = deletion.kind === 'batch_item';
                 const name = deletion.kind === 'trip' ? '旅行' : '截图';
                 return (
-                  <li key={`${deletion.kind}:${deletion.id}`}>
-                    <span>{name}删除</span>
+                  <li
+                    key={
+                      batchItem
+                        ? `batch_item:${deletion.batch_id}:${deletion.import_id}:${deletion.revision}`
+                        : `${deletion.kind}:${deletion.id}`
+                    }
+                  >
+                    <span>{batchItem ? '导入截图清理' : `${name}删除`}</span>
                     <button
                       type="button"
                       className="settings-danger"
                       disabled={!available || busy}
                       onClick={() => void submitDeletion(deletion)}
                     >
-                      继续删除{name}
+                      {batchItem ? '重试清理截图' : `继续删除${name}`}
                     </button>
                   </li>
                 );

@@ -1,14 +1,32 @@
-import { settingsDataValidator, type PendingDeletion } from '@nextstop/core';
+import {
+  RETIRED_BATCH_REMOVALS_QUERY,
+  settingsDataValidator,
+  type SettingsData,
+} from '@nextstop/core';
 import { ApiError, request, requestJson } from './api.js';
+import { removeBatchItem } from './import-batch-client.js';
 import { invalidateTripData } from './offline-trip.js';
 
 const dataPath = '/api/v1/me/data';
 export const readSettingsData = (signal?: AbortSignal) =>
-  requestJson(`${dataPath}?include=pending_deletions`, {}, settingsDataValidator.check, signal);
+  requestJson(
+    `${dataPath}?include=pending_deletions&${RETIRED_BATCH_REMOVALS_QUERY}=1`,
+    {},
+    settingsDataValidator.check,
+    signal,
+  );
 
-export type DeleteTarget = PendingDeletion | { kind: 'all' };
+export type DeleteTarget = NonNullable<SettingsData['pending_deletions']>[number] | { kind: 'all' };
 
 export async function deleteData(target: DeleteTarget) {
+  if (target.kind === 'batch_item') {
+    await removeBatchItem({
+      id: target.batch_id,
+      imageId: target.import_id,
+      revision: target.revision,
+    });
+    return;
+  }
   const path =
     target.kind === 'all'
       ? dataPath

@@ -13,7 +13,11 @@ import {
 } from '@nextstop/core';
 import { HttpFault } from '../http.js';
 import type { UserRuntime } from '../runtime/open-user-runtime.js';
-import { recordImageCleanup, resumeImageCleanup } from './image-cleanup.js';
+import {
+  listPendingRetiredBatchRemovals,
+  recordImageCleanup,
+  resumeImageCleanup,
+} from './image-cleanup.js';
 import { emptyImageReview } from './review.js';
 import { writeBatchChoices } from './store.js';
 
@@ -64,6 +68,11 @@ export async function listImportBatches(runtime: UserRuntime) {
       return { batch, tripId: record?.trip_id ?? null };
     }),
   );
+}
+
+export async function listRetiredBatchRemovals(runtime: UserRuntime) {
+  const activeBatchIds = new Set(await runtime.familyKeys(Batches.definition.kind));
+  return listPendingRetiredBatchRemovals(runtime, activeBatchIds);
 }
 
 export async function removeBatchImages({

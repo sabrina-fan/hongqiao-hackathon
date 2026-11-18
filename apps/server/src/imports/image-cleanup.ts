@@ -4,8 +4,10 @@ import { arr, compile, obj, str, type Static } from '@earendil-works/pi-schema';
 import {
   pendingBatchRemovalValidator,
   pendingDeletionValidator,
+  pendingRetiredBatchRemovalValidator,
   type PendingBatchRemoval,
   type PendingDeletion,
+  type PendingRetiredBatchRemoval,
 } from '@nextstop/core';
 import type { UserRuntime } from '../runtime/open-user-runtime.js';
 
@@ -58,26 +60,50 @@ async function readCleanup(runtime: UserRuntime, key: string) {
   return pending;
 }
 
+async function readPendingBatchRemoval(runtime: UserRuntime, key: string, batchId: string) {
+  const pending = await readCleanup(runtime, key);
+  if (!pending?.image_ids.length) return null;
+  const [, , import_id, originalRevision] = key.split(':');
+  const revision = Number(originalRevision);
+  const removal = { import_id, revision };
+  if (
+    !pendingBatchRemovalValidator.check(removal) ||
+    !Number.isSafeInteger(revision) ||
+    cleanupKey({ kind: 'batch_item', batchId, imageId: removal.import_id, revision }) !== key ||
+    pending.image_ids.length !== 1 ||
+    pending.image_ids[0] !== removal.import_id
+  )
+    throw new Error('Invalid stored batch removal');
+  return removal;
+}
+
 // Called only after a live batch has been read in the same per-user queue.
 export async function listPendingBatchRemovals(runtime: UserRuntime, batchId: string) {
   const prefix = `batch_item:${batchId}:`;
   const removals: PendingBatchRemoval[] = [];
   for (const key of await runtime.familyKeys(ImageCleanups.definition.kind)) {
     if (!key.startsWith(prefix)) continue;
-    const pending = await readCleanup(runtime, key);
-    if (!pending?.image_ids.length) continue;
-    const [import_id, originalRevision] = key.slice(prefix.length).split(':');
-    const revision = Number(originalRevision);
-    const removal = { import_id, revision };
-    if (
-      !pendingBatchRemovalValidator.check(removal) ||
-      !Number.isSafeInteger(revision) ||
-      cleanupKey({ kind: 'batch_item', batchId, imageId: removal.import_id, revision }) !== key ||
-      pending.image_ids.length !== 1 ||
-      pending.image_ids[0] !== removal.import_id
-    )
-      throw new Error('Invalid stored batch removal');
-    removals.push(removal);
+    const removal = await readPendingBatchRemoval(runtime, key, batchId);
+    if (removal) removals.push(removal);
+  }
+  return removals;
+}
+
+export async function listPendingRetiredBatchRemovals(
+  runtime: UserRuntime,
+  activeBatchIds: ReadonlySet<string>,
+) {
+  const removals: PendingRetiredBatchRemoval[] = [];
+  // The original cleanup record was committed with the owned batch mutation in this conversation.
+  for (const key of await runtime.familyKeys(ImageCleanups.definition.kind)) {
+    const [kind, batch_id] = key.split(':', 2);
+    if (kind !== 'batch_item' || !batch_id || activeBatchIds.has(batch_id)) continue;
+    const removal = await readPendingBatchRemoval(runtime, key, batch_id);
+    if (!removal) continue;
+    const deletion = { kind, batch_id, ...removal };
+    if (!pendingRetiredBatchRemovalValidator.check(deletion))
+      throw new Error('Invalid stored retired batch removal');
+    removals.push(deletion);
   }
   return removals;
 }

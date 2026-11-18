@@ -1,6 +1,10 @@
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
-import type { AnonymousData, UploadRecord } from '@nextstop/core';
-import { listImportBatches, removeBatchImages } from '../imports/batch-store.js';
+import type { AnonymousData, SettingsData, UploadRecord } from '@nextstop/core';
+import {
+  listImportBatches,
+  listRetiredBatchRemovals,
+  removeBatchImages,
+} from '../imports/batch-store.js';
 import {
   listPendingDeletions,
   recordImageCleanup,
@@ -51,10 +55,17 @@ export async function exportData(runtime: UserRuntime): Promise<AnonymousData> {
   };
 }
 
-export async function readSettingsData(runtime: UserRuntime) {
+export async function readSettingsData(
+  runtime: UserRuntime,
+  includeRetiredBatchRemovals: boolean,
+): Promise<SettingsData> {
+  const data = await exportData(runtime);
+  const deletions = await listPendingDeletions(runtime);
   return {
-    ...(await exportData(runtime)),
-    pending_deletions: await listPendingDeletions(runtime),
+    ...data,
+    pending_deletions: includeRetiredBatchRemovals
+      ? [...deletions, ...(await listRetiredBatchRemovals(runtime))]
+      : deletions,
   };
 }
 

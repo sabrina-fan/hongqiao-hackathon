@@ -438,7 +438,7 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
   },
 );
 
-it('acknowledges an exact removal replay after trip deletion retires the empty batch', async () => {
+it('discovers and retries an exact pending removal in settings after its batch retires', async () => {
   const dataDir = await mkdtemp(join(tmpdir(), 'nextstop-retired-batch-'));
   let server = cleanupApp(dataDir);
   try {
@@ -505,6 +505,20 @@ it('acknowledges an exact removal replay after trip deletion retires the empty b
     const targetCopies = await readCopies(item.import_id);
     const survivorCopies = await readCopies(survivor.import_id);
     const itemPath = `${batchPath}/items/${item.import_id}/remove`;
+    const settingsPath = '/me/data?include=pending_deletions';
+    const recoverySettingsPath = `${settingsPath}&include_retired_batch_removals=1`;
+    const pending = {
+      kind: 'batch_item',
+      batch_id: initial.batch_id,
+      import_id: item.import_id,
+      revision: ready.revision,
+    };
+    async function expectPending(path: string, expected: (typeof pending)[], visitor = cookie) {
+      const response = await fetch(base + path, { headers: { cookie: visitor } });
+      assert.equal(response.status, 200);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(await response.json()).toMatchObject({ pending_deletions: expected });
+    }
     const remove = ({
       visitor = cookie,
       revision = ready.revision,
@@ -543,10 +557,13 @@ it('acknowledges an exact removal replay after trip deletion retires the empty b
         items: [],
         pending_removals: [{ import_id: item.import_id, revision: ready.revision }],
       });
+      await expectPending(recoverySettingsPath, []);
       assert.equal((await call(`/trips/${owned.trip_id}`, 'DELETE')).status, 204);
       await expectError(await call(batchPath), 404, 'IMPORT_NOT_FOUND');
       await expectError(await call(recoveryPath), 404, 'IMPORT_NOT_FOUND');
-      await expectError(await remove(), 500, 'INTERNAL_ERROR');
+      await expectPending(recoverySettingsPath, [pending]);
+      await expectError(await remove({ revision: pending.revision }), 500, 'INTERNAL_ERROR');
+      await expectPending(recoverySettingsPath, [pending]);
     } finally {
       diskRemove.mockImplementation(realRemove);
     }
@@ -554,7 +571,13 @@ it('acknowledges an exact removal replay after trip deletion retires the empty b
     await server[Symbol.asyncDispose]();
     server = cleanupApp(dataDir);
     base = await listen(server);
+    await expectPending(recoverySettingsPath, [pending]);
+    await expectPending(settingsPath, []);
+    const data = await checkedJson(await call('/me/data'), 200, anonymousDataValidator.check);
+    expect(await (await call('/me/export')).json()).toEqual(data);
+    await expectError(await fetch(base + recoverySettingsPath), 401, 'SESSION_REQUIRED');
     const foreign = await guest();
+    await expectPending(recoverySettingsPath, [], foreign);
     await expectError(await remove({ visitor: foreign }), 404, 'IMPORT_NOT_FOUND');
     await expectError(await remove({ revision: ready.revision - 1 }), 404, 'IMPORT_NOT_FOUND');
     await expectError(await remove({ revision: ready.revision + 1 }), 404, 'IMPORT_NOT_FOUND');
@@ -572,6 +595,7 @@ it('acknowledges an exact removal replay after trip deletion retires the empty b
     await assert.rejects(readdir(target), { code: 'ENOENT' });
     expect(replay.status).toBe(204);
     expect(await replay.text()).toBe('');
+    await expectPending(recoverySettingsPath, []);
     expect((await remove()).status).toBe(204);
     await expectError(await remove({ legacy: true }), 404, 'IMPORT_NOT_FOUND');
     await expectError(await remove({ visitor: foreign }), 404, 'IMPORT_NOT_FOUND');

@@ -10,6 +10,7 @@ import {
   type Static,
 } from '@earendil-works/pi-schema';
 import { IdentifierSchema } from './contracts.js';
+import { pendingBatchRemovalFields } from './import-batch-api.js';
 import { TripDetailSchema } from './trip-api.js';
 import { ImportReviewSchema, SavedPlaceSchema } from './wishlist-api.js';
 
@@ -30,17 +31,27 @@ export const anonymousDataValidator = compile(AnonymousDataSchema);
 export type AnonymousData = Static<typeof AnonymousDataSchema>;
 export type UploadRecord = Static<typeof UploadRecordSchema>;
 
-const PendingDeletionSchema = union([
+const legacyPendingDeletions = [
   obj({ kind: lit('source'), id: str({ pattern: '^imp-[a-f0-9-]{36}$' }) }),
   obj({ kind: lit('trip'), id: IdentifierSchema }),
-]);
+] as const;
+const PendingDeletionSchema = union(legacyPendingDeletions);
 export const pendingDeletionValidator = compile(PendingDeletionSchema);
 export type PendingDeletion = Static<typeof PendingDeletionSchema>;
 
+export const RETIRED_BATCH_REMOVALS_QUERY = 'include_retired_batch_removals';
+const PendingRetiredBatchRemovalSchema = obj({
+  kind: lit('batch_item'),
+  batch_id: str({ pattern: '^bat-[a-f0-9-]{36}$' }),
+  ...pendingBatchRemovalFields,
+});
+export const pendingRetiredBatchRemovalValidator = compile(PendingRetiredBatchRemovalSchema);
+export type PendingRetiredBatchRemoval = Static<typeof PendingRetiredBatchRemovalSchema>;
+
 const SettingsDataSchema = obj({
   ...anonymousDataFields,
-  // Older servers ignore the opt-in query and return the original response.
-  pending_deletions: opt(arr(PendingDeletionSchema)),
+  // Older servers ignore either opt-in and may return the original response.
+  pending_deletions: opt(arr(union([...legacyPendingDeletions, PendingRetiredBatchRemovalSchema]))),
 });
 export const settingsDataValidator = compile(SettingsDataSchema);
 export type SettingsData = Static<typeof SettingsDataSchema>;

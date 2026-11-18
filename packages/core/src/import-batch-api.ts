@@ -23,10 +23,11 @@ const batch = {
   items: arr(item, { maxItems: IMPORT_BATCH_MAX_IMAGES }),
 };
 export const ImportBatchSchema = obj(batch);
-const pendingBatchRemoval = obj({
+export const pendingBatchRemovalFields = {
   import_id: str({ pattern: '^imp-[a-f0-9-]{36}$' }),
   revision: RevisionSchema,
-});
+};
+const pendingBatchRemoval = obj(pendingBatchRemovalFields);
 // The optional field also accepts an older server's plain batch snapshot.
 const importBatchView = obj({
   ...batch,

@@ -135,7 +135,9 @@ it('loads settings with the original anonymous-data response from an older serve
   const { readSettingsData } = await import('./settings-client.js');
 
   await expect(readSettingsData()).resolves.toEqual(legacy);
-  expect(fetcher.mock.calls[0]?.[0]).toBe(`${dataPath}?include=pending_deletions`);
+  expect(fetcher.mock.calls[0]?.[0]).toBe(
+    `${dataPath}?include=pending_deletions&include_retired_batch_removals=1`,
+  );
 });
 
 it('continues an import with the plain batch snapshot from an older server', async () => {

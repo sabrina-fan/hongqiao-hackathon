@@ -1,17 +1,23 @@
 import type { ServerResponse } from 'node:http';
+import { RETIRED_BATCH_REMOVALS_QUERY } from '@nextstop/core';
 import { HttpFault, send } from '../http.js';
 import { createImportImages } from '../imports/images.js';
 import type { createUserAccess } from '../radar/user-access.js';
 import { eraseSource, eraseTrip, exportData, readSettingsData } from './store.js';
 
 type Route =
-  | { kind: 'export' | 'read' | 'settings' | 'erase' }
+  | { kind: 'export' | 'read' | 'erase' }
+  | { kind: 'settings'; includeRetiredBatchRemovals: boolean }
   | { kind: 'trip' | 'source'; id: string };
 
 export function privacyRoute(method: string | undefined, url: URL): Route | null {
   const path = url.pathname;
   if (method === 'GET' && path === '/api/v1/me/data') {
-    return { kind: url.searchParams.get('include') === 'pending_deletions' ? 'settings' : 'read' };
+    if (url.searchParams.get('include') !== 'pending_deletions') return { kind: 'read' };
+    return {
+      kind: 'settings',
+      includeRetiredBatchRemovals: url.searchParams.get(RETIRED_BATCH_REMOVALS_QUERY) === '1',
+    };
   }
   if (method === 'GET' && path === '/api/v1/me/export') return { kind: 'export' };
   if (method !== 'DELETE') return null;
@@ -48,7 +54,13 @@ export async function handlePrivacy({
     case 'read':
       return send(response, 200, await withUser(userId, exportData));
     case 'settings':
-      return send(response, 200, await withUser(userId, readSettingsData));
+      return send(
+        response,
+        200,
+        await withUser(userId, (runtime) =>
+          readSettingsData(runtime, route.includeRetiredBatchRemovals),
+        ),
+      );
     case 'export': {
       const data = await withUser(userId, exportData);
       response.setHeader('content-disposition', 'attachment; filename="nextstop-data.json"');
