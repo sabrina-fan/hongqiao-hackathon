@@ -125,8 +125,9 @@ function viewOf(
     ...(session.markers
       ? { markers: { ...session.markers, ...(nextMarker ? { next: nextMarker } : {}) } }
       : {}),
+    // The latest start still fits. valid_until is the first invalid millisecond.
     valid_until: feasible
-      ? new Date(Math.min(etaExpires, latestStart)).toISOString()
+      ? new Date(Math.min(etaExpires, latestStart + 1)).toISOString()
       : session.valid_until,
     outcome: feasible
       ? {
