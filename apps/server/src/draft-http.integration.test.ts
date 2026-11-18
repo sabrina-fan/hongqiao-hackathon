@@ -209,6 +209,11 @@ it('shows two conflicts in a private draft and applies it only by confirmation, 
     ]);
     expect(applied.arrangements[0]).toEqual(before.arrangements[0]);
     expect(await tripOf(await get(path))).toEqual(applied);
+    const scheduled = await get('/wishlist?schedule=scheduled');
+    expect(scheduled.status).toBe(200);
+    expect(await scheduled.json()).toMatchObject({
+      places: [{ poi_id: 'museum' }, { poi_id: 'park' }],
+    });
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await rm(dataDir, { recursive: true, force: true });

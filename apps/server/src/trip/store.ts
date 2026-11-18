@@ -79,6 +79,9 @@ export async function readScheduledPoiIds(runtime: UserRuntime): Promise<Readonl
   for (const key of [...(await readKeys(runtime)), LEGACY_KEY]) {
     const trip = await readTrip(runtime, key);
     for (const stop of trip?.stops ?? []) ids.add(stop.poi_id);
+    for (const arrangement of trip?.arrangements ?? []) {
+      if (arrangement.poi_id !== undefined) ids.add(arrangement.poi_id);
+    }
   }
   return ids;
 }
