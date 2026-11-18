@@ -17,6 +17,7 @@ export class HttpFault extends Error {
       | 'IMPORT_CONFIRMED'
       | 'IMPORT_INVALID_CHOICE'
       | 'IMPORT_BUSY'
+      | 'WISHLIST_NOT_FOUND'
       | 'NOT_IMPLEMENTED',
   ) {
     super(code);
@@ -34,6 +35,7 @@ const errors = {
   IMPORT_CONFIRMED: [409, '这条记录已经确认。'],
   IMPORT_INVALID_CHOICE: [409, '请选择当前核对中的地图候选。'],
   IMPORT_BUSY: [503, '图片处理繁忙，请稍后重试。'],
+  WISHLIST_NOT_FOUND: [404, '未找到此收藏。'],
   NOT_IMPLEMENTED: [404, '接口尚未实现。'],
   NOT_FOUND: [404, '未找到本次雷达提案。'],
   PLACE_NOT_FOUND: [404, '地点已不可用，请重新搜索选择。'],

@@ -33,7 +33,7 @@ export function isCancellation(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
-async function request(
+export async function request(
   path: string,
   init: RequestInit,
   signal?: AbortSignal,

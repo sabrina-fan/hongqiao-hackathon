@@ -13,11 +13,10 @@ import { HttpFault, readJson, send } from '../http.js';
 import type { RadarMap } from '../radar/amap.js';
 import type { createUserAccess } from '../radar/user-access.js';
 import { createImportImages, readImportImage } from './images.js';
-import { confirmImport, readImport, readWishlist, saveImport, updateMatch } from './store.js';
+import { confirmImport, readImport, saveImport, updateMatch } from './store.js';
 
 export type ImportVision = (image: VisionImage) => Promise<VisualExtraction>;
 export function importRoute(method: string | undefined, path: string) {
-  if (method === 'GET' && path === '/api/v1/wishlist') return { kind: 'wishlist' } as const;
   if (method === 'POST' && path === '/api/v1/imports') return { kind: 'upload' } as const;
   if (method === 'POST' && path === '/api/v1/imports/search') return { kind: 'manual' } as const;
   const match = /^\/api\/v1\/imports\/(imp-[a-f0-9-]{36})(?:\/(confirm|search|image))?$/.exec(path);
@@ -72,8 +71,6 @@ export function createImportHandler({
   }) => {
     const { request, response, route, userId, withUser } = input;
     switch (route.kind) {
-      case 'wishlist':
-        return send(response, 200, await withUser(userId, readWishlist));
       case 'review': {
         const { review } = await withUser(userId, (runtime) => readImport(runtime, route.id));
         return send(response, 200, review);

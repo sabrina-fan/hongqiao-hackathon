@@ -16,6 +16,7 @@ import { createUserAccess } from './radar/user-access.js';
 
 import { getTrip } from './trip/store.js';
 import { tripRoute } from './trip/routes.js';
+import { handleWishlist, wishlistRoute } from './wishlist/http.js';
 
 const identifier = compile(IdentifierSchema);
 type Options = {
@@ -53,7 +54,8 @@ export function createApp(options?: Options) {
     if (request.method === 'GET' && path === '/health/capabilities')
       return send(response, 200, capabilities);
     if (!path.startsWith('/api/v1/')) throw new HttpFault('NOT_IMPLEMENTED');
-    if (request.method === 'POST') checkPostOrigin(request);
+    if (request.method === 'POST' || request.method === 'PATCH' || request.method === 'DELETE')
+      checkPostOrigin(request);
     const createSession = request.method === 'POST' && path === '/api/v1/sessions';
     const search = request.method === 'GET' && path === '/api/v1/places';
     const create = request.method === 'POST' && path === '/api/v1/radar/sessions';
@@ -66,6 +68,7 @@ export function createApp(options?: Options) {
     const accept = Boolean(member?.[2]) && request.method === 'POST';
     const view = sessionId && !member?.[2] && request.method === 'GET';
     const imports = importRoute(request.method, path);
+    const wishlist = wishlistRoute(request.method, path);
     if (
       !(
         createSession ||
@@ -77,7 +80,8 @@ export function createApp(options?: Options) {
         manageTrip ||
         accept ||
         view ||
-        imports
+        imports ||
+        wishlist
       )
     )
       throw new HttpFault('NOT_IMPLEMENTED');
@@ -94,6 +98,14 @@ export function createApp(options?: Options) {
         manageTrip.status,
         await manageTrip.handle((run) => withUser(userId, run), request),
       );
+    if (wishlist)
+      return handleWishlist({
+        request,
+        response,
+        route: wishlist,
+        params: url.searchParams,
+        withUser: (run) => withUser(userId, run),
+      });
     if (imports && handleImport)
       return handleImport({ request, response, route: imports, userId, withUser });
     if (context)
