@@ -6,6 +6,7 @@ import type {
   RadarView,
 } from '@nextstop/core';
 import './radar-context.css';
+import './radar-visual.css';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { PlaceField } from './PlaceField.js';
@@ -82,9 +83,19 @@ export function RadarForm({
         <fieldset className="radar-fields" disabled={busy}>
           <div className="panel radar-form">
             <section aria-label="选点">
-              <h2>
-                <Icon>⌖</Icon> 当前位置
-              </h2>
+              <div className="between location-title">
+                <h2>
+                  <Icon>⌖</Icon> 当前位置
+                </h2>
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={location.onLocate}
+                  disabled={location.locating}
+                >
+                  {location.locating ? '正在定位…' : '使用当前位置'}
+                </button>
+              </div>
               <div className="between place-row">
                 <strong>
                   {location.active ? '我的当前位置' : (places.origin?.name ?? '尚未选择出发地')}
@@ -98,14 +109,6 @@ export function RadarForm({
                   手动选择 ›
                 </button>
               </div>
-              <button
-                className="text-button"
-                type="button"
-                onClick={location.onLocate}
-                disabled={location.locating}
-              >
-                {location.locating ? '正在定位…' : '使用当前位置'}
-              </button>
               {location.hint && (
                 <p className="radar-hint" role="status">
                   {location.hint}
@@ -328,7 +331,7 @@ export function PickCard({
     <article className="panel pick">
       <div className="pick-top">
         <span className="place-mark" aria-hidden="true">
-          ⌖
+          <span className="nav-icon nav-radar" />
         </span>
         <div>
           <span className={`badge${primary ? ' lime' : ''}`}>{primary ? '优先推荐' : '备选'}</span>

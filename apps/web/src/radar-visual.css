@@ -1,0 +1,132 @@
+.radar-home-bar {
+  margin-bottom: 12px;
+}
+
+.radar-home-bar .brand img {
+  width: 35px;
+  height: 40px;
+  object-fit: contain;
+}
+
+.hero {
+  min-height: 150px;
+  padding: 16px;
+  border-radius: 20px;
+  box-shadow: 0 8px 22px #81bce226;
+}
+
+.hero h1 {
+  font-size: clamp(30px, 8vw, 34px);
+  margin-block: 7px 11px;
+}
+
+.hero::before {
+  inset-inline-start: 49%;
+  background-image:
+    linear-gradient(90deg, #e5f6fd, transparent 40%), url('/prototype/assets/hero.webp');
+}
+
+.radar-form {
+  margin-top: -7px;
+  border-radius: 19px;
+  padding: 4px 14px;
+  box-shadow: 0 8px 22px #204f7310;
+}
+
+.radar-form section {
+  padding-block: 6px;
+}
+
+.radar-form h2 {
+  margin-bottom: 3px;
+}
+
+.radar-form .place-row {
+  padding-left: 0;
+}
+
+.radar-form .place-row strong {
+  flex: 1;
+  min-width: 0;
+}
+
+.radar-form .text-button {
+  color: #1763aa;
+  font-size: 12px;
+}
+
+.radar-form .location-title > h2 {
+  margin-bottom: 0;
+}
+
+.radar-form .chip {
+  min-height: 44px;
+  min-width: 44px;
+  font-size: 12px;
+  padding-inline: clamp(6px, 2vw, 12px);
+}
+
+.radar-form .chip:not(button) {
+  color: var(--muted);
+  background: transparent;
+}
+
+.radar-form .locked {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+
+.home-action {
+  margin: 15px 4px 0;
+}
+
+.home-action .cta {
+  box-shadow: 0 8px 18px #095ecd24;
+}
+
+.radar-result-bar .mini {
+  color: #125cae;
+  border: 0;
+  background: #e9f3ff;
+}
+
+.result .context {
+  min-height: 38px;
+  padding: 9px 12px;
+  font-size: 12px;
+}
+
+.result > .radar-hint {
+  margin-inline: 4px;
+}
+
+.result .pick {
+  border-radius: 18px;
+  box-shadow: 0 8px 22px #204f7310;
+}
+
+.result .pick-top h3 {
+  font-size: 18px;
+}
+
+.result .reason {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.reason strong {
+  min-width: 4em;
+}
+
+.result .pick-bottom > p {
+  font-size: 11px;
+}
+
+.place-mark .nav-icon {
+  width: 29px;
+  height: 29px;
+  background: currentColor;
+  mask: var(--nav-icon) center / contain no-repeat;
+}

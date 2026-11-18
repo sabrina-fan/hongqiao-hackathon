@@ -15,15 +15,58 @@
 }
 
 .radar-route-points {
-  min-height: 130px;
+  min-height: 170px;
+  aspect-ratio: 1.78;
   position: relative;
   isolation: isolate;
-  border: 1px solid #cadde4;
-  border-radius: 16px;
-  background-color: #e9f3f5;
-  background-image:
-    linear-gradient(white 1px, transparent 1px), linear-gradient(90deg, white 1px, transparent 1px);
-  background-size: 26px 26px;
+  border: 1px solid #c6dfe5;
+  border-radius: 17px;
+  background:
+    repeating-linear-gradient(
+      95deg,
+      transparent 0 46px,
+      #cbdcd3 47px 48px,
+      #fff 49px 54px,
+      transparent 55px 68px
+    ),
+    repeating-linear-gradient(
+      -4deg,
+      #e7f4eb 0 37px,
+      #d2e1d9 38px 39px,
+      #fff 40px 45px,
+      #e7f4eb 46px 61px
+    );
+}
+
+.radar-route-points::before {
+  content: '';
+  position: absolute;
+  inset: 53% 0 auto;
+  height: 31%;
+  z-index: -1;
+  background: #a5e2f3;
+  clip-path: polygon(
+    0 9%,
+    12% 1%,
+    23% 9%,
+    35% 39%,
+    45% 60%,
+    55% 62%,
+    68% 43%,
+    81% 17%,
+    92% 9%,
+    100% 11%,
+    100% 54%,
+    91% 52%,
+    82% 58%,
+    70% 80%,
+    57% 99%,
+    44% 99%,
+    34% 76%,
+    22% 53%,
+    12% 45%,
+    0 52%
+  );
 }
 
 .radar-route-point {

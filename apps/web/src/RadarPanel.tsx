@@ -387,7 +387,7 @@ export function RadarPanel({
   if (!showResults) {
     return (
       <>
-        <header className="bar">
+        <header className="bar radar-home-bar">
           <a className="brand" href="#radar" aria-label="下一站首页">
             <img src="/prototype/assets/logo.webp" alt="" />
             <span>
@@ -479,7 +479,7 @@ export function RadarPanel({
 
   return (
     <>
-      <header className="bar">
+      <header className="bar radar-result-bar">
         <button
           type="button"
           className="icon-button back"

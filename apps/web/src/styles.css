@@ -3,7 +3,41 @@
   scroll-padding-bottom: 12px;
 }
 #tabs {
-  padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+  padding: 7px env(safe-area-inset-right) calc(11px + env(safe-area-inset-bottom))
+    env(safe-area-inset-left);
+  box-shadow: 0 -6px 20px #22497009;
+}
+#tabs a {
+  min-height: 50px;
+  gap: 6px;
+}
+#tabs .nav-icon {
+  width: 22px;
+  height: 22px;
+}
+.library-back,
+.bar .back {
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 0;
+}
+.library-back::before,
+.bar .back::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-bottom: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  rotate: 45deg;
+}
+#screen {
+  padding-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right));
 }
 .nav-radar {
   --nav-icon: url('/prototype/assets/nav-radar.png');
@@ -33,9 +67,6 @@
   min-width: 0;
   padding: 0;
 }
-.radar-form .place-row {
-  padding-left: 1.4rem;
-}
 .radar-form .place-row strong {
   overflow-wrap: anywhere;
 }
@@ -48,7 +79,7 @@
 .radar-form .chip {
   display: inline-flex;
   align-items: center;
-  min-height: 38px;
+  min-height: 44px;
 }
 .radar-form .selected-chip {
   background: var(--lime);

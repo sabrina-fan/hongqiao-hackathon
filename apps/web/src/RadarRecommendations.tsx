@@ -164,6 +164,19 @@ export function RadarRecommendations({
         <h2>为你找到的选择</h2>
         <small>高德步行估算</small>
       </div>
+      <PickCard
+        pick={pick}
+        view={view}
+        candidate={candidate}
+        primary={selected === outcome.best.choice.poi_id}
+        expired={expired}
+        accepting={accepting}
+        writable={writable}
+        historical={historical}
+        onConfirm={() => onConfirm(pick.choice.poi_id)}
+        onEdit={onEdit}
+        onRecalculate={onRecalculate}
+      />
       {view.candidates && view.candidates.length > 1 && (
         <div className="radar-card-list" role="group" aria-label="推荐卡片">
           {view.candidates.map(({ place, valid_until }, index) => (
@@ -188,19 +201,6 @@ export function RadarRecommendations({
           ))}
         </div>
       )}
-      <PickCard
-        pick={pick}
-        view={view}
-        candidate={candidate}
-        primary={selected === outcome.best.choice.poi_id}
-        expired={expired}
-        accepting={accepting}
-        writable={writable}
-        historical={historical}
-        onConfirm={() => onConfirm(pick.choice.poi_id)}
-        onEdit={onEdit}
-        onRecalculate={onRecalculate}
-      />
       <RadarExclusions entries={view.excluded} />
     </>
   );
