@@ -161,14 +161,7 @@ function ReviewImage({
         </div>
         <span className={`badge ${group === 'matched' ? 'green' : ''}`}>{badge}</span>
       </div>
-      {group === 'matched' ? (
-        <details className="batch-matched-controls">
-          <summary>核对或更换地点</summary>
-          {controls}
-        </details>
-      ) : (
-        controls
-      )}
+      {controls}
     </article>
   );
 }
@@ -197,7 +190,6 @@ export function BatchReview({
     unmatched: [],
   };
   const sections = [
-    { items: groups.matched, label: '已匹配地点' },
     { items: groups.ambiguous, label: '需要你确认' },
     { items: groups.guess, label: '可能想去 · 照片推测' },
     { items: groups.unmatched, label: '未匹配' },
@@ -205,6 +197,21 @@ export function BatchReview({
   for (const item of batch.items) {
     if (item.kind === 'ready' || item.kind === 'failed') groups[groupFor(item)].push(item);
   }
+  const matchedByPlace = Map.groupBy(
+    groups.matched,
+    (item) => choiceFor(item, choices)?.id ?? item.import_id,
+  );
+  const reviewItem = (item: ReviewableImage) => (
+    <ReviewImage
+      key={item.import_id}
+      batchId={batch.batch_id}
+      item={item}
+      choices={choices}
+      choose={choose}
+      edit={(action) => edit(item, action)}
+      busy={busy}
+    />
+  );
   const { newCount, pending, places, selections } = previewBatch(batch.items, choices, wishlist);
   const saved = batch.items.filter(({ kind }) => kind === 'saved').length;
   const skipped = batch.items.filter(({ kind }) => kind === 'skipped').length;
@@ -232,6 +239,38 @@ export function BatchReview({
         )}
         <p>重复地点合为一条收藏，每张来源都会保留。你可以先确认已选地点。</p>
       </div>
+      {matchedByPlace.size > 0 && (
+        <section className="batch-review-group">
+          <h2>已匹配地点（{matchedByPlace.size}）</h2>
+          <div className="panel batch-matched-list">
+            {[...matchedByPlace].map(([key, items]) => {
+              const first = items[0];
+              if (!first) return null;
+              const place = choiceFor(first, choices);
+              return (
+                <details key={key} className="batch-matched-place">
+                  <summary>
+                    <img
+                      src={batchImagePath(batch.batch_id, first.import_id)}
+                      alt=""
+                      loading="lazy"
+                    />
+                    <span>
+                      <strong>{place?.name ?? first.name}</strong>
+                      <small>
+                        来源截图 × {items.length}
+                        {place?.address && ` · ${place.address}`}
+                      </small>
+                    </span>
+                    <span className="badge green">核对</span>
+                  </summary>
+                  {items.map(reviewItem)}
+                </details>
+              );
+            })}
+          </div>
+        </section>
+      )}
       {sections.map(
         ({ items, label }) =>
           items.length > 0 && (
@@ -239,17 +278,7 @@ export function BatchReview({
               <h2>
                 {label}（{items.length}）
               </h2>
-              {items.map((item) => (
-                <ReviewImage
-                  key={item.import_id}
-                  batchId={batch.batch_id}
-                  item={item}
-                  choices={choices}
-                  choose={choose}
-                  edit={(action) => edit(item, action)}
-                  busy={busy}
-                />
-              ))}
+              {items.map(reviewItem)}
             </section>
           ),
       )}

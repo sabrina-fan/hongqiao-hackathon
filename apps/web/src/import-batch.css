@@ -362,3 +362,52 @@
 .batch-review-card .option {
   min-height: 54px;
 }
+
+.batch-screen .batch-uploaded {
+  min-height: 102px;
+}
+.batch-screen .batch-grid {
+  row-gap: 5px;
+  margin-bottom: 9px;
+}
+.batch-screen .batch-grid li {
+  min-width: 0;
+}
+.batch-screen .batch-progress {
+  padding: 9px 13px;
+}
+.batch-screen .batch-progress .library-between {
+  margin-bottom: 5px;
+}
+.batch-screen .batch-progress p {
+  margin-top: 6px;
+}
+.batch-screen .batch-source-note {
+  margin-block: 4px 5px;
+}
+
+.batch-matched-list {
+  padding-inline: 10px;
+}
+.batch-matched-place + .batch-matched-place {
+  border-top: 1px solid var(--line);
+}
+.batch-matched-place > summary {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding-block: 9px;
+}
+.batch-matched-place > summary > img {
+  width: 46px;
+  height: 46px;
+  border-radius: 8px;
+}
+.batch-matched-place > summary small {
+  display: block;
+}
+.batch-matched-place > .batch-review-card {
+  margin: 0 0 8px;
+}
