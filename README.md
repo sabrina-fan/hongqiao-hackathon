@@ -18,8 +18,11 @@
 node --version
 pnpm --version
 pnpm install --frozen-lockfile
+git config --local core.hooksPath .githooks
 pnpm dev
 ```
+
+每次克隆后只需设置一次 `core.hooksPath`。提交前 Git 会运行 `pnpm lint`，推送前会运行 `pnpm test`（单元和集成测试）。检查失败会阻止对应操作。Git 客户端的 `PATH` 需要能找到上表要求的 Node 和 pnpm。
 
 TypeScript、Vite、Vitest、fast-check、Oxlint 和 Oxfmt 随仓库依赖安装。SQLite 使用 Node 内置模块。
 
