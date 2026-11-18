@@ -1,5 +1,5 @@
 import type { AnonymousData } from '@nextstop/core';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError, createSession } from './api.js';
 import {
   deleteData,
@@ -67,10 +67,19 @@ export function SettingsPanel({
   const [data, setData] = useState<AnonymousData | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [target, setTarget] = useState<DeleteTarget | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<'export' | 'delete' | 'feedback' | null>(null);
+  const busy = pending !== null;
   const [readError, setReadError] = useState('');
   const [actionError, setActionError] = useState('');
   const [notice, setNotice] = useState('');
+  const confirmation = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = confirmation.current;
+    if (!target || !dialog) return;
+    dialog.showModal();
+    return () => dialog.close();
+  }, [target]);
 
   useEffect(() => {
     if (!available) {
@@ -99,9 +108,13 @@ export function SettingsPanel({
     setNotice('');
   }
 
-  async function run(action: () => Promise<void>, errorPrefix: string) {
+  async function run(
+    kind: NonNullable<typeof pending>,
+    action: () => Promise<void>,
+    errorPrefix: string,
+  ) {
     if (busy || !available) return;
-    setBusy(true);
+    setPending(kind);
     setActionError('');
     setNotice('');
     try {
@@ -109,7 +122,7 @@ export function SettingsPanel({
     } catch (error) {
       setActionError(`${errorPrefix} ${messageOf(error)}`);
     } finally {
-      setBusy(false);
+      setPending(null);
     }
   }
 
@@ -140,7 +153,7 @@ export function SettingsPanel({
               available={available}
               busy={busy || target !== null}
               onChanged={onFeedbackChanged}
-              onClear={(action) => run(action, '未能确认清除反馈。')}
+              onClear={(action) => run('feedback', action, '未能确认清除反馈。')}
             />
           </SettingsSection>
           <SettingsSection icon="⌖" title="位置与隐私" hint="仅在主动使用定位时申请权限">
@@ -258,17 +271,21 @@ export function SettingsPanel({
             type="button"
             disabled={!available || !data || busy}
             onClick={() =>
-              void run(async () => {
-                await downloadData();
-                setNotice('已开始下载匿名数据。');
-              }, '导出失败。')
+              void run(
+                'export',
+                async () => {
+                  await downloadData();
+                  setNotice('已开始下载匿名数据。');
+                },
+                '导出失败。',
+              )
             }
           >
             <span className="settings-icon" aria-hidden="true">
               ↓
             </span>
             <span>
-              <strong>导出匿名数据</strong>
+              <strong>{pending === 'export' ? '正在导出匿名数据…' : '导出匿名数据'}</strong>
               <small>下载旅行、收藏和可用的来源记录（JSON）</small>
             </span>
             <span className="settings-chevron" aria-hidden="true">
@@ -291,13 +308,19 @@ export function SettingsPanel({
           </div>
         )}
         {target ? (
-          <section
+          <dialog
+            ref={confirmation}
+            onCancel={(event) => {
+              event.preventDefault();
+              if (!busy) setTarget(null);
+            }}
             className="panel padded-panel settings-confirm"
             aria-labelledby="delete-data-title"
           >
             <h2 id="delete-data-title">确认删除数据</h2>
             <p>{deleteMessage(target)}</p>
             {actionError && <p role="alert">{actionError}</p>}
+            {pending === 'delete' && <p role="status">正在删除数据…</p>}
             <div className="settings-confirm-actions">
               <button
                 type="button"
@@ -315,30 +338,34 @@ export function SettingsPanel({
                 className="settings-danger"
                 disabled={busy || !available}
                 onClick={() =>
-                  void run(async () => {
-                    await deleteData(target);
-                    setTarget(null);
-                    setNotice(
-                      target.kind === 'all'
-                        ? '已删除全部匿名数据。'
-                        : target.kind === 'trip'
-                          ? '已删除此旅行。'
-                          : '已删除此截图。',
-                    );
-                    if (target.kind === 'all') {
-                      setData(emptyData);
-                      setReadError('');
-                    } else {
-                      setData(null);
-                      setAttempt((value) => value + 1);
-                    }
-                  }, '删除未能确认。可重试同一次删除。')
+                  void run(
+                    'delete',
+                    async () => {
+                      await deleteData(target);
+                      setTarget(null);
+                      setNotice(
+                        target.kind === 'all'
+                          ? '已删除全部匿名数据。'
+                          : target.kind === 'trip'
+                            ? '已删除此旅行。'
+                            : '已删除此截图。',
+                      );
+                      if (target.kind === 'all') {
+                        setData(emptyData);
+                        setReadError('');
+                      } else {
+                        setData(null);
+                        setAttempt((value) => value + 1);
+                      }
+                    },
+                    '删除未能确认。可重试同一次删除。',
+                  )
                 }
               >
                 {busy ? '正在删除…' : actionError ? '重试删除' : '确认删除'}
               </button>
             </div>
-          </section>
+          </dialog>
         ) : (
           <button
             type="button"
@@ -352,6 +379,11 @@ export function SettingsPanel({
         {!target && actionError && (
           <p className="note" role="alert">
             {actionError}
+          </p>
+        )}
+        {(pending === 'export' || pending === 'feedback') && (
+          <p className="note" role="status">
+            {pending === 'export' ? '正在导出匿名数据…' : '正在清除本次反馈…'}
           </p>
         )}
         {notice && (
