@@ -54,6 +54,7 @@ const errors = {
   NO_FEASIBLE_OPTION: [409, '没有可接受的可行候选。'],
   FIXED_LOCATION_REQUIRED: [409, '请在行程中补全固定安排地点，或明确选择本次不使用该安排。'],
   FIXED_LOCATION_UNRESOLVED: [409, '地图无法核验固定安排的地址，请在行程中补全门牌地址后重算。'],
+  FIXED_IN_PROGRESS: [409, '当前固定安排仍在进行中，请等安排结束后再计算。'],
   FIXED_TIME_INVALID: [409, '固定安排的时间在旅行时区中无效，请在行程中修改。'],
   IDEMPOTENCY_CONFLICT: [409, '同一确认标识已用于其他操作。'],
   ACCEPTANCE_MISMATCH: [409, '本次确认与要撤销的地点不匹配，请重新读取行程。'],

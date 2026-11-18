@@ -57,6 +57,8 @@ try {
     mapFallbackScreenshot: join(directory, 'recall-map-fallback.png'),
     acceptanceScreenshot: join(directory, 'acceptance.png'),
     undoScreenshot: join(directory, 'undo.png'),
+    runningLockScreenshot: join(directory, 'running-lock.png'),
+    fixedRecallScreenshot: join(directory, 'fixed-recall.png'),
   };
   console.log(`Browser report and screenshot: ${directory}`);
   runBrowser(`
@@ -149,6 +151,8 @@ try {
   if (settings.baseUrl !== settings.fixture) await page.goto(settings.fixture);
   await page.click(radarLink, {label:'Open the radar form'});
   await page.waitForSelector('.radar-form');
+  await page.click('loc=role:button[name*="查看上次雷达结果"]', {label:'Check for saved radar history'});
+  await wait(() => document.querySelector('.radar-history-link [role=status]')?.textContent.includes('还没有保存的雷达结果'));
   await pick('origin', '验收起点');
   await pick('destination', '验收书店');
   await page.click('loc=role:link[name="灵感库"]', {label:'Open the inspiration library'});
@@ -173,6 +177,8 @@ try {
   await page.click(radarLink, {label:'Return to the radar result'});
   await wait(() => document.querySelector('.result')?.textContent.includes('没有可行方案'));
   await page.click('loc=role:button[name="修改条件"]', {label:'Edit the radar conditions'});
+  assert.equal(await page.evaluate(() => Boolean(document.querySelector('.radar-history-link [role=status]'))), false);
+  report.checks.push('empty-history-note-cleared-after-calculation');
   await propose('90');
   await page.waitForSelector(confirm);
   await wait(() => document.querySelector('.pick')?.textContent.includes('约 7 分钟'));
@@ -319,6 +325,81 @@ try {
   await wait(() => document.querySelector('.result')?.textContent.includes('建议不绕路'));
   assert.equal(await page.evaluate(() => [...document.querySelectorAll('.result button')].some((button) => button.textContent.includes('确认加入行程'))), false);
   report.checks.push('tc-18-no-detour');
+
+  await page.click(edit, {label:'Return to the radar form'});
+  await page.reload(); // Restore the real fetch before testing fixed-route markers.
+  const jsonPost = async (path, body, status = 200) => {
+    const response = await page.fetch('/api/v1' + path, {
+      method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify(body),
+    });
+    assert.equal(response.status, status, response.body);
+    return JSON.parse(response.body);
+  };
+  // Use a zone with enough room on the current day to test both locks without crossing midnight.
+  const minute = 60_000;
+  const startMinute = Math.floor(Date.now() / minute) * minute;
+  const chinaHour = (new Date(startMinute).getUTCHours() + 8) % 24;
+  const time_zone = chinaHour >= 2 && chinaHour < 21 ? 'Asia/Shanghai' : 'UTC';
+  const wall = new Intl.DateTimeFormat('sv-SE', {
+    timeZone:time_zone, dateStyle:'short', timeStyle:'short',
+  });
+  const timeAt = (offset) => wall.format(startMinute + offset * minute).slice(-5);
+  let plannedTrip = await jsonPost('/trips', {
+    destination:'苏州', date:wall.format(startMinute).slice(0,10), time_zone,
+    start:timeAt(-30), end:timeAt(130),
+  }, 201);
+  const arrangements = '/trips/' + plannedTrip.trip_id + '/arrangements';
+  const saveLock = async (arrangement, id) => {
+    plannedTrip = await jsonPost(arrangements + (id ? '/' + id : ''), {
+      revision:plannedTrip.revision, arrangement:{...arrangement, locked:true},
+    });
+  };
+  const currentLock = {name:'验收晚餐', start:timeAt(-10), end:timeAt(20), address:'晚餐地址'};
+  const nextLock = {name:'验收演出', start:timeAt(78), end:timeAt(110), address:''};
+  await saveLock(currentLock);
+  await saveLock(nextLock);
+  await page.click(settingsLink, {label:'Leave the radar to refresh'});
+  await page.click(radarLink, {label:'Read the new locked schedule'});
+  await page.waitForSelector('.radar-form');
+  await pick('origin', '验收起点');
+  const skip = 'loc=role:checkbox[name="本次不使用这个固定安排"]';
+  const disabled = () => document.querySelector('button.cta[type=submit]')?.disabled;
+  await wait(() => document.querySelector('#running-lock-heading + [role=status]')?.textContent.includes('验收晚餐进行中') && document.querySelector('.radar-form .locked[href="#trip"]')?.textContent.includes('验收演出'));
+  assert.equal(await page.evaluate(disabled), true);
+  await page.click(skip, {label:'Try skipping the locationless next lock'});
+  assert.equal(await page.evaluate(disabled), true);
+  await page.screenshot({path:settings.runningLockScreenshot});
+  report.checks.push('running-lock-blocks-default-recall');
+
+  // Make the current lock end at the start of this minute. HTTP tests cover the exact clock boundary.
+  await saveLock({...currentLock, end:timeAt(0)}, plannedTrip.arrangements[0].arrangement_id);
+  await page.click('loc=role:button[name="检查时段"]', {label:'Recheck the running lock'});
+  await wait(() => !document.querySelector('#running-lock-heading') && document.querySelector('button.cta[type=submit]')?.disabled === false);
+  await page.click(skip, {label:'Require the next lock location again'});
+  assert.equal(await page.evaluate(disabled), true);
+  await page.click(skip, {label:'Continue without the missing address'});
+  await page.click('loc=role:button[name="105 分钟"]', {label:'Set the recall time budget'});
+  await page.click(submit, {label:'Calculate without the missing address'});
+  await page.waitForSelector(confirm);
+  assert.equal(await page.evaluate(() => document.querySelectorAll('.pick .times div').length), 2);
+  report.checks.push('locationless-lock-explicit-recall-fallback');
+
+  await saveLock({...nextLock, address:'验收演出地址'}, plannedTrip.arrangements[1].arrangement_id);
+  await page.click(edit, {label:'Open the radar conditions'});
+  await page.click(settingsLink, {label:'Leave the radar to refresh'});
+  await page.click(radarLink, {label:'Load the verified next address'});
+  await wait(() => document.querySelector('.radar-form .locked[href="#trip"]')?.textContent.includes('验收演出') && !document.querySelector('.radar-form input[type=checkbox]'));
+  await page.click(submit, {label:'Calculate with the verified next address'});
+  await page.waitForSelector(confirm);
+  await wait(() => document.querySelectorAll('.radar-map-pin').length === 3 && [...document.querySelectorAll('.radar-map-anchor')].some((anchor) => anchor.textContent === '下一站'));
+  assert.match(await page.evaluate(() => document.querySelector('.result .radar-hint')?.textContent), /验收演出.*按固定截止/);
+  assert.deepEqual(await page.evaluate(() => [...document.querySelectorAll('.pick .times div')].map((segment) => [...segment.children].map((item) => item.textContent))), [
+    ['步行前往', '约 7 分钟'], ['建议停留', '约 40 分钟'], ['下一站', '15 分钟'], ['缓冲', '10 分钟'],
+  ]);
+  assert.match(await page.evaluate(() => document.querySelector('.pick-bottom')?.textContent), /共约 72 分钟/);
+  await page.evaluate(() => document.querySelector('.pick .times')?.scrollIntoView({block:'center'}));
+  await page.screenshot({path:settings.fixedRecallScreenshot});
+  report.checks.push('default-recall-after-lock-uses-next-stop-and-segments');
   report.status = 'passed'; await save();
   console.log(await page.snapshot());
 } catch (error) { report.status = 'failed'; await save(); throw error; }
@@ -332,6 +413,7 @@ try {
     'pending-request-aborted',
     'capability-pages-and-radar-return',
     'empty-keeps-trip',
+    'empty-history-note-cleared-after-calculation',
     'three-cards-and-map-selection',
     'alternative-confirmation-replayed',
     'trip-via-bottom-navigation',
@@ -342,6 +424,9 @@ try {
     'stale-recalculated',
     'map-failure-keeps-cards-actionable',
     'tc-18-no-detour',
+    'running-lock-blocks-default-recall',
+    'locationless-lock-explicit-recall-fallback',
+    'default-recall-after-lock-uses-next-stop-and-segments',
   ]);
   assert.ok(Number.isInteger(report.space_id));
   runBrowser(

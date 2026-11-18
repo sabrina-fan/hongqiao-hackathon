@@ -4,8 +4,8 @@ import {
   liveOriginId,
   type BrowserPosition,
   type Capabilities,
-  type FixedStop,
   type PlaceOption,
+  type RadarContext,
   type RadarAcceptance,
   type RadarView,
 } from '@nextstop/core';
@@ -71,7 +71,9 @@ export function RadarPanel({
   const [locating, setLocating] = useState(false);
   const [locationHint, setLocationHint] = useState('');
   const locationAttempt = useRef(0);
-  const [fixed, setFixed] = useState<FixedStop | null>(null);
+  const [context, setContext] = useState<RadarContext | null>(null);
+  const { fixed, in_progress: inProgress } = context ?? { fixed: null, in_progress: null };
+  const [contextAttempt, setContextAttempt] = useState(0);
   const [contextHint, setContextHint] = useState('');
   const [skipFixed, setSkipFixed] = useState(false);
   const [shortWalk, setShortWalk] = useState(false);
@@ -150,16 +152,16 @@ export function RadarPanel({
     if (page !== 'radar' || session.kind !== 'ready' || !capabilities.radar) return;
     const controller = new AbortController();
     void getRadarContext(controller.signal)
-      .then(({ fixed }) => {
+      .then((updated) => {
         if (controller.signal.aborted) return;
-        setFixed(fixed);
+        setContext(updated);
         setContextHint('');
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) setContextHint(messageOf(error));
       });
     return () => controller.abort();
-  }, [page, session.kind, capabilities.radar]);
+  }, [page, session.kind, capabilities.radar, contextAttempt]);
 
   function clearProposal() {
     remember(null);
@@ -212,9 +214,12 @@ export function RadarPanel({
     try {
       const saved = await getRadarHistory(signal);
       if (signal.aborted) return;
-      if (!saved) setResult({ kind: 'idle' });
-      if (!saved) setHistoryNote('还没有保存的雷达结果。');
-      else setResult({ kind: 'history', view: saved.view, stale: saved.status === 'stale' });
+      setHistoryNote(saved ? '' : '还没有保存的雷达结果。');
+      setResult(
+        saved
+          ? { kind: 'history', view: saved.view, stale: saved.status === 'stale' }
+          : { kind: 'idle' },
+      );
     } catch (error) {
       if (!signal.aborted && !sessionExpired(error))
         setResult({ kind: 'error', message: messageOf(error) });
@@ -234,6 +239,7 @@ export function RadarPanel({
     available >= 1 &&
     available <= 720 &&
     (!missingFixed || skipFixed) &&
+    !inProgress &&
     !busy &&
     !locating,
   );
@@ -258,10 +264,15 @@ export function RadarPanel({
       );
       if (signal.aborted) return;
       remember(view.outcome.binding.session_id);
+      setHistoryNote('');
       setResult({ kind: 'shown', view });
     } catch (error) {
-      if (!signal.aborted && !sessionExpired(error))
-        setResult({ kind: 'error', message: messageOf(error) });
+      if (signal.aborted || sessionExpired(error)) return;
+      if (error instanceof ApiError && error.code === 'FIXED_IN_PROGRESS') {
+        setContextHint(error.message);
+        setContextAttempt((value) => value + 1);
+        setResult({ kind: 'idle' });
+      } else setResult({ kind: 'error', message: messageOf(error) });
     } finally {
       locked.current = false;
     }
@@ -419,7 +430,14 @@ export function RadarPanel({
                 hint: locationHint,
                 onLocate: locate,
               }}
-              fixed={{ stop: fixed, skipped: skipFixed, hint: contextHint, onSkip: setSkipFixed }}
+              fixed={{
+                stop: fixed,
+                inProgress,
+                skipped: skipFixed,
+                hint: contextHint,
+                onSkip: setSkipFixed,
+                onRefresh: () => setContextAttempt((value) => value + 1),
+              }}
               shortWalk={shortWalk}
               onShortWalk={setShortWalk}
               minutes={minutes}
@@ -523,8 +541,12 @@ export function RadarPanel({
           <div role="alert" className="note">
             <p>提案已失效 · PROPOSAL_STALE</p>
             <p>{result.message}</p>
-            <button className="primary" type="button" onClick={() => void calculate()}>
-              重新计算
+            <button
+              className="primary"
+              type="button"
+              onClick={inProgress ? editResult : () => void calculate()}
+            >
+              {inProgress ? '返回雷达' : '重新计算'}
             </button>{' '}
             <a href="#trip" className="secondary">
               查看当前行程 →

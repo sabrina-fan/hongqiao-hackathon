@@ -1,4 +1,4 @@
-import type { Arrangement, FixedStop, TripDay } from '@nextstop/core';
+import type { Arrangement, FixedStop, RadarContext, RadarRequest, TripDay } from '@nextstop/core';
 import { RadarFault } from './evidence.js';
 
 function wallClock(timeZone: string) {
@@ -30,10 +30,14 @@ function epochOf(wall: string, local: ReturnType<typeof wallClock>) {
   return Math.min(...matches);
 }
 
-export function nextFixedStop(
-  trip: { day?: TripDay | null; arrangements?: Arrangement[] } | null,
-  at: number,
-): FixedStop | null {
+type ScheduledTrip = { day?: TripDay | null; arrangements?: Arrangement[] } | null;
+type ScheduledLock = Pick<Arrangement, 'arrangement_id' | 'name' | 'address'> & {
+  start: number;
+  end: number;
+  time_zone: string;
+};
+
+function fixedSchedule(trip: ScheduledTrip, at: number) {
   if (!trip?.day) return null;
   const { date, time_zone } = trip.day;
   const local = wallClock(time_zone);
@@ -44,31 +48,43 @@ export function nextFixedStop(
       arrangement_id,
       name,
       address,
+      time_zone,
       start: epochOf(`${date}T${start}`, local),
       end: epochOf(`${date}T${end}`, local),
     }))
-    .filter(({ end }) => at < end)
     .sort((a, b) => a.start - b.start);
-  const item = locked[0];
-  if (!item) return null;
   return {
-    arrangement_id: item.arrangement_id,
-    name: item.name,
-    address: item.address,
-    starts_at: new Date(item.start).toISOString(),
-    time_zone,
+    active: locked.find(({ start, end }) => start <= at && at < end),
+    next: locked.find(({ start }) => at < start),
   };
 }
 
-export function effectiveFixed(
-  fixed: FixedStop | null,
-  mode: 'next_locked' | 'without_fixed' | undefined,
-  at: number,
-) {
-  if (!fixed) return null;
-  if (!fixed.address && Date.parse(fixed.starts_at) > at) {
+function fixedStop({ arrangement_id, name, address, start, time_zone }: ScheduledLock): FixedStop {
+  return { arrangement_id, name, address, starts_at: new Date(start).toISOString(), time_zone };
+}
+
+export function fixedContext(trip: ScheduledTrip, at: number): RadarContext {
+  const { active, next } = fixedSchedule(trip, at) ?? {};
+  return {
+    fixed: next ? fixedStop(next) : null,
+    in_progress: active
+      ? {
+          arrangement_id: active.arrangement_id,
+          name: active.name,
+          ends_at: new Date(active.end).toISOString(),
+          time_zone: active.time_zone,
+        }
+      : null,
+  };
+}
+
+export function fixedForSearch(trip: ScheduledTrip, mode: RadarRequest['fixed_mode'], at: number) {
+  const { active, next } = fixedSchedule(trip, at) ?? {};
+  if (active) throw new RadarFault('FIXED_IN_PROGRESS');
+  if (!next) return null;
+  if (!next.address) {
     if (mode === 'without_fixed') return null;
     throw new RadarFault('FIXED_LOCATION_REQUIRED');
   }
-  return fixed;
+  return fixedStop(next);
 }

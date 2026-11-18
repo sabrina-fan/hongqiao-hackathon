@@ -12,7 +12,7 @@ import type { UserRuntime } from '../runtime/open-user-runtime.js';
 import { activeTripDocument, type readActiveTrip } from '../trip/store.js';
 type ActiveTrip = Awaited<ReturnType<typeof readActiveTrip>>;
 import { RadarFault } from './evidence.js';
-import { effectiveFixed, nextFixedStop } from './fixed-stop.js';
+import { fixedForSearch } from './fixed-stop.js';
 import type { RecallSnapshot } from './recall-snapshot.js';
 import { recallOutcome, recallView, screenRecall } from './recall.js';
 
@@ -49,22 +49,19 @@ export function checkedRecall(
   if (!current) return view;
   if (current.at < Date.parse(snapshot.scanned_at) || current.at >= Date.parse(view.valid_until))
     throw new RadarFault('PROPOSAL_STALE');
+  let fixed: ReturnType<typeof fixedForSearch>;
+  try {
+    fixed = fixedForSearch(current.trip, snapshot.fixed_mode, current.at);
+  } catch (error) {
+    if (error instanceof RadarFault) throw new RadarFault('PROPOSAL_STALE');
+    throw error;
+  }
+  if (
+    fixed?.arrangement_id !== snapshot.fixed?.arrangement_id ||
+    fixed?.starts_at !== snapshot.fixed?.starts_at
+  )
+    throw new RadarFault('PROPOSAL_STALE');
   if (view.outcome.kind === 'recommendations') {
-    try {
-      const fixed = effectiveFixed(
-        nextFixedStop(current.trip, current.at),
-        snapshot.fixed_mode,
-        current.at,
-      );
-      if (
-        fixed?.arrangement_id !== snapshot.fixed?.arrangement_id ||
-        fixed?.starts_at !== snapshot.fixed?.starts_at
-      )
-        throw new RadarFault('PROPOSAL_STALE');
-    } catch (error) {
-      if (error instanceof RadarFault) throw new RadarFault('PROPOSAL_STALE');
-      throw error;
-    }
     const { eligible } = screenRecall(snapshot, current.at);
     if (
       !view.candidates?.some(({ place }) =>

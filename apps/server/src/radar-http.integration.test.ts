@@ -13,6 +13,7 @@ import {
   importReviewValidator,
   radarViewValidator,
   tripDetailValidator,
+  type RadarRequest,
   type RadarView,
 } from '@nextstop/core';
 import { createApp } from './app.js';
@@ -26,22 +27,30 @@ let failMap = false;
 let outboundMinutes = 10;
 let savedMinutes: number | null = null;
 let blockedRoute: string | null = null;
+const mapCalls: string[] = [];
 const secret = randomBytes(32).toString('hex');
 const origin = { id: 'origin', name: '起点', address: '' };
 const destination = { id: 'candidate', name: '候选地', address: '' };
 const saved = { id: 'saved', name: '收藏书店', address: '书店路 1 号' };
 const far = { id: 'far', name: '远方公园', address: '' };
 const recallMap = {
-  resolveOrigin: async () => ({
-    place: origin,
-    point: { system: 'gcj02' as const, longitude: 120.62, latitude: 31.32 },
-  }),
-  nearby: async () => [saved, destination, far],
+  async resolveOrigin() {
+    mapCalls.push('origin');
+    return {
+      place: origin,
+      point: { system: 'gcj02' as const, longitude: 120.62, latitude: 31.32 },
+    };
+  },
+  async nearby() {
+    mapCalls.push('nearby');
+    return [saved, destination, far];
+  },
 };
 const map: RadarMap = {
   ...recallMap,
   search: async (q) => [origin, destination, saved].filter((place) => place.name.includes(q)),
   async walk({ poi_id }) {
+    mapCalls.push(`walk:${poi_id}`);
     if (failMap) throw new MapFault('MAP_UNAVAILABLE');
     if (poi_id === blockedRoute) throw new MapFault('ROUTE_UNVERIFIED');
     return {
@@ -53,9 +62,10 @@ const map: RadarMap = {
       fetched_at: new Date(clock).toISOString(),
     };
   },
-  async walkToFixed({ fixed }) {
+  async walkToFixed({ candidate, fixed }) {
+    mapCalls.push(`onward:${candidate.destination.id}:${fixed.name}`);
     return {
-      origin: destination,
+      origin: candidate.destination,
       destination: { id: fixed.arrangement_id, name: fixed.name, address: fixed.address },
       distance_m: 1200,
       travel_min: 15,
@@ -89,6 +99,7 @@ beforeEach(async () => {
   outboundMinutes = 10;
   savedMinutes = null;
   blockedRoute = null;
+  mapCalls.length = 0;
   await listen();
 });
 afterEach(async () => {
@@ -120,8 +131,12 @@ function post(path: string, body: unknown, cookie: string, key?: string) {
   });
 }
 const request = { origin_id: origin.id, poi_id: destination.id, available_min: 90 };
-async function propose(cookie: string, available_min = 90) {
-  const result = await post('/radar/sessions', { ...request, available_min }, cookie);
+async function propose(
+  cookie: string,
+  available_min = 90,
+  fixed_mode?: RadarRequest['fixed_mode'],
+) {
+  const result = await post('/radar/sessions', { ...request, available_min, fixed_mode }, cookie);
   expect(result.status).toBe(201);
   const view: unknown = await result.json();
   if (!radarViewValidator.check(view)) throw new Error('Invalid radar view');
@@ -556,6 +571,100 @@ describe('radar through HTTP and per-guest SQLite', () => {
     });
     expect(await (await get(`/trips/${unrelated.trip_id}`)).json()).toEqual(unrelated);
   });
+  it('keeps a running lock out of the next stop until its exact end', async () => {
+    const cookie = await guest();
+    const created = await post(
+      '/trips',
+      {
+        destination: '苏州',
+        date: '2026-11-18',
+        time_zone: 'Asia/Shanghai',
+        start: '09:00',
+        end: '22:00',
+      },
+      cookie,
+    );
+    let planned: unknown = await created.json();
+    for (const arrangement of [
+      { name: '预约晚餐', start: '17:15', end: '18:15', address: '平江路 10 号' },
+      { name: '演出', start: '19:30', end: '21:00', address: '演出地址' },
+    ]) {
+      if (!tripDetailValidator.check(planned)) throw new Error('Missing planned trip');
+      const response = await post(
+        `/trips/${planned.trip_id}/arrangements`,
+        { revision: planned.revision, arrangement: { ...arrangement, locked: true } },
+        cookie,
+      );
+      expect(response.status).toBe(200);
+      planned = await response.json();
+    }
+    const context = async () => {
+      const response = await fetch(`${url}/radar/context`, { headers: { cookie } });
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    const start = Date.UTC(2026, 10, 18, 9, 15);
+    const end = Date.UTC(2026, 10, 18, 10, 15);
+    clock = start - 1;
+    expect(await context()).toMatchObject({ fixed: { name: '预约晚餐' } });
+    failMap = true;
+    const recall = { origin_id: origin.id, available_min: 90 };
+    for (const at of [start, end - 1]) {
+      clock = at;
+      expect(await context()).toMatchObject({
+        fixed: { name: '演出' },
+        in_progress: { name: '预约晚餐', ends_at: new Date(end).toISOString() },
+      });
+      for (const selection of [request, recall]) {
+        for (const input of [selection, { ...selection, fixed_mode: 'without_fixed' }]) {
+          await expectFault(await post('/radar/sessions', input, cookie), 409, 'FIXED_IN_PROGRESS');
+        }
+      }
+      expect(mapCalls).toEqual([]);
+    }
+    clock = end;
+    failMap = false;
+    outboundMinutes = 8;
+    expect(await context()).toMatchObject({ fixed: { name: '演出' }, in_progress: null });
+    expect(await propose(cookie)).toMatchObject({
+      available_min: 75,
+      window: { fixed: { name: '演出' }, remaining_min: 2 },
+      outcome: { kind: 'recommendations' },
+    });
+    mapCalls.length = 0;
+    const response = await post('/radar/sessions', recall, cookie);
+    expect(response.status).toBe(201);
+    const view: unknown = await response.json();
+    if (!radarViewValidator.check(view)) throw new Error('Invalid radar view');
+    const segments = {
+      travel_to_min: 8,
+      stay_min_estimate: 40,
+      travel_to_next_min: 15,
+      buffer_min: 10,
+    };
+    expect(view).toMatchObject({
+      available_min: 75,
+      window: { limited_by: 'fixed', fixed: { name: '演出' }, remaining_min: 2 },
+      candidates: [
+        { place: destination, remaining_min: 2 },
+        { place: saved, remaining_min: 2 },
+      ],
+      outcome: { kind: 'recommendations', best: segments, alternatives: [segments] },
+    });
+    expect(mapCalls).toEqual([
+      'origin',
+      'nearby',
+      `walk:${saved.id}`,
+      `onward:${saved.id}:演出`,
+      `walk:${destination.id}`,
+      `onward:${destination.id}:演出`,
+      `walk:${far.id}`,
+      `onward:${far.id}:演出`,
+    ]);
+    const tight = await post('/radar/sessions', { ...recall, available_min: 72 }, cookie);
+    expect(tight.status).toBe(201);
+    expect(await tight.json()).toMatchObject({ outcome: { kind: 'empty' } });
+  });
   it('allows a verified 73-minute plan in 75 minutes and rejects it in 72', async () => {
     const cookie = await guest();
     const created = await post(
@@ -596,11 +705,21 @@ describe('radar through HTTP and per-guest SQLite', () => {
         best: { travel_to_min: 8, stay_min_estimate: 40, travel_to_next_min: 15, buffer_min: 10 },
       },
     });
+    expect(await propose(cookie, 73)).toMatchObject({
+      available_min: 73,
+      window: { limited_by: 'manual', remaining_min: 0 },
+      outcome: { kind: 'recommendations' },
+    });
     const tight = await propose(cookie, 72);
     expect(tight).toMatchObject({
       available_min: 72,
-      window: { limited_by: 'manual' },
+      window: { limited_by: 'manual', fixed: { name: '预约晚餐' } },
       outcome: { kind: 'empty' },
+    });
+    expect(await propose(cookie, 90, 'without_fixed')).toMatchObject({
+      available_min: 75,
+      window: { limited_by: 'fixed', fixed: { name: '预约晚餐' }, remaining_min: 2 },
+      outcome: { kind: 'recommendations', best: { travel_to_next_min: 15 } },
     });
     await expectFault(await accept(cookie, tight, 'tight'), 409, 'NO_FEASIBLE_OPTION');
     expect((await accept(cookie, fitting, 'fitting')).status).toBe(200);
@@ -619,26 +738,20 @@ describe('radar through HTTP and per-guest SQLite', () => {
       },
       cookie,
     );
-    const planned: unknown = await created.json();
-    if (!tripDetailValidator.check(planned)) throw new Error('Missing planned trip');
-    expect(
-      (
-        await post(
-          `/trips/${planned.trip_id}/arrangements`,
-          {
-            revision: planned.revision,
-            arrangement: {
-              name: '预约晚餐',
-              start: '17:15',
-              end: '18:30',
-              address: '',
-              locked: true,
-            },
-          },
-          cookie,
-        )
-      ).status,
-    ).toBe(200);
+    let planned: unknown = await created.json();
+    for (const arrangement of [
+      { name: '预约晚餐', start: '17:15', end: '18:30', address: '' },
+      { name: '演出', start: '19:00', end: '20:00', address: '演出地址' },
+    ]) {
+      if (!tripDetailValidator.check(planned)) throw new Error('Missing planned trip');
+      const response = await post(
+        `/trips/${planned.trip_id}/arrangements`,
+        { revision: planned.revision, arrangement: { ...arrangement, locked: true } },
+        cookie,
+      );
+      expect(response.status).toBe(200);
+      planned = await response.json();
+    }
     const history = (owner: string) =>
       fetch(`${url}/radar/history`, { headers: { cookie: owner } }).then((response) =>
         response.json(),
@@ -649,16 +762,10 @@ describe('radar through HTTP and per-guest SQLite', () => {
       409,
       'FIXED_LOCATION_REQUIRED',
     );
-    const response = await post(
-      '/radar/sessions',
-      { ...request, fixed_mode: 'without_fixed' },
-      cookie,
-    );
-    expect(response.status).toBe(201);
-    const view: unknown = await response.json();
-    if (!radarViewValidator.check(view)) throw new Error('Invalid radar view');
+    const view = await propose(cookie, 90, 'without_fixed');
     expect(view).toMatchObject({
-      window: { fixed: null },
+      available_min: 90,
+      window: { fixed: null, limited_by: 'manual' },
       outcome: { best: { travel_to_next_min: null, buffer_min: 0 } },
     });
     expect(await history(cookie)).toEqual({ status: 'saved', view });
@@ -668,6 +775,42 @@ describe('radar through HTTP and per-guest SQLite', () => {
     await listen();
     expect(await history(cookie)).toEqual({ status: 'stale', view });
     await expectFault(await accept(cookie, view, 'history'), 409, 'PROPOSAL_STALE');
+    clock = Date.UTC(2026, 10, 18, 9, 14);
+    const beforeStart = await propose(cookie, 90, 'without_fixed');
+    expect(beforeStart.outcome.kind).toBe('recommendations');
+    const recall = { origin_id: origin.id, available_min: 90 };
+    mapCalls.length = 0;
+    await expectFault(
+      await post('/radar/sessions', recall, cookie),
+      409,
+      'FIXED_LOCATION_REQUIRED',
+    );
+    expect(mapCalls).toEqual([]);
+    const withoutFixed = { ...recall, fixed_mode: 'without_fixed' };
+    const recalled = await post('/radar/sessions', withoutFixed, cookie);
+    expect(recalled.status).toBe(201);
+    const recallView: unknown = await recalled.json();
+    if (!radarViewValidator.check(recallView)) throw new Error('Invalid radar view');
+    expect(recallView).toMatchObject({
+      window: { fixed: null, limited_by: 'manual' },
+      outcome: { kind: 'recommendations', best: { travel_to_next_min: null, buffer_min: 0 } },
+    });
+    expect(mapCalls.some((call) => call.startsWith('onward:'))).toBe(false);
+    const empty = await post('/radar/sessions', { ...withoutFixed, available_min: 5 }, cookie);
+    expect(empty.status).toBe(201);
+    const emptyView: unknown = await empty.json();
+    if (!radarViewValidator.check(emptyView)) throw new Error('Invalid radar view');
+    expect(emptyView.outcome.kind).toBe('empty');
+    clock += 60_000;
+    await expectFault(await accept(cookie, beforeStart, 'lock-started'), 409, 'PROPOSAL_STALE');
+    await expectFault(
+      await accept(cookie, recallView, 'recall-lock-started'),
+      409,
+      'PROPOSAL_STALE',
+    );
+    const reopened = await fetch(`${url}${pathOf(emptyView)}`, { headers: { cookie } });
+    await expectFault(reopened, 409, 'PROPOSAL_STALE');
+    expect(await history(cookie)).toEqual({ status: 'stale', view: emptyView });
     expect(await trip(cookie)).toMatchObject({ stops: [] });
   });
   it('rejects outdated proposal, pool, ETA and trip bindings, including a competing tab', async () => {
