@@ -77,7 +77,7 @@ export function WishlistDetail({ placeKey, onBack }: { placeKey: PlaceKey; onBac
   }
 
   return (
-    <section className="library-screen">
+    <section className="library-screen wishlist-detail-screen">
       <header className="bar library-heading">
         <button
           className="library-back"
@@ -90,6 +90,12 @@ export function WishlistDetail({ placeKey, onBack }: { placeKey: PlaceKey; onBac
         </button>
         <h1>地点详情</h1>
       </header>
+      {state.kind === 'ready' && (
+        <div className="wishlist-cover">
+          <img src="/art/suzhou-canal.webp" alt="" />
+          <small>苏州水巷 · 插图</small>
+        </div>
+      )}
       {state.kind === 'loading' && <p role="status">正在读取地点…</p>}
       {state.kind === 'error' && (
         <div className="note">
@@ -256,16 +262,18 @@ export function WishlistDetail({ placeKey, onBack }: { placeKey: PlaceKey; onBac
 
 function PlaceFacts({ place }: { place: SavedPlace }) {
   return (
-    <div className="panel wishlist-detail-panel">
-      <p className="wishlist-eyebrow">苏州 · 来自灵感库</p>
-      <h2>{place.name}</h2>
-      <p>{place.address || '地图未提供地址'}</p>
-      <p className="wishlist-muted">高德地点 · {place.poi_id}</p>
+    <div className="panel wishlist-detail-panel wishlist-facts">
+      <div className="library-between wishlist-facts-heading">
+        <h2>{place.name}</h2>
+        <span className="badge green">来自灵感库</span>
+      </div>
       <div className="wishlist-status">
         <span>{place.visit === 'visited' ? '已去' : '想去'}</span>
         <span>{place.schedule === 'scheduled' ? '已安排' : '未安排'}</span>
         <span>{evidenceLabel[place.evidence]}</span>
       </div>
+      <p className="wishlist-address">⌖ {place.address || '地图未提供地址'}</p>
+      <p className="wishlist-muted">高德地点 · {place.poi_id}</p>
       <dl className="wishlist-evidence">
         <div>
           <dt>营业信息</dt>

@@ -89,14 +89,17 @@ export function WishlistList({
           onClick={() => onSelect(place)}
         >
           <span className="library-place-icon" aria-hidden="true">
-            ⌖
+            <span className="nav-icon nav-library" />
           </span>
           <span className="wishlist-card-copy">
             <strong>{place.name}</strong>
             <span>{place.address || '地图未提供地址'}</span>
             <small>
-              {place.visit === 'visited' ? '已去' : '想去'} ·{' '}
-              {place.schedule === 'scheduled' ? '已安排' : '未安排'} · {place.sources.length} 条来源
+              <span className={`badge ${place.visit === 'visited' ? '' : 'green'}`}>
+                {place.visit === 'visited' ? '已去' : '想去'}
+              </span>{' '}
+              · {place.schedule === 'scheduled' ? '已安排' : '未安排'} · {place.sources.length}{' '}
+              条来源
             </small>
           </span>
           <span aria-hidden="true">›</span>

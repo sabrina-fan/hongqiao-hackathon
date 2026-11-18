@@ -31,7 +31,16 @@ function Timeline({
   const names = new Map(trip.arrangements.map((item) => [item.arrangement_id, item.name]));
   return (
     <>
-      <h3>{trip.day?.date ?? '雷达已加入'}</h3>
+      <h3 className="trip-date">
+        {trip.day
+          ? new Intl.DateTimeFormat('zh-CN', {
+              month: 'long',
+              day: 'numeric',
+              weekday: 'short',
+              timeZone: 'UTC',
+            }).format(new Date(`${trip.day.date}T12:00:00Z`))
+          : '雷达已加入'}
+      </h3>
       {trip.day && (
         <p className="note">
           {trip.day.start}–{trip.day.end} · {trip.day.time_zone}
@@ -172,7 +181,7 @@ export function TripPanel({ onSessionExpired }: { onSessionExpired: (error: unkn
 
   return (
     <>
-      <header className="bar">
+      <header className="bar trip-bar">
         <h1>我的行程</h1>
         <button
           type="button"
@@ -202,6 +211,9 @@ export function TripPanel({ onSessionExpired }: { onSessionExpired: (error: unkn
                 </small>
               )}
               {state.list.current_trip_id === trip_id && <small>当前旅行 · 雷达加入到此行程</small>}
+            </span>
+            <span className="trip-card-chevron" aria-hidden="true">
+              ›
             </span>
           </button>
         ))}

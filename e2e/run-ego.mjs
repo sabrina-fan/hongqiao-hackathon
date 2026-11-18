@@ -175,6 +175,12 @@ try {
   await heading('现在去哪？');
   await wait(() => [...document.querySelectorAll('.place-row strong')].map((place) => place.textContent.trim()).join('|') === '验收起点|验收书店');
   await page.click('loc=role:button[name="75 分钟"]', {label:'Select a walking time budget'});
+  const timeTargets = await page.evaluate(() => [...document.querySelectorAll('[aria-label="常用时长"] button')].map((button) => {
+    const {width, height} = button.getBoundingClientRect();
+    return {width, height};
+  }));
+  assert.equal(timeTargets.length, 4);
+  assert.ok(timeTargets.every(({width, height}) => width >= 44 && height >= 44), 'Time choices must have 44 × 44 CSS px touch targets');
   await page.screenshot({path:settings.radarScreenshot});
   report.checks.push('capability-pages-and-radar-return');
   await propose('5');

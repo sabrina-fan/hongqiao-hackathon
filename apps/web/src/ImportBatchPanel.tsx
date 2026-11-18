@@ -67,7 +67,14 @@ function BatchProgress({
   const reviewable = batch.items.some(({ kind }) => kind === 'ready' || kind === 'failed');
   return (
     <>
-      <h2>本批次 {total} 张截图</h2>
+      <div className="batch-drop batch-uploaded">
+        <span className="upload-mark" aria-hidden="true">
+          ✓
+        </span>
+        <strong>攻略截图已上传</strong>
+        <small>可移除截图、重试或查看已处理结果</small>
+      </div>
+      <h2 className="batch-grid-heading">本批次 {total} 张截图</h2>
       <ul className="batch-grid">
         {batch.items.map((item) => (
           <li key={item.import_id}>
@@ -86,22 +93,26 @@ function BatchProgress({
                   ×
                 </button>
               )}
+              {item.kind !== 'failed' && (
+                <span className={`batch-image-status status-${item.kind}`}>
+                  {imageStatus(item)}
+                </span>
+              )}
+              {item.kind === 'failed' && (
+                <button
+                  className="batch-retry"
+                  type="button"
+                  aria-label={`重试 ${item.name}`}
+                  disabled={busy}
+                  onClick={() => edit(item, 'retry')}
+                >
+                  重试
+                </button>
+              )}
             </div>
             <span className="batch-filename" title={item.name}>
-              {item.name || '截图'}
+              {item.kind === 'failed' ? imageStatus(item) : item.name || '截图'}
             </span>
-            <span className={`batch-image-status status-${item.kind}`}>{imageStatus(item)}</span>
-            {item.kind === 'failed' && (
-              <button
-                className="batch-retry"
-                type="button"
-                aria-label={`重试 ${item.name}`}
-                disabled={busy}
-                onClick={() => edit(item, 'retry')}
-              >
-                重试
-              </button>
-            )}
           </li>
         ))}
       </ul>
@@ -117,6 +128,7 @@ function BatchProgress({
           成功 {ended - failures} 张 · 处理中 {processing} 张 · 失败 {failures} 张
         </p>
       </div>
+      <p className="note batch-source-note">确认后可从收藏核对截图来源。</p>
       <button
         className="primary full cta"
         type="button"
@@ -263,7 +275,7 @@ export function ImportBatchPanel({
   }
   const stage = reviewing ? 2 : batch ? 1 : 0;
   return (
-    <section className="library-screen batch-screen">
+    <section className={`library-screen batch-screen${reviewing ? ' batch-review-screen' : ''}`}>
       <header className="bar library-heading">
         <button
           className="library-back"
@@ -271,13 +283,11 @@ export function ImportBatchPanel({
           aria-label={reviewing ? '返回批次进度' : '返回灵感库'}
           onClick={back}
           disabled={busy}
-        >
-          ‹
-        </button>
+        ></button>
         <h1>{reviewing ? '确认识别的地点' : '导入攻略截图'}</h1>
       </header>
       <ol className="batch-steps" aria-label="导入步骤">
-        {['上传截图', '提取地点', '统一确认'].map((step, index) => (
+        {['上传截图', 'AI 提取地点', '统一确认'].map((step, index) => (
           <li
             key={step}
             aria-current={index === stage ? 'step' : undefined}
@@ -323,8 +333,11 @@ export function ImportBatchPanel({
             <p className="note">自动识别暂未配置，上传后可以手动搜索并保留截图来源。</p>
           )}
           <label className="library-drop batch-drop">
-            <span aria-hidden="true">⇧</span>
+            <span className="upload-mark" aria-hidden="true">
+              ⇧
+            </span>
             <strong>{files.length ? '继续添加截图' : '批量上传攻略截图'}</strong>
+            <small>攻略、地图截图或旅行笔记</small>
             <small>PNG 或 JPEG · 每张最多 5 MB · 每批最多 {IMPORT_BATCH_MAX_IMAGES} 张</small>
             <input
               type="file"
@@ -341,7 +354,7 @@ export function ImportBatchPanel({
           </label>
           {files.length > 0 && (
             <>
-              <h2>已选择 {files.length} 张图片</h2>
+              <h2 className="batch-grid-heading">已选择 {files.length} 张图片</h2>
               <ul className="batch-grid">
                 {files.map(({ id, file }) => (
                   <li key={id}>

@@ -92,7 +92,7 @@ export function LibraryPanel({
   }
   if (screen.kind === 'library') {
     return (
-      <section className="library-screen">
+      <section className="library-screen wishlist-screen">
         <header className="bar">
           <h1>我的灵感库</h1>
         </header>
@@ -121,11 +121,6 @@ export function LibraryPanel({
             }
           />
         )}
-        {list.kind === 'ready' && list.value.places.length > 0 && (
-          <a className="secondary full" href="#trip">
-            前往行程生成草案
-          </a>
-        )}
         {canImport && list.kind === 'ready' ? (
           <div className="library-actions">
             <button
@@ -141,6 +136,11 @@ export function LibraryPanel({
           </div>
         ) : (
           !canImport && <p className="note">导入暂不可用，请检查地图服务配置。</p>
+        )}
+        {list.kind === 'ready' && list.value.places.length > 0 && (
+          <a className="secondary full" href="#trip">
+            前往行程生成草案
+          </a>
         )}
       </section>
     );

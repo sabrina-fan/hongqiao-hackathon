@@ -11,12 +11,13 @@
   min-width: 44px;
   min-height: 44px;
   padding: 0;
-  font-size: 30px;
+  font-size: 0;
+  border: 0;
 }
 .library-city {
   color: #325d8d;
   font-weight: 700;
-  margin: 8px 0 20px;
+  margin: 8px 3px 10px;
 }
 .library-between {
   display: flex;
@@ -93,10 +94,12 @@
 }
 .wishlist-filters button {
   min-height: 44px;
-  font-size: 13px;
+  min-width: 44px;
+  font-size: 12px;
+  font-weight: 750;
 }
 .wishlist-filters button[aria-pressed='true'] {
-  background: #dcf78e;
+  background: var(--lime);
   border-color: #aad13f;
   color: #263900;
 }
@@ -207,4 +210,93 @@
 }
 .library-screen .secondary.full {
   margin-top: 8px;
+}
+
+.wishlist-screen .wishlist-card {
+  min-height: 100px;
+  border-radius: 16px;
+  box-shadow: 0 4px 16px #204f7309;
+}
+.wishlist-screen .library-place-icon {
+  width: min(22%, 80px);
+  height: auto;
+  aspect-ratio: 1;
+  background: linear-gradient(135deg, #eaf7ed, #dfeffb);
+  color: #2478c9;
+}
+.library-place-icon .nav-icon {
+  width: 27px;
+  height: 27px;
+  background: currentColor;
+  mask: var(--nav-icon) center / contain no-repeat;
+}
+.wishlist-card-copy strong {
+  font-size: 15px;
+}
+.wishlist-card-copy .badge {
+  font-size: 11px;
+}
+.wishlist-card-copy .badge.green {
+  color: #266c1b;
+}
+.wishlist-card > span:last-child {
+  color: #61758d;
+  font-size: 23px;
+}
+.wishlist-screen .library-actions {
+  margin-top: 12px;
+}
+
+.wishlist-detail-screen .library-heading {
+  margin-bottom: 0;
+}
+.wishlist-cover {
+  position: relative;
+  overflow: hidden;
+  border-radius: 17px 17px 0 0;
+  height: 195px;
+  background: var(--ice);
+}
+.wishlist-cover img {
+  height: 100%;
+  object-position: center 41%;
+}
+.wishlist-cover small {
+  position: absolute;
+  inset: auto 10px 15px auto;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #142e4bd9;
+  color: #fff;
+}
+.wishlist-detail-screen .wishlist-facts {
+  position: relative;
+  margin-top: -8px;
+  border-color: transparent;
+  border-radius: 17px 17px 0 0;
+  background: var(--paper);
+  padding-inline: 5px;
+}
+.wishlist-facts-heading {
+  align-items: center;
+}
+.wishlist-facts-heading h2 {
+  font-size: 22px;
+}
+.wishlist-facts-heading .badge {
+  flex: none;
+}
+.wishlist-address {
+  color: #325d8d;
+}
+.wishlist-detail-screen .wishlist-evidence div {
+  min-height: 44px;
+  align-items: center;
+}
+.wishlist-detail-screen .wishlist-sources a {
+  display: inline-grid;
+  align-content: center;
+  min-height: 44px;
+  color: #125fae;
+  text-decoration: underline;
 }

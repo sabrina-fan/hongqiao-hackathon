@@ -56,3 +56,52 @@
   min-height: 36px;
   color: var(--blue);
 }
+
+.trip-bar {
+  margin-bottom: 12px;
+}
+.trip .trip-card {
+  min-height: 104px;
+  border-radius: 16px;
+  padding: 12px;
+  background: linear-gradient(110deg, #edf9f1, #ebf7fc);
+}
+.trip .trip-card[aria-pressed='true'] {
+  background: linear-gradient(110deg, #e9faef, #e5f5fd);
+}
+.trip-card strong {
+  font-size: 17px;
+}
+.trip .trip-card img {
+  width: min(28%, 90px);
+  aspect-ratio: 1.16;
+}
+.trip-card-chevron {
+  color: #39648a;
+  font-size: 25px;
+}
+.trip .trip-date {
+  margin: 12px 4px 4px;
+  font-size: 15px;
+}
+.trip .trip-date + .note {
+  margin-top: 0;
+}
+.trip .timeline li {
+  min-height: 70px;
+}
+.trip .timeline li.fixed {
+  background: #fff3f1;
+}
+.trip-entry strong {
+  font-size: 14px;
+}
+.trip .timeline .trip-entry button {
+  min-height: 44px;
+}
+
+.trip-bar .mini,
+.trip > .mini {
+  min-height: 44px;
+  min-width: 44px;
+}

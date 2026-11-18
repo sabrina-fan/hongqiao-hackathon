@@ -7,6 +7,7 @@ import type {
   RadarView,
 } from '@nextstop/core';
 import './radar-context.css';
+import './radar-visual.css';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { PlaceField } from './PlaceField.js';
@@ -85,9 +86,19 @@ export function RadarForm({
         <fieldset className="radar-fields" disabled={busy}>
           <div className="panel radar-form">
             <section aria-label="选点">
-              <h2>
-                <Icon>⌖</Icon> 当前位置
-              </h2>
+              <div className="between location-title">
+                <h2>
+                  <Icon>⌖</Icon> 当前位置
+                </h2>
+                <button
+                  className="text-button"
+                  type="button"
+                  onClick={location.onLocate}
+                  disabled={location.locating}
+                >
+                  {location.locating ? '正在定位…' : '使用当前位置'}
+                </button>
+              </div>
               <div className="between place-row">
                 <strong>
                   {location.active ? '我的当前位置' : (places.origin?.name ?? '尚未选择出发地')}
@@ -101,14 +112,6 @@ export function RadarForm({
                   手动选择 ›
                 </button>
               </div>
-              <button
-                className="text-button"
-                type="button"
-                onClick={location.onLocate}
-                disabled={location.locating}
-              >
-                {location.locating ? '正在定位…' : '使用当前位置'}
-              </button>
               {location.hint && (
                 <p className="radar-hint" role="status">
                   {location.hint}
@@ -235,7 +238,7 @@ export function RadarForm({
                 !fixed.hint && <p className="locked">今天暂无待开始的固定安排</p>
               )}
             </section>
-            <section>
+            <section className="radar-preference-row">
               <h2>
                 <Icon>☷</Icon> 本次偏好 <small>（可选）</small>
               </h2>
@@ -352,7 +355,7 @@ export function PickCard({
     <article className="panel pick">
       <div className="pick-top">
         <span className="place-mark" aria-hidden="true">
-          ⌖
+          <span className="nav-icon nav-radar" />
         </span>
         <div>
           <span className={`badge${primary ? ' lime' : ''}`}>{primary ? '优先推荐' : '备选'}</span>
@@ -397,7 +400,10 @@ export function PickCard({
           共约 {total} 分钟
           {remaining != null && ` · 计算时剩余 ${remaining} 分钟`}
         </p>
-        <p className="muted">高德步行估算 · {clock(pick.evidence.fetched_at)} 获取</p>
+        <p className="muted">
+          高德步行估算 · {clock(pick.evidence.fetched_at)} 获取
+          {!expired && !historical && ` · ${clock(expiry)} 前可加入`}
+        </p>
         <p className="muted">
           营业 {facts?.opening ? `高德今日 ${facts.opening.today}（已查询）` : '待核验'} · 预约{' '}
           {facts?.booking
@@ -405,11 +411,7 @@ export function PickCard({
             : '待核验'}{' '}
           · 价格 {facts?.price ? `高德参考 ${facts.price.text}（估计）` : '待核验'}
         </p>
-        {expired ? (
-          <p role="status">本项证据已过期，请重新计算。</p>
-        ) : (
-          !historical && <p className="muted">{clock(expiry)} 前可加入</p>
-        )}
+        {expired && <p role="status">本项证据已过期，请重新计算。</p>}
         <div className="actions">
           {expired || !changeAction ? (
             <button
