@@ -96,9 +96,21 @@ export async function listTrips(runtime: UserRuntime): Promise<TripList> {
   return { current_trip_id: trips[0]?.trip_id ?? null, trips };
 }
 
+function keyForTrip(keys: string[], id: string) {
+  return keys.includes(id) ? id : LEGACY_KEY;
+}
+
+export async function tripInTransaction(tx: Tx, conversationId: ConversationId, id: string) {
+  const directory = await tx.doc(TripDirectory, conversationId, DIRECTORY_KEY, DIRECTORY_KEY);
+  const key = keyForTrip(directory.keys, id);
+  const document = await tx.doc(Trips, conversationId, key, key);
+  const { trip } = document;
+  if (trip?.trip_id !== id) throw new TripFault('TRIP_NOT_FOUND');
+  return trip;
+}
+
 async function findTrip(runtime: UserRuntime, id: string) {
-  const keys = await readKeys(runtime);
-  const key = keys.includes(id) ? id : LEGACY_KEY;
+  const key = keyForTrip(await readKeys(runtime), id);
   const trip = await readTrip(runtime, key);
   if (trip?.trip_id !== id) throw new TripFault('TRIP_NOT_FOUND');
   return { key, trip };

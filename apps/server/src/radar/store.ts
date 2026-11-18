@@ -31,6 +31,7 @@ import {
 } from '../runtime/documents.js';
 import { activeTripDocument, readActiveTrip } from '../trip/store.js';
 import { effectiveFixed, nextFixedStop } from './fixed-stop.js';
+import { RadarAcceptances } from './acceptance.js';
 import type { UserRuntime } from '../runtime/open-user-runtime.js';
 import { RadarFault, WalkingEvidenceSchema, type WalkingEvidence } from './evidence.js';
 
@@ -411,8 +412,15 @@ export async function acceptRadar({
       stops: [...(prior?.stops.map((item) => ({ ...item })) ?? []), stop],
     };
     const receipt = { trip_id: trip.trip_id, trip_revision: trip.revision, stop };
+    const confirmation = await tx.doc(RadarAcceptances, conversationId, sessionId, sessionId);
     tripDoc.trip = trip;
     idem.entry = { fingerprint: identity, receipt };
+    confirmation.acceptance = {
+      status: 'added',
+      receipt,
+      destination: view.destination,
+      ...(view.markers ? { point: { ...view.markers.destination } } : {}),
+    };
     return receipt;
   }, BACKGROUND_CONTEXT);
 }

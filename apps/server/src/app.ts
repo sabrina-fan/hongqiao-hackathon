@@ -11,6 +11,7 @@ import { checkPostOrigin, HttpFault, readJson, send, sendError } from './http.js
 import { createImportHandler, importRoute, type ImportVision } from './imports/http.js';
 import type { RadarMap } from './radar/amap.js';
 import { acceptRadar, getRadar, getRadarHistory } from './radar/store.js';
+import { radarAcceptanceRoute } from './radar/acceptance-http.js';
 import { getRadarContext, proposeRadar } from './radar/propose.js';
 import { createUserAccess } from './radar/user-access.js';
 
@@ -61,6 +62,7 @@ export function createApp(options?: Options) {
     const history = request.method === 'GET' && path === '/api/v1/radar/history';
     const trip = request.method === 'GET' && path === '/api/v1/trip';
     const manageTrip = tripRoute(request.method, path);
+    const acceptance = radarAcceptanceRoute(request, path);
     const member = /^\/api\/v1\/radar\/sessions\/([A-Za-z0-9_-]{1,100})(\/accept)?$/.exec(path);
     const sessionId = member?.[1];
     const accept = Boolean(member?.[2]) && request.method === 'POST';
@@ -76,6 +78,7 @@ export function createApp(options?: Options) {
         trip ||
         manageTrip ||
         accept ||
+        acceptance ||
         view ||
         imports
       )
@@ -128,6 +131,7 @@ export function createApp(options?: Options) {
       );
     }
     if (trip) return send(response, 200, await withUser(userId, (runtime) => getTrip({ runtime })));
+    if (acceptance) return send(response, 200, await withUser(userId, acceptance));
     if (sessionId && accept) {
       const key = request.headers['idempotency-key'];
       if (!identifier.check(key)) throw new HttpFault('INVALID_REQUEST');

@@ -25,7 +25,8 @@ export class RadarFault extends Error {
       | 'NO_FEASIBLE_OPTION'
       | 'FIXED_LOCATION_REQUIRED'
       | 'FIXED_TIME_INVALID'
-      | 'IDEMPOTENCY_CONFLICT',
+      | 'IDEMPOTENCY_CONFLICT'
+      | 'ACCEPTANCE_MISMATCH',
   ) {
     super(code);
   }
