@@ -6,14 +6,13 @@ import {
   ConfirmImportSchema,
   ImportReviewSchema,
   WishlistPlaceSchema,
-  wishlistValidator,
   type ConfirmImport,
   type ImportReview,
-  type Wishlist,
   type WishlistPlace,
 } from '@nextstop/core';
 import { HttpFault } from '../http.js';
 import type { UserRuntime } from '../runtime/open-user-runtime.js';
+import { saveWishlistSource } from '../wishlist/store.js';
 
 const ReceiptSchema = obj({ selection: ConfirmImportSchema, place: WishlistPlaceSchema });
 const ImportRecordSchema = obj({
@@ -33,18 +32,6 @@ const Imports = defineDocFamily<ImportRecord, string>({
   checkpointWhen: () => true,
   initial: () => ({ review: null, image_type: null, receipt: null }),
 });
-const Wishes = defineDocFamily<Wishlist, string>({
-  kind: 'nextstop.wishlist',
-  version: 1,
-  family: true,
-  scope: 'conversation',
-  history: 'rewindable',
-  fork: 'current',
-  checkpointWhen: () => true,
-  initial: () => ({ places: [] }),
-});
-const WISHLIST_KEY = 'current';
-
 function checkedRecord(record: ImportRecord | undefined, id: string) {
   if (!record?.review) throw new HttpFault('IMPORT_NOT_FOUND');
   if (
@@ -111,18 +98,6 @@ export function updateMatch({
   }, BACKGROUND_CONTEXT);
 }
 
-export async function readWishlist(runtime: UserRuntime): Promise<Wishlist> {
-  const state = await runtime.harness.snapshot(
-    Wishes,
-    runtime.conversation.id,
-    WISHLIST_KEY,
-    BACKGROUND_CONTEXT,
-  );
-  if (!state) return { places: [] };
-  if (!wishlistValidator.check(state)) throw new Error('Invalid stored wishlist');
-  return state;
-}
-
 export function confirmImport({
   runtime,
   id,
@@ -151,25 +126,18 @@ export function confirmImport({
     const candidates = review.match.kind === 'results' ? review.match.candidates : [];
     const chosen = candidates.find(({ id: poiId }) => poiId === selection.poi_id);
     if (!chosen) throw new HttpFault('IMPORT_INVALID_CHOICE');
-    const wishlist = await tx.doc(Wishes, scope, WISHLIST_KEY, WISHLIST_KEY);
-    if (!wishlistValidator.check(wishlist)) throw new Error('Invalid stored wishlist');
-    const index = wishlist.places.findIndex(
-      ({ provider, poi_id }) => provider === selection.provider && poi_id === chosen.id,
-    );
-    const existing = wishlist.places[index];
-    const place: WishlistPlace = {
-      provider: selection.provider,
-      poi_id: chosen.id,
-      city: '苏州',
-      name: chosen.name,
-      address: chosen.address,
-      sources: [
-        ...(existing?.sources ?? []).map((source) => ({ ...source })),
-        { ...review.source },
-      ],
-    };
-    if (existing) wishlist.places[index] = place;
-    else wishlist.places.push(place);
+    const place = await saveWishlistSource({
+      runtime,
+      tx,
+      incoming: {
+        provider: selection.provider,
+        poi_id: chosen.id,
+        city: '苏州',
+        name: chosen.name,
+        address: chosen.address,
+        sources: [{ ...review.source }],
+      },
+    });
     record.receipt = { selection, place };
     return place;
   }, BACKGROUND_CONTEXT);

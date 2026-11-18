@@ -1,4 +1,12 @@
-import { IMPORT_IMAGE_MAX_BYTES, type ImportReview, type Wishlist } from '@nextstop/core';
+import {
+  IMPORT_IMAGE_MAX_BYTES,
+  type ImportReview,
+  type Wishlist,
+  type WishlistFilter,
+  type WishlistPlace,
+} from '@nextstop/core';
+import { WishlistDetail } from './WishlistDetail.js';
+import { WishlistList } from './WishlistList.js';
 import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError, createSession } from './api.js';
 import {
@@ -12,6 +20,7 @@ import './library.css';
 
 type Screen =
   | { kind: 'library'; saved?: string }
+  | { kind: 'detail'; placeKey: Pick<WishlistPlace, 'provider' | 'poi_id'> }
   | { kind: 'upload' }
   | { kind: 'review'; review: ImportReview | null };
 type ListState =
@@ -49,6 +58,7 @@ export function LibraryPanel({
 }) {
   const [screen, setScreen] = useState<Screen>({ kind: 'library' });
   const [list, setList] = useState<ListState>({ kind: 'loading' });
+  const [filter, setFilter] = useState<WishlistFilter>({});
   const [retry, setRetry] = useState(0);
   const [file, setFile] = useState<File | null>(null);
   const [query, setQuery] = useState('');
@@ -118,10 +128,6 @@ export function LibraryPanel({
             已收藏 {screen.saved}
           </p>
         )}
-        <div className="library-between">
-          <h2>苏州的收藏</h2>
-          {list.kind === 'ready' && <small>共 {list.value.places.length} 处</small>}
-        </div>
         {canRead && list.kind === 'loading' && <p role="status">正在读取收藏…</p>}
         {canRead && list.kind === 'error' && (
           <div className="note">
@@ -131,45 +137,16 @@ export function LibraryPanel({
             </button>
           </div>
         )}
-        {list.kind === 'ready' &&
-          (list.value.places.length ? (
-            list.value.places.map((place) => (
-              <article className="panel library-place" key={`${place.provider}:${place.poi_id}`}>
-                <span className="library-place-icon" aria-hidden="true">
-                  ⌖
-                </span>
-                <div>
-                  <h3>{place.name}</h3>
-                  <p>{place.address || '地图未提供地址'}</p>
-                  <details>
-                    <summary>查看来源（{place.sources.length}）</summary>
-                    <ul>
-                      {place.sources.map((source) => (
-                        <li key={source.import_id}>
-                          {source.kind === 'image' ? (
-                            <>
-                              <a
-                                href={importImagePath(source.import_id)}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                查看来源截图
-                              </a>
-                              {source.excerpt && <p>「{source.excerpt}」</p>}
-                            </>
-                          ) : (
-                            '手动补录'
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </details>
-                </div>
-              </article>
-            ))
-          ) : (
-            <p className="note">还没有收藏。导入截图并确认地点后，收藏会显示在这里。</p>
-          ))}
+        {list.kind === 'ready' && (
+          <WishlistList
+            places={list.value.places}
+            filter={filter}
+            onFilter={setFilter}
+            onSelect={({ provider, poi_id }) =>
+              navigate({ kind: 'detail', placeKey: { provider, poi_id } })
+            }
+          />
+        )}
         {canImport && list.kind === 'ready' ? (
           <div className="library-actions">
             <button
@@ -187,6 +164,12 @@ export function LibraryPanel({
           !canImport && <p className="note">导入暂不可用，请检查地图服务配置。</p>
         )}
       </section>
+    );
+  }
+
+  if (screen.kind === 'detail') {
+    return (
+      <WishlistDetail placeKey={screen.placeKey} onBack={() => navigate({ kind: 'library' })} />
     );
   }
 

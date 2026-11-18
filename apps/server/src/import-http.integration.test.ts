@@ -187,6 +187,10 @@ it('requires an explicit POI selection before saving an ambiguous screenshot, in
         name: east.name,
         address: east.address,
         city: '苏州',
+        visit: 'unvisited',
+        note: '',
+        schedule: 'unscheduled',
+        evidence: 'unknown',
         sources: [review, another].map(({ import_id }) => ({
           kind: 'image',
           import_id,

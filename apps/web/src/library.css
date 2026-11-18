@@ -59,15 +59,104 @@
   max-width: 100%;
   font: inherit;
 }
-.library-place,
-.library-review {
+.library-review,
+.wishlist-detail-panel {
   padding: 14px;
 }
-.library-place {
+.wishlist-query,
+.wishlist-detail-panel textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+}
+.wishlist-filters,
+.wishlist-status {
   display: flex;
-  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 18px;
+}
+.wishlist-filters button,
+.wishlist-status span {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #edf5fc;
+  color: var(--ink);
+}
+.wishlist-filters button {
+  min-height: 44px;
+  font-size: 13px;
+}
+.wishlist-filters button[aria-pressed='true'] {
+  background: #dcf78e;
+  border-color: #aad13f;
+  color: #263900;
+}
+.wishlist-card {
+  display: flex;
+  align-items: center;
   gap: 12px;
+  width: 100%;
+  padding: 12px;
   margin-bottom: 10px;
+  text-align: start;
+  color: var(--ink);
+  font: inherit;
+}
+.wishlist-card-copy {
+  flex: 1;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.wishlist-card-copy span,
+.wishlist-card-copy small,
+.wishlist-muted {
+  color: #50647b;
+  font-size: 13px;
+}
+.wishlist-detail-panel {
+  margin-bottom: 12px;
+}
+.wishlist-detail-panel label {
+  display: block;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.wishlist-detail-panel textarea {
+  display: block;
+  margin-bottom: 8px;
+  resize: vertical;
+}
+.wishlist-eyebrow {
+  color: #23664a;
+  font-weight: 700;
+}
+.wishlist-status span {
+  font-size: 13px;
+}
+.wishlist-evidence div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.wishlist-evidence dd {
+  margin: 0;
+  text-align: end;
+  font-weight: 700;
+}
+.wishlist-sources {
+  padding-inline-start: 20px;
 }
 .library-place-icon {
   flex: none;
@@ -80,14 +169,9 @@
   color: #23664a;
   font-size: 22px;
 }
-.library-place p,
 .library-excerpt,
 .library-options small {
   color: #50647b;
-}
-.library-place summary {
-  cursor: pointer;
-  color: #185b9f;
 }
 .library-options {
   border: 0;

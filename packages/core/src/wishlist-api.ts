@@ -1,4 +1,14 @@
-import { arr, compile, lit, nullable, obj, oneOf, str, union } from '@earendil-works/pi-schema';
+import {
+  arr,
+  compile,
+  lit,
+  nullable,
+  obj,
+  oneOf,
+  opt,
+  str,
+  union,
+} from '@earendil-works/pi-schema';
 import type { Static } from '@earendil-works/pi-schema';
 import { IdentifierSchema, RevisionSchema } from './contracts.js';
 import { PlaceOptionSchema } from './radar-api.js';
@@ -37,14 +47,43 @@ export const ImportReviewSchema = obj({
   match: Match,
 });
 export const ConfirmImportSchema = obj({ revision: RevisionSchema, ...poiIdentity });
-export const WishlistPlaceSchema = obj({
+const placeFields = {
   ...poiIdentity,
   city: lit('苏州'),
   name: str({ minLength: 1, maxLength: 200 }),
   address: str({ maxLength: 500 }),
   sources: arr(ImportSource, { minItems: 1 }),
+};
+export const WishlistPlaceSchema = obj(placeFields);
+const Visit = oneOf(['unvisited', 'visited']);
+const Schedule = oneOf(['unscheduled', 'scheduled']);
+const Evidence = oneOf(['unknown', 'verified', 'estimated', 'stale']);
+const Note = str({ maxLength: 500 });
+const SavedPlaceSchema = obj({
+  ...placeFields,
+  visit: Visit,
+  note: Note,
+  schedule: Schedule,
+  evidence: Evidence,
 });
-const WishlistSchema = obj({ places: arr(WishlistPlaceSchema) });
+const WishlistSchema = obj({ places: arr(SavedPlaceSchema) });
+const WishlistFilterSchema = obj({
+  q: opt(str({ maxLength: 200 })),
+  visit: opt(Visit),
+  schedule: opt(Schedule),
+  evidence: opt(Evidence),
+});
+const editableFields = { visit: opt(Visit), note: opt(Note) };
+const EditWishlistSchema = obj(editableFields);
+export const StoredWishlistSchema = obj({
+  places: arr(obj({ ...placeFields, ...editableFields })),
+});
+export type SavedPlace = Static<typeof SavedPlaceSchema>;
+export type WishlistFilter = Static<typeof WishlistFilterSchema>;
+export type EditWishlist = Static<typeof EditWishlistSchema>;
+export const savedPlaceValidator = compile(SavedPlaceSchema);
+export const wishlistFilterValidator = compile(WishlistFilterSchema);
+export const editWishlistValidator = compile(EditWishlistSchema);
 export type VisualExtraction = Static<typeof VisualExtractionSchema>;
 export type ImportReview = Static<typeof ImportReviewSchema>;
 export type ConfirmImport = Static<typeof ConfirmImportSchema>;
@@ -56,3 +95,17 @@ export const confirmImportValidator = compile(ConfirmImportSchema);
 export const importSearchValidator = compile(obj({ query: Name }));
 export const wishlistPlaceValidator = compile(WishlistPlaceSchema);
 export const wishlistValidator = compile(WishlistSchema);
+
+export function filterWishlist(
+  places: readonly SavedPlace[],
+  filter: WishlistFilter,
+): SavedPlace[] {
+  const query = filter.q?.trim().toLowerCase() ?? '';
+  return places.filter(
+    (place) =>
+      (!filter.visit || place.visit === filter.visit) &&
+      (!filter.schedule || place.schedule === filter.schedule) &&
+      (!filter.evidence || place.evidence === filter.evidence) &&
+      [place.name, place.address, place.note].some((value) => value.toLowerCase().includes(query)),
+  );
+}

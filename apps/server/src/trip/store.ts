@@ -70,6 +70,15 @@ export async function getTrip({ runtime }: { runtime: UserRuntime }): Promise<Tr
   return { trip_id, revision, stops };
 }
 
+export async function readScheduledPoiIds(runtime: UserRuntime): Promise<ReadonlySet<string>> {
+  const ids = new Set<string>();
+  for (const key of [...(await readKeys(runtime)), LEGACY_KEY]) {
+    const trip = await readTrip(runtime, key);
+    for (const stop of trip?.stops ?? []) ids.add(stop.poi_id);
+  }
+  return ids;
+}
+
 function detail(trip: StoredTrip): TripDetail {
   const { trip_id, revision, stops, day, arrangements = [] } = trip;
   return {
