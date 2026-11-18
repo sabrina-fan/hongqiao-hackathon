@@ -1,7 +1,7 @@
 import { createNodePhotonImages } from '@earendil-works/pi-durable/images/node';
-import { IMPORT_IMAGE_MAX_BYTES } from '@nextstop/core';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import type { IncomingMessage } from 'node:http';
+import { IMPORT_BATCH_MAX_IMAGES, IMPORT_IMAGE_MAX_BYTES } from '@nextstop/core';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { HttpFault, readBody } from '../http.js';
 
@@ -49,21 +49,41 @@ function matchesType(type: string, bytes: Buffer): type is ImageType {
   );
 }
 
-let processor: ReturnType<typeof createNodePhotonImages> | undefined;
-export async function readImportImage(request: IncomingMessage) {
+async function readForm(request: IncomingMessage, limit: number) {
   const contentType = request.headers['content-type'];
   if (!contentType || !/^multipart\/form-data\s*;/i.test(contentType))
     throw new HttpFault('INVALID_IMAGE');
-  const body = await readBody(request, IMPORT_IMAGE_MAX_BYTES + 8192);
-  let form: FormData;
+  const body = await readBody(request, limit);
   try {
-    form = await new Response(body, { headers: { 'content-type': contentType } }).formData();
+    return await new Response(body, { headers: { 'content-type': contentType } }).formData();
   } catch {
     throw new HttpFault('INVALID_IMAGE');
   }
+}
+
+export async function readBatchFiles(request: IncomingMessage) {
+  const form = await readForm(request, IMPORT_BATCH_MAX_IMAGES * (IMPORT_IMAGE_MAX_BYTES + 8192));
+  const files = form.getAll('images');
+  if (
+    files.length < 1 ||
+    files.length > IMPORT_BATCH_MAX_IMAGES ||
+    !files.every((file) => file instanceof File) ||
+    [...form.keys()].some((key) => key !== 'images')
+  )
+    throw new HttpFault('INVALID_REQUEST');
+  return files;
+}
+
+export async function readImportImage(request: IncomingMessage) {
+  const form = await readForm(request, IMPORT_IMAGE_MAX_BYTES + 8192);
   const file = form.get('image');
   if (!(file instanceof File) || [...form.keys()].length !== 1)
     throw new HttpFault('INVALID_IMAGE');
+  return prepareImportImage(file);
+}
+
+let processor: ReturnType<typeof createNodePhotonImages> | undefined;
+export async function prepareImportImage(file: File) {
   if (file.size > IMPORT_IMAGE_MAX_BYTES) throw new HttpFault('REQUEST_TOO_LARGE');
   const original = Buffer.from(await file.arrayBuffer());
   if (!matchesType(file.type, original)) throw new HttpFault('INVALID_IMAGE');
@@ -82,6 +102,14 @@ export async function readImportImage(request: IncomingMessage) {
   return { original, data: prepared.data, mimeType };
 }
 
+export function sendImportImage(response: ServerResponse, imageType: ImageType, data: Buffer) {
+  response.setHeader('content-type', imageType);
+  response.setHeader('content-security-policy', "default-src 'none'; sandbox");
+  response.setHeader('cross-origin-resource-policy', 'same-origin');
+  response.writeHead(200);
+  return response.end(data);
+}
+
 export function createImportImages(dataDir: string) {
   // All components below the configured data directory are server-assigned identifiers.
   const location = (userId: string, id: string) => join(dataDir, 'import-images', userId, id);
@@ -97,6 +125,9 @@ export function createImportImages(dataDir: string) {
     },
     read(userId: string, id: string) {
       return readFile(join(location(userId, id), 'normalized'));
+    },
+    remove(userId: string, id: string) {
+      return rm(location(userId, id), { recursive: true, force: true });
     },
   };
 }

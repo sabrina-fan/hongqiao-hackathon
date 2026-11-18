@@ -1,0 +1,229 @@
+.batch-screen {
+  padding-bottom: 16px;
+}
+.batch-steps {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  margin: 12px 0 18px;
+  list-style: none;
+  counter-reset: batch-step;
+  color: #526981;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.batch-steps li {
+  counter-increment: batch-step;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  white-space: nowrap;
+}
+.batch-steps li::before {
+  content: counter(batch-step);
+  display: grid;
+  place-items: center;
+  width: 1.3em;
+  height: 1.3em;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+}
+.batch-steps li:not(:last-child) {
+  flex: 1;
+}
+.batch-steps li:not(:last-child)::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  background: var(--line);
+  margin-left: 3px;
+}
+.batch-steps [aria-current] {
+  color: #075fcb;
+}
+.batch-steps .complete::before {
+  content: '✓';
+}
+.batch-drop {
+  cursor: pointer;
+  text-align: center;
+}
+.batch-drop input {
+  min-width: 0;
+  width: 100%;
+  max-width: 240px;
+}
+.batch-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px 8px;
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 14px;
+}
+.batch-thumb {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  background: #e5eff8;
+  border: 1px solid var(--line);
+}
+.batch-thumb img,
+.batch-review-source img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.batch-thumb .batch-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  background: #18314ecc;
+  color: #fff;
+  font-size: 18px;
+}
+.batch-filename {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #50647b;
+  font-size: 0.74rem;
+}
+.batch-image-status {
+  display: inline-block;
+  border-radius: 5px;
+  padding: 2px 4px;
+  background: #e8eff7;
+  color: #294966;
+  font-size: 0.72rem;
+}
+.status-ready,
+.status-saved {
+  background: #e3f4e8;
+  color: #186239;
+}
+.status-failed,
+.status-invalid,
+.batch-error {
+  background: #fff1dc;
+  color: #783a13;
+}
+.status-processing {
+  background: #e3efff;
+  color: #16579e;
+}
+.batch-grid .batch-retry {
+  display: block;
+  margin-top: 4px;
+  width: 100%;
+  min-height: 32px;
+  padding: 2px 4px;
+  color: #783a13;
+  background: #fff1dc;
+  border: 1px solid #e9c7a4;
+  border-radius: 8px;
+}
+.batch-progress,
+.batch-confirm-summary {
+  padding: 14px;
+}
+.batch-progress progress {
+  display: block;
+  width: 100%;
+  height: 10px;
+  accent-color: #096ad4;
+}
+.batch-progress p,
+.batch-confirm-summary p {
+  margin: 10px 0 0;
+  color: #50647b;
+  font-size: 0.84rem;
+}
+.batch-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+.batch-summary li {
+  display: grid;
+  place-items: center;
+  padding: 9px 4px;
+  background: #e9f4eb;
+  border: 1px solid #d3e8d9;
+  border-radius: 12px;
+  color: #195b36;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.batch-summary li:nth-child(2) {
+  background: #e8f2ff;
+  border-color: #d8e6fa;
+  color: #16579e;
+}
+.batch-summary li:nth-child(3) {
+  background: #edf2f7;
+  border-color: #e1e8ef;
+  color: #526981;
+}
+.batch-summary strong {
+  font-size: 1.4rem;
+}
+.batch-review-group {
+  margin: 16px 0;
+}
+.batch-review-card {
+  margin-top: 8px;
+}
+.batch-review-source {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.batch-review-source > a {
+  flex: none;
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.batch-review-source h3 {
+  margin: 0 0 3px;
+}
+.batch-review-card summary {
+  cursor: pointer;
+  color: #185b9f;
+}
+.batch-row-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.batch-confirm-summary ul {
+  list-style: none;
+  padding: 0;
+}
+.batch-confirm-summary li {
+  display: grid;
+  gap: 2px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.batch-confirm-summary span {
+  color: #50647b;
+  font-size: 0.84rem;
+}
+.batch-review-count p {
+  margin: 4px 0 0;
+}

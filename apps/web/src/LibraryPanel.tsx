@@ -1,21 +1,10 @@
-import {
-  IMPORT_IMAGE_MAX_BYTES,
-  type ImportReview,
-  type Wishlist,
-  type WishlistFilter,
-  type WishlistPlace,
-} from '@nextstop/core';
+import type { ImportReview, Wishlist, WishlistFilter, WishlistPlace } from '@nextstop/core';
+import { useEffect, useState } from 'react';
+import { ApiError, createSession } from './api.js';
+import { ImportBatchPanel } from './ImportBatchPanel.js';
 import { WishlistDetail } from './WishlistDetail.js';
 import { WishlistList } from './WishlistList.js';
-import { useEffect, useState, type FormEvent } from 'react';
-import { ApiError, createSession } from './api.js';
-import {
-  confirmImport,
-  getWishlist,
-  importImagePath,
-  searchImport,
-  uploadImage,
-} from './wishlist-client.js';
+import { confirmImport, getWishlist, importImagePath, searchImport } from './wishlist-client.js';
 import './library.css';
 
 type Screen =
@@ -60,7 +49,6 @@ export function LibraryPanel({
   const [list, setList] = useState<ListState>({ kind: 'loading' });
   const [filter, setFilter] = useState<WishlistFilter>({});
   const [retry, setRetry] = useState(0);
-  const [file, setFile] = useState<File | null>(null);
   const [query, setQuery] = useState('');
   const [choice, setChoice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -88,7 +76,6 @@ export function LibraryPanel({
     setFailure('');
     setChoice('');
     setQuery('');
-    setFile(null);
     setScreen(next);
   }
   async function run(action: () => Promise<void>) {
@@ -103,19 +90,6 @@ export function LibraryPanel({
       setBusy(false);
     }
   }
-  function handleUpload(event: FormEvent) {
-    event.preventDefault();
-    if (!file) return;
-    if (file.size > IMPORT_IMAGE_MAX_BYTES) {
-      setFailure('图片超过 5 MB。请更换图片，或手动搜索地点。');
-      return;
-    }
-    void run(async () => {
-      const review = await uploadImage(file);
-      navigate({ kind: 'review', review });
-    });
-  }
-
   if (screen.kind === 'library') {
     return (
       <section className="library-screen">
@@ -191,48 +165,11 @@ export function LibraryPanel({
   );
   if (screen.kind === 'upload') {
     return (
-      <section className="library-screen">
-        <header className="bar library-heading">
-          {back}
-          <h1>导入攻略截图</h1>
-        </header>
-        <p className="note" id="screenshot-privacy">
-          截图可能包含昵称、人脸、订单或联系方式。请先核对并遮挡不想分享的信息，再自行选择上传。截图用于由视觉服务识别地点，之后可从收藏回看来源。
-        </p>
-        {!canRecognize && (
-          <p className="note">自动识别暂未配置，上传后可以手动搜索并保留截图来源。</p>
-        )}
-        <form onSubmit={handleUpload}>
-          <div className="library-drop">
-            <span aria-hidden="true">⇧</span>
-            <label htmlFor="library-image">选择一张攻略截图</label>
-            <small>PNG 或 JPEG，最多 5 MB</small>
-            <input
-              id="library-image"
-              type="file"
-              accept="image/png,image/jpeg"
-              aria-describedby="screenshot-privacy"
-              disabled={busy}
-              onChange={(event) => {
-                setFile(event.currentTarget.files?.[0] ?? null);
-                setFailure('');
-              }}
-            />
-          </div>
-          {failure && <p role="alert">{failure}</p>}
-          <button className="primary full cta" type="submit" disabled={!file || busy}>
-            {busy ? '正在识别截图…' : '上传并识别'}
-          </button>
-          <button
-            className="secondary full"
-            type="button"
-            disabled={busy}
-            onClick={() => navigate({ kind: 'review', review: null })}
-          >
-            手动搜索地点
-          </button>
-        </form>
-      </section>
+      <ImportBatchPanel
+        canRecognize={canRecognize}
+        onBack={() => navigate({ kind: 'library' })}
+        onManual={() => navigate({ kind: 'review', review: null })}
+      />
     );
   }
 

@@ -47,22 +47,43 @@ async function wishlistDocument(runtime: UserRuntime, tx: Tx) {
   return state;
 }
 
+type PlaceKey = Pick<WishlistPlace, 'provider' | 'poi_id'>;
+const placeKey = ({ provider, poi_id }: PlaceKey) => `${provider}:${poi_id}`;
+
+export async function checkWishlistNewCount({
+  runtime,
+  tx,
+  selections,
+  newCount,
+}: {
+  runtime: UserRuntime;
+  tx: Tx;
+  selections: PlaceKey[];
+  newCount: number;
+}) {
+  const { places } = await wishlistDocument(runtime, tx);
+  const known = new Set(places.map(placeKey));
+  const added = new Set(selections.map(placeKey).filter((key) => !known.has(key)));
+  if (added.size !== newCount) throw new HttpFault('IMPORT_STALE');
+}
+
 export async function saveWishlistSource({
   runtime,
   tx,
   incoming,
+  preservePlaceDetails = false,
 }: {
   runtime: UserRuntime;
   tx: Tx;
   incoming: WishlistPlace;
+  preservePlaceDetails?: boolean;
 }): Promise<WishlistPlace> {
   const state = await wishlistDocument(runtime, tx);
-  const index = state.places.findIndex(
-    ({ provider, poi_id }) => provider === incoming.provider && poi_id === incoming.poi_id,
-  );
+  const index = state.places.findIndex((place) => placeKey(place) === placeKey(incoming));
   const existing = state.places[index];
   const place = {
     ...incoming,
+    ...(preservePlaceDetails && existing && { name: existing.name, address: existing.address }),
     sources: [...(existing?.sources ?? []).map((source) => ({ ...source })), ...incoming.sources],
   };
   if (existing) state.places[index] = { ...existing, ...place };

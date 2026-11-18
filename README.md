@@ -148,8 +148,22 @@ node --env-file=.env.jev.local scripts/probe-jev.mjs --suite
 | `POST /api/v1/imports/:id/confirm` | JSON `{ revision, provider, poi_id }` 显式确认当前候选，返回 `200 WishlistPlace`。原请求重试回放回执。过期版本、无效候选和已确认的不同选择返回 `409`。 |
 | `GET /api/v1/wishlist` | 返回 `200 { places: WishlistPlace[] }`，仅含已确认收藏。用 `(provider, poi_id)` 标识地点，用 `sources[].import_id` 引用来源。 |
 
-共享类型与运行时校验从 `@nextstop/core` 导出，见 [wishlist-api.ts](packages/core/src/wishlist-api.ts)。来源区分图片与手动补录，图片来源可带文字片段。批量导入可复用收藏身份及来源引用，地点详情和草案可读取 `WishlistPlace`。图片识别使用 `.env.example` 中现有的智谱和火山配置。自动识别不可用时，仍可在地图服务已配置的情况下手动选择 POI。
+共享类型与运行时校验从 `@nextstop/core` 导出，见 [wishlist-api.ts](packages/core/src/wishlist-api.ts)。来源区分图片与手动补录，图片来源可带文字片段。地点详情和草案可读取 `WishlistPlace`。图片识别使用 `.env.example` 中现有的智谱和火山配置。自动识别不可用时，仍可在地图服务已配置的情况下手动选择 POI。
 
-本地回归使用合成截图、受控供应商和临时 SQLite。运行 `pnpm build:packages && pnpm exec vitest run apps/server/src/import-http.integration.test.ts`。
+### 批量导入与统一核对
+
+批次使用同一匿名访客会话，契约见 [import-batch-api.ts](packages/core/src/import-batch-api.ts)。页面支持继续添加至 15 张后上传，可在当前标签页刷新后继续上次导入。
+
+| 接口（前缀 `/api/v1/import-batches`） | 输入与结果 |
+| --- | --- |
+| `POST /` | multipart 重复 `images` 字段，1–15 张 PNG/JPEG，每张最多 5 MiB。返回 `202 ImportBatch`，有效图送入后台处理。 |
+| `GET /:batch` | 读取批次修订与逐图状态。处理中可以读取已完成结果。服务中断后，未完成项在下次读取时可重试。 |
+| `GET /:batch/items/:image/image` | 读取有权限的规范化来源图。 |
+| `POST /:batch/items/:image/retry` | `{ revision }`，只重新处理选中的失败图，返回 `202 ImportBatch`。 |
+| `POST /:batch/items/:image/search` | `{ revision, query }`，用苏州地图候选替换该图的匹配结果，返回 `200 ImportBatch`。 |
+| `POST /:batch/items/:image/skip` 或 `/remove` | `{ revision }`，跳过当前项或移除未保存项及其原图与副本，返回 `200 ImportBatch`。 |
+| `POST /:batch/confirm` | `{ revision, new_count, selections: [{ import_id, poi_id }] }`。服务端复核修订、当前候选和新增数，在同一事务保存所选来源，返回 `200 ImportBatch`。待处理项仍可继续核对。 |
+
+本地回归使用合成截图、受控供应商和临时 SQLite。运行 `pnpm build:packages && pnpm exec vitest run apps/server/src/import-http.integration.test.ts apps/server/src/import-batch-http.integration.test.ts`。
 
 详细设计见 [ARCH](ARCH_技术架构与选型.md)、[工程基线](ENGINEERING_工程化基线与Skill分工.md) 与 [待验证清单](VERIFY_待验证清单.md)。
