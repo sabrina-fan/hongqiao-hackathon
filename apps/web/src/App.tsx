@@ -2,6 +2,7 @@ import { capabilitiesValidator, readyValidator } from '@nextstop/core';
 import type { Capabilities } from '@nextstop/core';
 import { useEffect, useState } from 'react';
 import { RadarPanel } from './RadarPanel.js';
+import { LibraryPanel } from './LibraryPanel.js';
 
 type Page = 'radar' | 'library' | 'trip' | 'settings';
 const tabs: readonly { page: Page; label: string }[] = [
@@ -86,16 +87,17 @@ export function App() {
             <h1>{page === 'radar' ? '机会雷达' : '我的行程'}</h1>
           </header>
         )}
-        {page === 'library' && (
-          <>
-            <header className="bar">
-              <h1>灵感库</h1>
-            </header>
-            <section className="panel padded-panel">
-              <h2>攻略截图与收藏</h2>
-              <p>当前版本暂未开放截图导入和收藏管理。</p>
-            </section>
-          </>
+        {page === 'library' && connection.kind === 'ready' && (
+          <LibraryPanel
+            canImport={connection.capabilities.imports}
+            canRead={connection.capabilities.trip_writes}
+            canRecognize={connection.capabilities.model_calls}
+          />
+        )}
+        {page === 'library' && connection.kind !== 'ready' && (
+          <header className="bar">
+            <h1>我的灵感库</h1>
+          </header>
         )}
         {page === 'settings' && (
           <section className="profile-top">
@@ -104,7 +106,7 @@ export function App() {
             <p>偏好及数据管理功能尚未开放。</p>
           </section>
         )}
-        {(page === 'settings' || (page !== 'library' && connection.kind !== 'ready')) && (
+        {(page === 'settings' || connection.kind !== 'ready') && (
           <section className="panel service padded-panel" aria-labelledby="service-heading">
             <h2 id="service-heading">服务连接</h2>
             <p role="status" className={`connection ${connection.kind}`}>

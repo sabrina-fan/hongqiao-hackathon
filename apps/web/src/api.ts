@@ -31,8 +31,13 @@ export function isCancellation(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
 }
 
-async function request(path: string, init: RequestInit, signal?: AbortSignal): Promise<Response> {
-  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+async function request(
+  path: string,
+  init: RequestInit,
+  signal?: AbortSignal,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+): Promise<Response> {
+  const timeout = AbortSignal.timeout(timeoutMs);
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
   let response: Response;
   try {
@@ -66,13 +71,14 @@ async function request(path: string, init: RequestInit, signal?: AbortSignal): P
   return response;
 }
 
-async function requestJson<T>(
+export async function requestJson<T>(
   path: string,
   init: RequestInit,
   check: (body: unknown) => body is T,
   signal?: AbortSignal,
+  timeoutMs?: number,
 ): Promise<T> {
-  const response = await request(path, init, signal);
+  const response = await request(path, init, signal, timeoutMs);
   const body: unknown = await response.json();
   if (!check(body)) throw new ApiError('INVALID_RESPONSE', '服务响应格式无效。', response.status);
   return body;
@@ -86,8 +92,15 @@ function post(body: unknown, headers: Record<string, string> = {}): RequestInit 
   };
 }
 
+let startingSession: Promise<Response> | undefined;
 export async function createSession(signal?: AbortSignal): Promise<void> {
-  await request('/api/v1/sessions', { method: 'POST' }, signal);
+  signal?.throwIfAborted();
+  // Both tabs can load together. Share the initial cookie-setting request.
+  startingSession ??= request('/api/v1/sessions', { method: 'POST' }).finally(() => {
+    startingSession = undefined;
+  });
+  await startingSession;
+  signal?.throwIfAborted();
 }
 
 const tripsPath = '/api/v1/trips';

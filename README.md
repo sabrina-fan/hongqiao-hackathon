@@ -132,6 +132,24 @@ node --env-file=.env.jev.local scripts/probe-jev.mjs --suite
 | 提案、候选池、ETA 或行程版本已变 | 拒绝旧提案，本次请求写入零项 |
 | 确认可行候选为零 | 显示 `kind: empty` 对应的空态，行程保持原样 |
 
-随后接多图导入、POI 消歧、行程草案及导航。完整 P0 范围见 PRD。
+完整 P0 范围见 PRD。
+
+## 单张截图与灵感库契约
+
+使用 `POST /api/v1/sessions` 建立匿名会话。以下接口均使用同一访客 Cookie。苏州 POI 来自已有高德城市搜索。
+
+| 接口 | 输入与结果 |
+| --- | --- |
+| `POST /api/v1/imports` | `multipart/form-data` 的单个 `image` 文件（PNG/JPEG，最多 5 MiB）。返回 `201 ImportReview`。 |
+| `GET /api/v1/imports/:id` | 读当前 `ImportReview`，其中 `extraction` 区分文字、照片猜测和失败，`match` 区分候选、未查找和地图不可用。 |
+| `GET /api/v1/imports/:id/image` | 返回访客自己的规范化来源图。 |
+| `POST /api/v1/imports/:id/search` | JSON `{ query }` 搜索苏州 POI，替换当前候选，提升 `revision`，保留原来源。 |
+| `POST /api/v1/imports/search` | JSON `{ query }` 创建手动补录核对记录，返回 `201 ImportReview`。 |
+| `POST /api/v1/imports/:id/confirm` | JSON `{ revision, provider, poi_id }` 显式确认当前候选，返回 `200 WishlistPlace`。原请求重试回放回执。过期版本、无效候选和已确认的不同选择返回 `409`。 |
+| `GET /api/v1/wishlist` | 返回 `200 { places: WishlistPlace[] }`，仅含已确认收藏。用 `(provider, poi_id)` 标识地点，用 `sources[].import_id` 引用来源。 |
+
+共享类型与运行时校验从 `@nextstop/core` 导出，见 [wishlist-api.ts](packages/core/src/wishlist-api.ts)。来源区分图片与手动补录，图片来源可带文字片段。批量导入可复用收藏身份及来源引用，地点详情和草案可读取 `WishlistPlace`。图片识别使用 `.env.example` 中现有的智谱和火山配置。自动识别不可用时，仍可在地图服务已配置的情况下手动选择 POI。
+
+本地回归使用合成截图、受控供应商和临时 SQLite。运行 `pnpm build:packages && pnpm exec vitest run apps/server/src/import-http.integration.test.ts`。
 
 详细设计见 [ARCH](ARCH_技术架构与选型.md)、[工程基线](ENGINEERING_工程化基线与Skill分工.md) 与 [待验证清单](VERIFY_待验证清单.md)。

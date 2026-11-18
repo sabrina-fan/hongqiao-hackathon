@@ -1,3 +1,5 @@
+import { visualExtractionValidator } from '@nextstop/core';
+import { configuredVisionExtractor } from '@nextstop/model-gateway';
 import { createApp } from './app.js';
 import { readServerConfig } from './config.js';
 
@@ -9,6 +11,7 @@ const server = createApp({
   cookieSecret: config.cookieSecret,
   secureCookie: config.secureCookie,
   map: config.mapKey ? createAmap({ key: config.mapKey }) : null,
+  vision: configuredVisionExtractor(process.env, visualExtractionValidator.check),
 });
 await new Promise<void>((resolve, reject) => {
   server.once('error', reject);

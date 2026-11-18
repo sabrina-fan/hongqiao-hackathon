@@ -11,6 +11,12 @@ export class HttpFault extends Error {
       | 'SESSION_REQUIRED'
       | 'RADAR_NOT_CONFIGURED'
       | 'CROSS_ORIGIN'
+      | 'INVALID_IMAGE'
+      | 'IMPORT_NOT_FOUND'
+      | 'IMPORT_STALE'
+      | 'IMPORT_CONFIRMED'
+      | 'IMPORT_INVALID_CHOICE'
+      | 'IMPORT_BUSY'
       | 'NOT_IMPLEMENTED',
   ) {
     super(code);
@@ -22,6 +28,12 @@ const errors = {
   CROSS_ORIGIN: [403, '请从当前应用确认。'],
   SESSION_REQUIRED: [401, '请重新建立匿名会话。'],
   RADAR_NOT_CONFIGURED: [503, '雷达服务尚未配置。'],
+  INVALID_IMAGE: [422, '无法读取图片。请更换 PNG / JPEG，或手动搜索地点。'],
+  IMPORT_NOT_FOUND: [404, '未找到此核对记录。'],
+  IMPORT_STALE: [409, '候选已更新，请重新核对。'],
+  IMPORT_CONFIRMED: [409, '这条记录已经确认。'],
+  IMPORT_INVALID_CHOICE: [409, '请选择当前核对中的地图候选。'],
+  IMPORT_BUSY: [503, '图片处理繁忙，请稍后重试。'],
   NOT_IMPLEMENTED: [404, '接口尚未实现。'],
   NOT_FOUND: [404, '未找到本次雷达提案。'],
   PLACE_NOT_FOUND: [404, '地点已不可用，请重新搜索选择。'],
@@ -39,8 +51,9 @@ const errors = {
 } as const;
 
 export function send(response: ServerResponse, status: number, value?: unknown) {
+  const body = value === undefined ? undefined : JSON.stringify(value);
   response.writeHead(status);
-  response.end(value === undefined ? undefined : JSON.stringify(value));
+  response.end(body);
 }
 export function sendError(response: ServerResponse, error: unknown) {
   const code =
@@ -67,23 +80,28 @@ export async function readJson<T>(
 ): Promise<T> {
   if (request.headers['content-type']?.split(';')[0]?.trim().toLowerCase() !== 'application/json')
     throw new HttpFault('INVALID_REQUEST');
-  const chunks: Buffer[] = [];
-  let bytes = 0;
-  for await (const chunk of request.iterator({ destroyOnReturn: false })) {
-    if (!Buffer.isBuffer(chunk)) throw new HttpFault('INVALID_REQUEST');
-    bytes += chunk.length;
-    if (bytes > 8192) {
-      request.resume();
-      throw new HttpFault('REQUEST_TOO_LARGE');
-    }
-    chunks.push(chunk);
-  }
+  const body = await readBody(request, 8192);
   let value: unknown;
   try {
-    value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    value = JSON.parse(body.toString('utf8'));
   } catch {
     throw new HttpFault('INVALID_REQUEST');
   }
   if (!check(value)) throw new HttpFault('INVALID_REQUEST');
   return value;
+}
+
+export async function readBody(request: IncomingMessage, limit: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const chunk of request.iterator({ destroyOnReturn: false })) {
+    if (!Buffer.isBuffer(chunk)) throw new HttpFault('INVALID_REQUEST');
+    bytes += chunk.length;
+    if (bytes > limit) {
+      request.resume();
+      throw new HttpFault('REQUEST_TOO_LARGE');
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }

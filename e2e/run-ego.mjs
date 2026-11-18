@@ -148,8 +148,8 @@ try {
   await pick('origin', '验收起点');
   await pick('destination', '验收书店');
   await page.click('loc=role:link[name="灵感库"]', {label:'Open the inspiration library'});
-  await heading('灵感库');
-  await wait(() => document.querySelector('main')?.textContent.includes('暂未开放截图导入和收藏管理'));
+  await heading('我的灵感库');
+  await wait(() => document.querySelector('main')?.textContent.includes('还没有收藏'));
   await page.click('loc=role:link[name="我的"]', {label:'Open the settings page'});
   await heading('我的');
   await wait(() => document.querySelector('main')?.textContent.includes('偏好及数据管理功能尚未开放'));
