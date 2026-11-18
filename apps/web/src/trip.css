@@ -105,3 +105,16 @@
   min-height: 44px;
   min-width: 44px;
 }
+
+.trip-card > span,
+.trip-entry {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.trip .trip-date,
+.trip .timeline time {
+  font-variant-numeric: tabular-nums;
+}
+.trip-entry strong {
+  line-height: 1.3;
+}

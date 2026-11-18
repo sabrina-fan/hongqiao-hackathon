@@ -411,3 +411,25 @@
 .batch-matched-place > .batch-review-card {
   margin: 0 0 8px;
 }
+
+.batch-screen .batch-progress {
+  font-variant-numeric: tabular-nums;
+}
+.batch-review-screen .batch-summary {
+  margin-top: 10px;
+}
+.batch-matched-place > summary > span,
+.batch-review-card .option,
+.batch-confirm-summary li {
+  overflow-wrap: anywhere;
+}
+.batch-review-screen .cta {
+  position: sticky;
+  bottom: 10px;
+  z-index: 1;
+  min-height: 46px;
+  box-shadow: 0 0 0 6px var(--paper);
+}
+#screen:has(.batch-review-screen .cta) {
+  scroll-padding-bottom: 66px;
+}

@@ -125,7 +125,7 @@ export function SettingsPanel({
             NEXTSTOP <small>/ 下一站</small>
           </span>
         </div>
-        <h1>我的</h1>
+        <h1 className="sr-only">我的</h1>
         <p>个人设置与数据管理</p>
       </header>
       <div className="settings-body">

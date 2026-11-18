@@ -371,7 +371,8 @@ export function PickCard({
         </div>
       </div>
       <p className="reason">
-        <strong>✧ 推荐理由</strong>　{pick.choice.reason_text}
+        <strong>✧ 推荐理由</strong>
+        {pick.choice.reason_text}
       </p>
       <div className="times">
         <div>

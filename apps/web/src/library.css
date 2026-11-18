@@ -300,3 +300,23 @@
   color: #125fae;
   text-decoration: underline;
 }
+
+.wishlist-screen .library-heading h1 {
+  letter-spacing: -0.02em;
+}
+.wishlist-screen .wishlist-query,
+.wishlist-screen .wishlist-filters button {
+  min-height: 36px;
+}
+.wishlist-card-copy,
+.wishlist-facts-heading h2,
+.wishlist-detail-screen .wishlist-facts {
+  overflow-wrap: anywhere;
+}
+.wishlist-facts-heading h2 {
+  min-width: 0;
+  line-height: 1.25;
+}
+.wishlist-detail-screen .wishlist-evidence dd {
+  min-width: 0;
+}

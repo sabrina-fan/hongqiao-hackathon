@@ -227,3 +227,27 @@
 .result .radar-map-anchor {
   white-space: nowrap;
 }
+
+.radar-form .place-row > strong,
+.result .pick-top > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.result .pick {
+  overflow-wrap: anywhere;
+}
+.result .pick-top h3 {
+  line-height: 1.25;
+}
+.result .pick-bottom .actions {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 4fr);
+}
+.result .pick-bottom .actions button {
+  min-width: 0;
+  min-height: 44px;
+  padding-inline: 6px;
+}
+.result .pick .reason strong {
+  flex: none;
+}

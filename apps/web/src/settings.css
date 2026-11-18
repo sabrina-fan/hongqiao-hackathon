@@ -137,3 +137,29 @@ button.settings-link {
   opacity: 0.6;
   cursor: default;
 }
+
+.settings-header {
+  padding: 20px 14px 16px;
+}
+.settings-header p {
+  margin: 6px 0 0 48px;
+  font-size: 13px;
+}
+.settings-body {
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+.settings-guest {
+  padding: 11px 12px;
+}
+.settings-guest p {
+  font-size: 12px;
+}
+.settings-row summary,
+.settings-link {
+  min-height: 48px;
+  padding-block: 8px;
+}
+.settings-erase {
+  min-height: 44px;
+}

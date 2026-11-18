@@ -419,6 +419,15 @@ try {
 
   const fixedHint = await page.evaluate(() => document.querySelector('.result .radar-hint')?.textContent);
   const previous = await page.evaluate(() => document.querySelector('.pick h3')?.textContent);
+  const actions = await page.evaluate(() =>
+    [...document.querySelectorAll('.pick .actions button')].map((button) => {
+      const { height, left, right } = button.getBoundingClientRect();
+      return { height, left, right };
+    }),
+  );
+  assert.equal(actions.length, 2);
+  assert.ok(actions.every(({height, left, right}) => height >= 44 && left >= 0 && right <= 390));
+  assert.ok(actions[0].right <= actions[1].left);
   await page.click('loc=role:button[name="换一个"]', {label:'Open the feedback choices'});
   await page.click('loc=role:button[name="不感兴趣"]', {label:'Choose a different experience'});
   await wait((previous) => document.querySelector('.radar-feedback-note')?.textContent.includes('不感兴趣') && document.querySelector('.pick h3')?.textContent !== previous && document.querySelectorAll('.radar-map-pin').length === 2, previous);
