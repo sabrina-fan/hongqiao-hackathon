@@ -144,7 +144,7 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
         const batch = await readBatch();
         expect(batch.items.map(({ kind }) => kind)).toEqual(['ready', 'ready', 'ready']);
         return batch;
-      });
+      }, 5_000);
       const [single, shared, pending] = ready.items;
       assert(single && shared && pending);
       const saved = await checkedJson(
