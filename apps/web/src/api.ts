@@ -2,14 +2,16 @@ import {
   acceptReceiptValidator,
   placeSearchValidator,
   radarViewValidator,
-  tripViewValidator,
+  tripDetailValidator,
+  tripListValidator,
 } from '@nextstop/core';
 import type {
   AcceptRadarInput,
   AcceptReceipt,
   RadarRequest,
   RadarView,
-  TripView,
+  ArrangementInput,
+  TripDay,
 } from '@nextstop/core';
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -88,14 +90,33 @@ export async function createSession(signal?: AbortSignal): Promise<void> {
   await request('/api/v1/sessions', { method: 'POST' }, signal);
 }
 
-export async function getTrip(signal?: AbortSignal): Promise<TripView | null> {
-  const response = await request('/api/v1/trip', {}, signal);
-  const body: unknown = await response.json();
-  if (body === null) return null;
-  if (!tripViewValidator.check(body)) {
-    throw new ApiError('INVALID_RESPONSE', '服务响应格式无效。', response.status);
-  }
-  return body;
+const tripsPath = '/api/v1/trips';
+const tripPath = (id: string) => `${tripsPath}/${encodeURIComponent(id)}`;
+
+export function listTrips(signal?: AbortSignal) {
+  return requestJson(tripsPath, {}, tripListValidator.check, signal);
+}
+export function getTripDetail(id: string, signal?: AbortSignal) {
+  return requestJson(tripPath(id), {}, tripDetailValidator.check, signal);
+}
+export function createTrip(day: TripDay) {
+  return requestJson(tripsPath, post(day), tripDetailValidator.check);
+}
+export function editTrip(id: string, revision: number, day: TripDay) {
+  return requestJson(tripPath(id), post({ revision, day }), tripDetailValidator.check);
+}
+export function saveArrangement(
+  id: string,
+  revision: number,
+  arrangement: ArrangementInput,
+  arrangementId?: string,
+) {
+  const path = `${tripPath(id)}/arrangements`;
+  return requestJson(
+    arrangementId ? `${path}/${encodeURIComponent(arrangementId)}` : path,
+    post({ revision, arrangement }),
+    tripDetailValidator.check,
+  );
 }
 
 export async function searchPlaces(query: string, signal?: AbortSignal) {

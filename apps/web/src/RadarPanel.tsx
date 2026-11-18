@@ -1,21 +1,17 @@
-import { useEffect, useEffectEvent, useRef, useState } from 'react';
-import type { Capabilities, PlaceOption, RadarView, TripView } from '@nextstop/core';
+import { useEffect, useRef, useState } from 'react';
+import type { Capabilities, PlaceOption, RadarView } from '@nextstop/core';
 import {
   ApiError,
   acceptRadar,
   createRadarSession,
   createSession,
   getRadarSession,
-  getTrip,
   isCancellation,
 } from './api.js';
 import { Icon, PickCard, RadarForm } from './RadarScreens.js';
+import { TripPanel } from './TripPanel.js';
 
 type Session = { kind: 'loading' | 'ready' } | { kind: 'failed'; message: string };
-type Trip =
-  | { kind: 'loading' }
-  | { kind: 'ready'; value: TripView | null }
-  | { kind: 'failed'; message: string };
 type Result =
   | { kind: 'idle' | 'calculating' }
   | { kind: 'error'; message: string }
@@ -42,71 +38,6 @@ function remember(id: string | null) {
 function messageOf(error: unknown) {
   return error instanceof ApiError ? error.message : '无法读取服务响应，请重试。';
 }
-function TripPanel({ onSessionExpired }: { onSessionExpired: (error: unknown) => boolean }) {
-  const [trip, setTrip] = useState<Trip>({ kind: 'loading' });
-  const [attempt, setAttempt] = useState(0);
-  const reportSession = useEffectEvent(onSessionExpired);
-  useEffect(() => {
-    const controller = new AbortController();
-    const { signal } = controller;
-    setTrip({ kind: 'loading' });
-    void (async () => {
-      try {
-        const value = await getTrip(signal);
-        if (!signal.aborted) setTrip({ kind: 'ready', value });
-      } catch (error) {
-        if (!signal.aborted && !reportSession(error)) {
-          setTrip({ kind: 'failed', message: messageOf(error) });
-        }
-      }
-    })();
-    return () => controller.abort();
-  }, [attempt]);
-
-  return (
-    <section className="trip" aria-labelledby="stops-heading">
-      {trip.kind === 'ready' && trip.value?.stops.length ? (
-        <div className="panel list-row trip-card">
-          <img src="/prototype/assets/hero.webp" alt="" />
-          <span>
-            <strong>苏州行程</strong>
-            <small>已加入 {trip.value.stops.length} 个地点</small>
-            <small>个人行程 · 步行</small>
-          </span>
-        </div>
-      ) : null}
-      <div className="segment trip-segment">
-        <h2 id="stops-heading">行程安排</h2>
-        <span className="muted">未安排地点 · 暂未开放</span>
-      </div>
-      {trip.kind === 'loading' && <p role="status">正在读取行程…</p>}
-      {trip.kind === 'failed' && (
-        <>
-          <p role="alert">行程读取失败：{trip.message}</p>
-          <button type="button" onClick={() => setAttempt((value) => value + 1)}>
-            重试读取行程
-          </button>
-        </>
-      )}
-      {trip.kind === 'ready' &&
-        (trip.value?.stops.length ? (
-          <ol className="timeline" role="list">
-            {trip.value.stops.map((stop, index) => (
-              <li key={stop.stop_id}>
-                <span className="stop-order">第 {index + 1} 站</span>
-                <i aria-hidden="true" />
-                <strong>{stop.name}</strong>
-              </li>
-            ))}
-          </ol>
-        ) : (
-          <p className="note">还没有已加入的地点。确认雷达推荐后，地点会出现在这里。</p>
-        ))}
-      <p className="note">目前可从机会雷达加入地点。旅行编辑和 AI 草案尚未开放。</p>
-    </section>
-  );
-}
-
 export function RadarPanel({
   capabilities,
   page,
@@ -260,12 +191,11 @@ export function RadarPanel({
   if (page === 'trip') {
     return (
       <>
-        <header className="bar">
-          <h1>我的行程</h1>
-          <button type="button" className="primary mini" disabled>
-            ＋ 新建旅行
-          </button>
-        </header>
+        {(sessionStatus || result.kind === 'accepting') && (
+          <header className="bar">
+            <h1>我的行程</h1>
+          </header>
+        )}
         {sessionStatus ??
           (result.kind === 'accepting' ? (
             <p role="status" className="note">

@@ -21,10 +21,10 @@ import {
   AcceptReceipts,
   RadarRecordSchema,
   RadarResults,
-  Trips,
   type RadarRecord,
   type RadarSessionSnapshot,
 } from '../runtime/documents.js';
+import { activeTripDocument, getTrip } from '../trip/store.js';
 import type { UserRuntime } from '../runtime/open-user-runtime.js';
 import { RadarFault, WalkingEvidenceSchema, type WalkingEvidence } from './evidence.js';
 
@@ -36,7 +36,6 @@ const STAY_MIN = 20;
 const BUFFER_MIN = 10;
 const MINUTE = 60_000;
 const ETA_TTL = 5 * MINUTE;
-const TRIP_KEY = 'current';
 
 function fits(session: RadarSessionSnapshot, at: number) {
   return (
@@ -156,7 +155,7 @@ export async function createRadar({
   const conversationId = runtime.conversation.id;
   const sessionId = `radar-${randomUUID()}`;
   return runtime.conversation.commit(async (tx) => {
-    const trip = await tx.doc(Trips, conversationId, TRIP_KEY, TRIP_KEY);
+    const trip = await activeTripDocument(tx, conversationId);
     const record = await tx.doc(RadarResults, conversationId, sessionId, sessionId);
     const at = now();
     const fetched = Date.parse(evidence.fetched_at);
@@ -200,16 +199,6 @@ export async function getRadar({
   );
   return checkedView(record, sessionId, await getTrip({ runtime }), now());
 }
-export async function getTrip({ runtime }: { runtime: UserRuntime }): Promise<TripView | null> {
-  const record = await runtime.harness.snapshot(
-    Trips,
-    runtime.conversation.id,
-    TRIP_KEY,
-    BACKGROUND_CONTEXT,
-  );
-  return record?.trip ?? null;
-}
-
 function fingerprint(sessionId: string, { binding, poi_id }: AcceptRadarInput) {
   return JSON.stringify([
     sessionId,
@@ -253,7 +242,7 @@ export async function acceptRadar({
     if (!record.outcome) throw new RadarFault('NOT_FOUND');
     if (!sameProposalBinding(input.binding, record.outcome.binding))
       throw new RadarFault('PROPOSAL_STALE');
-    const tripDoc = await tx.doc(Trips, conversationId, TRIP_KEY, TRIP_KEY);
+    const tripDoc = await activeTripDocument(tx, conversationId);
     const view = checkedView(record, sessionId, tripDoc.trip, now());
     if (view.outcome.kind === 'empty') throw new RadarFault('NO_FEASIBLE_OPTION');
     if (view.destination.id !== input.poi_id) throw new RadarFault('NOT_FOUND');
@@ -264,6 +253,10 @@ export async function acceptRadar({
     };
     const prior = tripDoc.trip;
     const trip = {
+      ...(prior?.day ? { day: { ...prior.day } } : {}),
+      ...(prior?.arrangements
+        ? { arrangements: prior.arrangements.map((item) => ({ ...item })) }
+        : {}),
       trip_id: prior?.trip_id ?? `trip-${randomUUID()}`,
       revision: (prior?.revision ?? 0) + 1,
       stops: [...(prior?.stops.map((item) => ({ ...item })) ?? []), stop],

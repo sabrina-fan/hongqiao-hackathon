@@ -1,5 +1,5 @@
 import { defineDocFamily } from '@earendil-works/pi-durable';
-import { int, nullable, obj, opt, str } from '@earendil-works/pi-schema';
+import { arr, compile, int, nullable, obj, opt, str } from '@earendil-works/pi-schema';
 import type { Static } from '@earendil-works/pi-schema';
 import {
   AcceptReceiptSchema,
@@ -7,7 +7,9 @@ import {
   IdentifierSchema,
   PlaceOptionSchema,
   RadarOutcomeSchema,
-  TripViewSchema,
+  ArrangementSchema,
+  TripDaySchema,
+  tripFields,
 } from '@nextstop/core';
 
 const RadarSessionSnapshotSchema = obj({
@@ -47,7 +49,16 @@ export const RadarResults = defineDocFamily<RadarRecord, string>({
   checkpointWhen: () => true,
 });
 
-const TripStateSchema = obj({ trip: nullable(TripViewSchema) });
+const TripStateSchema = obj({
+  trip: nullable(
+    obj({
+      ...tripFields,
+      day: opt(TripDaySchema),
+      arrangements: opt(arr(ArrangementSchema)),
+    }),
+  ),
+});
+export const tripStateValidator = compile(TripStateSchema);
 export type TripState = Static<typeof TripStateSchema>;
 
 export const Trips = defineDocFamily<TripState, string>({
@@ -58,6 +69,19 @@ export const Trips = defineDocFamily<TripState, string>({
   history: 'rewindable',
   fork: 'current',
   initial: () => ({ trip: null }),
+  checkpointWhen: () => true,
+});
+
+const TripDirectorySchema = obj({ keys: arr(IdentifierSchema) });
+export const tripDirectoryValidator = compile(TripDirectorySchema);
+export const TripDirectory = defineDocFamily<Static<typeof TripDirectorySchema>, string>({
+  kind: 'nextstop.trip_directory',
+  version: 1,
+  family: true,
+  scope: 'conversation',
+  history: 'rewindable',
+  fork: 'current',
+  initial: () => ({ keys: [] }),
   checkpointWhen: () => true,
 });
 

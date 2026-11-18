@@ -1,0 +1,58 @@
+.trip .trip-card {
+  width: 100%;
+  margin-bottom: 8px;
+  text-align: left;
+  color: inherit;
+}
+.trip .trip-card[aria-pressed='true'] {
+  border-color: #9abde3;
+}
+.trip .trip-card small + small {
+  margin-top: 4px;
+}
+.trip .trip-editor {
+  margin-block: 12px;
+}
+.trip-editor h2 {
+  margin-bottom: 12px;
+}
+.trip-times {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.trip-times input {
+  min-width: 0;
+}
+.trip-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+}
+.trip-lock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+.trip h3 {
+  margin: 12px 0 4px;
+}
+.trip-entry {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.trip-entry small {
+  display: block;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.trip-entry .trip-warning {
+  color: #8b3d22;
+}
+.trip .timeline .trip-entry button {
+  padding: 6px 0;
+  min-height: 36px;
+  color: var(--blue);
+}

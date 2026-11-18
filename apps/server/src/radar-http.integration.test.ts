@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { acceptReceiptValidator, radarViewValidator, type RadarView } from '@nextstop/core';
+import {
+  acceptReceiptValidator,
+  radarViewValidator,
+  tripDetailValidator,
+  type RadarView,
+} from '@nextstop/core';
 import { createApp } from './app.js';
 import { MapFault, type RadarMap } from './radar/amap.js';
 
@@ -137,6 +142,57 @@ describe('radar through HTTP and per-guest SQLite', () => {
       'same-confirmation',
     );
     await expectFault(conflict, 409, 'IDEMPOTENCY_CONFLICT');
+  });
+  it('lists the legacy trip and keeps a locked arrangement when radar appends to the current trip', async () => {
+    const cookie = await guest();
+    const initial = await propose(cookie);
+    const legacy = await accept(cookie, initial, 'legacy');
+    const receipt: unknown = await legacy.json();
+    if (!acceptReceiptValidator.check(receipt)) throw new Error('Missing legacy receipt');
+    const day = {
+      destination: '苏州',
+      date: '2026-11-20',
+      time_zone: 'Asia/Shanghai',
+      start: '09:00',
+      end: '20:00',
+    };
+    const created = await post('/trips', day, cookie);
+    const planned: unknown = await created.json();
+    if (!tripDetailValidator.check(planned)) throw new Error('Missing planned trip');
+    const path = `/trips/${planned.trip_id}`;
+    const arrangement = {
+      name: '预约晚餐',
+      start: '17:30',
+      end: '18:30',
+      address: '平江路 10 号',
+      locked: true,
+    };
+    expect(
+      (await post(`${path}/arrangements`, { revision: planned.revision, arrangement }, cookie))
+        .status,
+    ).toBe(200);
+    const proposal = await propose(cookie);
+    expect(proposal.outcome.binding).toMatchObject({
+      trip_id: planned.trip_id,
+      trip_revision: planned.revision + 1,
+    });
+    expect((await accept(cookie, proposal, 'planned')).status).toBe(200);
+    const get = (path: string) =>
+      fetch(url + path, { headers: { cookie } }).then((response) => response.json());
+    expect(await get(path)).toMatchObject({
+      day,
+      revision: planned.revision + 2,
+      arrangements: [arrangement],
+      stops: [{ name: destination.name }],
+    });
+    expect(await get('/trips')).toMatchObject({
+      current_trip_id: planned.trip_id,
+      trips: [{ trip_id: planned.trip_id }, { trip_id: receipt.trip_id, day: null }],
+    });
+    expect(await get(`/trips/${receipt.trip_id}`)).toMatchObject({
+      revision: receipt.trip_revision,
+      stops: [receipt.stop],
+    });
   });
   it('rejects outdated proposal, pool, ETA and trip bindings, including a competing tab', async () => {
     const cookie = await guest();

@@ -8,7 +8,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openUserRuntime } from '../runtime/open-user-runtime.js';
 import { RadarFault } from './evidence.js';
 import type { WalkingEvidence } from './evidence.js';
-import { acceptRadar, createRadar, getRadar, getTrip } from './store.js';
+import { acceptRadar, createRadar, getRadar } from './store.js';
+import { getTrip } from '../trip/store.js';
 
 type UserRuntime = Awaited<ReturnType<typeof openUserRuntime>>;
 const runtimes: UserRuntime[] = [];

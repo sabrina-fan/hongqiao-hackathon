@@ -45,11 +45,12 @@ export const TripStopSchema = obj({
   poi_id: IdentifierSchema,
   name: str({ minLength: 1, maxLength: 200 }),
 });
-export const TripViewSchema = obj({
+export const tripFields = {
   trip_id: IdentifierSchema,
   revision: RevisionSchema,
   stops: arr(TripStopSchema),
-});
+};
+export const TripViewSchema = obj(tripFields);
 export type TripView = Static<typeof TripViewSchema>;
 export const tripViewValidator = compile(TripViewSchema);
 

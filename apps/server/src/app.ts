@@ -9,8 +9,11 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { createGuestSessions } from './guest-session.js';
 import { checkPostOrigin, HttpFault, readJson, send, sendError } from './http.js';
 import type { RadarMap } from './radar/amap.js';
-import { acceptRadar, createRadar, getRadar, getTrip } from './radar/store.js';
+import { acceptRadar, createRadar, getRadar } from './radar/store.js';
 import { createUserAccess } from './radar/user-access.js';
+
+import { getTrip } from './trip/store.js';
+import { tripRoute } from './trip/routes.js';
 
 const identifier = compile(IdentifierSchema);
 type Options = {
@@ -50,11 +53,12 @@ export function createApp(options?: Options) {
     const search = request.method === 'GET' && path === '/api/v1/places';
     const create = request.method === 'POST' && path === '/api/v1/radar/sessions';
     const trip = request.method === 'GET' && path === '/api/v1/trip';
+    const manageTrip = tripRoute(request.method, path);
     const member = /^\/api\/v1\/radar\/sessions\/([A-Za-z0-9_-]{1,100})(\/accept)?$/.exec(path);
     const sessionId = member?.[1];
     const accept = Boolean(member?.[2]) && request.method === 'POST';
     const view = sessionId && !member?.[2] && request.method === 'GET';
-    if (!(createSession || search || create || trip || accept || view))
+    if (!(createSession || search || create || trip || manageTrip || accept || view))
       throw new HttpFault('NOT_IMPLEMENTED');
     if (!sessions || !withUser) throw new HttpFault('RADAR_NOT_CONFIGURED');
     const userId = sessions.read(request.headers.cookie);
@@ -63,6 +67,12 @@ export function createApp(options?: Options) {
       return send(response, 204);
     }
     if (!userId) throw new HttpFault('SESSION_REQUIRED');
+    if (manageTrip)
+      return send(
+        response,
+        manageTrip.status,
+        await manageTrip.handle((run) => withUser(userId, run), request),
+      );
     if (search || create) {
       if (!map) throw new HttpFault('RADAR_NOT_CONFIGURED');
       if (search) {

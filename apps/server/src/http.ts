@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { RadarFault } from './radar/evidence.js';
 import { MapFault } from './radar/amap.js';
+import { TripFault } from './trip/store.js';
 
 export class HttpFault extends Error {
   constructor(
@@ -30,6 +31,10 @@ const errors = {
   PROPOSAL_UNVALIDATED: [409, '提案未通过校验，请重新计算。'],
   NO_FEASIBLE_OPTION: [409, '没有可接受的可行候选。'],
   IDEMPOTENCY_CONFLICT: [409, '同一确认标识已用于其他操作。'],
+  TRIP_NOT_FOUND: [404, '未找到旅行或固定安排。'],
+  TRIP_STALE: [409, '行程已更新，请重新读取后再编辑。'],
+  INVALID_TRIP_DAY: [400, '请选择有效日期和时区，游玩结束时间须晚于开始时间且在同一天。'],
+  INVALID_ARRANGEMENT_TIME: [400, '活动结束时间须晚于开始时间且在同一天。'],
   INTERNAL_ERROR: [500, '服务暂不可用。'],
 } as const;
 
@@ -39,7 +44,10 @@ export function send(response: ServerResponse, status: number, value?: unknown) 
 }
 export function sendError(response: ServerResponse, error: unknown) {
   const code =
-    error instanceof RadarFault || error instanceof MapFault || error instanceof HttpFault
+    error instanceof RadarFault ||
+    error instanceof MapFault ||
+    error instanceof HttpFault ||
+    error instanceof TripFault
       ? error.code
       : 'INTERNAL_ERROR';
   const [status, message] = errors[code];
