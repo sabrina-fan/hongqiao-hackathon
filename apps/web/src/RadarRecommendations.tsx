@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import type {
   RadarCandidate,
   RadarExclusion,
+  RadarFeedback,
   RadarOutcome,
   RadarView,
   RoutePoint,
 } from '@nextstop/core';
 import { PickCard } from './RadarScreens.js';
+import { RadarFeedbackSheet } from './RadarFeedback.js';
 import { RadarRoutePreview } from './RadarRoutePreview.js';
 import './radar-recommendations.css';
 
@@ -119,6 +121,8 @@ export function RadarRecommendations({
   writable,
   historical,
   accepting,
+  updating,
+  onReject,
   onConfirm,
   onEdit,
   onRecalculate,
@@ -128,6 +132,8 @@ export function RadarRecommendations({
   writable: boolean;
   historical: boolean;
   accepting: boolean;
+  updating: boolean;
+  onReject?: (id: string, reason: RadarFeedback['reason']) => void;
   onConfirm: (id: string) => void;
   onEdit: () => void;
   onRecalculate: () => void;
@@ -147,14 +153,17 @@ export function RadarRecommendations({
     const timer = window.setTimeout(() => setAt(Date.now()), Math.max(1, next - Date.now()));
     return () => window.clearTimeout(timer);
   }, [view.candidates, at]);
-  const expired = Boolean(candidate && Date.parse(candidate.valid_until) <= at);
+  const expired =
+    view.evidence_status === 'stale' ||
+    Boolean(candidate && Date.parse(candidate.valid_until) <= at);
+  const disabled = accepting || updating;
   return (
     <>
       {view.candidates ? (
         <CandidateMap
           candidates={view.candidates}
           selected={selected}
-          disabled={accepting}
+          disabled={disabled}
           onSelect={setSelected}
         />
       ) : (
@@ -172,7 +181,7 @@ export function RadarRecommendations({
               type="button"
               key={place.id}
               aria-pressed={place.id === selected}
-              disabled={accepting}
+              disabled={disabled}
               onClick={() => setSelected(place.id)}
             >
               <span className="radar-card-number" aria-hidden="true">
@@ -195,8 +204,17 @@ export function RadarRecommendations({
         primary={selected === outcome.best.choice.poi_id}
         expired={expired}
         accepting={accepting}
-        writable={writable}
+        writable={writable && !updating}
         historical={historical}
+        changeAction={
+          onReject && (
+            <RadarFeedbackSheet
+              name={candidate?.place.name ?? view.destination.name}
+              disabled={disabled}
+              onReject={(reason) => onReject(pick.choice.poi_id, reason)}
+            />
+          )
+        }
         onConfirm={() => onConfirm(pick.choice.poi_id)}
         onEdit={onEdit}
         onRecalculate={onRecalculate}

@@ -100,7 +100,25 @@ export const RadarExclusionSchema = obj({
 });
 export type RadarExclusion = Static<typeof RadarExclusionSchema>;
 
+const budgetYuan = opt(int({ minimum: 0, maximum: 100_000 }));
+const otherRejection = oneOf(['too_far', 'not_interested', 'less_walking']);
+export const RadarFeedbackSchema = union([
+  obj({ reason: otherRejection, place: PlaceOptionSchema }),
+  obj({ reason: lit('too_expensive'), place: PlaceOptionSchema, budget_yuan: budgetYuan }),
+]);
+export type RadarFeedback = Static<typeof RadarFeedbackSchema>;
+const rejectionTarget = { binding: BindingSchema, poi_id: IdentifierSchema };
+const RejectRadarSchema = union([
+  obj({ ...rejectionTarget, reason: otherRejection }),
+  obj({ ...rejectionTarget, reason: lit('too_expensive'), budget_yuan: budgetYuan }),
+]);
+export type RejectRadarInput = Static<typeof RejectRadarSchema>;
+export const rejectRadarValidator = compile(RejectRadarSchema);
+export const recheckRadarValidator = compile(obj({ binding: BindingSchema }));
+
 const RadarViewSchema = obj({
+  feedback: opt(RadarFeedbackSchema),
+  evidence_status: opt(lit('stale')),
   outcome: RadarOutcomeSchema,
   origin: PlaceOptionSchema,
   available_min: int({ minimum: 0, maximum: 720 }),

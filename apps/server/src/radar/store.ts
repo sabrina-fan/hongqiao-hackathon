@@ -303,7 +303,18 @@ export async function getRadar({
 }): Promise<RadarView> {
   if (!identifier.check(sessionId)) throw new RadarFault('NOT_FOUND');
   const record = await readResult(runtime, sessionId);
-  return checkedView(record, sessionId, await readActiveTrip(runtime), now());
+  const trip = await readActiveTrip(runtime);
+  try {
+    return checkedView(record, sessionId, trip, now());
+  } catch (error) {
+    if (
+      !(error instanceof RadarFault) ||
+      error.code !== 'PROPOSAL_STALE' ||
+      !record?.recall?.snapshot.rejections?.length
+    )
+      throw error;
+    return { ...checkedRecall(record, sessionId), evidence_status: 'stale' };
+  }
 }
 
 function readResult(runtime: UserRuntime, sessionId: string) {

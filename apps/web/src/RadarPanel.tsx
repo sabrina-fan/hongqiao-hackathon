@@ -7,6 +7,7 @@ import {
   type FixedStop,
   type PlaceOption,
   type RadarView,
+  type RadarFeedback,
 } from '@nextstop/core';
 import {
   ApiError,
@@ -17,7 +18,9 @@ import {
   getRadarHistory,
   getRadarSession,
   isCancellation,
+  reviseRadar,
 } from './api.js';
+import { RadarFeedbackNote } from './RadarFeedback.js';
 import { fixedClock, Icon, RadarForm } from './RadarScreens.js';
 import { RadarExclusions, RadarRecommendations } from './RadarRecommendations.js';
 import { TripPanel } from './TripPanel.js';
@@ -28,8 +31,8 @@ type Result =
   | { kind: 'error'; message: string }
   | { kind: 'history'; view: RadarView; stale: boolean }
   | { kind: 'stale'; message: string }
-  | { kind: 'shown'; view: RadarView; failure?: string }
-  | { kind: 'accepting'; view: RadarView }
+  | { kind: 'shown'; view: RadarView; failure?: string; feedbackError?: string }
+  | { kind: 'accepting' | 'reranking'; view: RadarView }
   | { kind: 'done'; name: string };
 const draftKey = 'nextstop.radar-session';
 function draftId() {
@@ -201,7 +204,11 @@ export function RadarPanel({
     }
   }
   const available = Number(minutes);
-  const busy = result.kind === 'calculating' || result.kind === 'accepting' || historyLoading;
+  const busy =
+    result.kind === 'calculating' ||
+    result.kind === 'accepting' ||
+    result.kind === 'reranking' ||
+    historyLoading;
   const missingFixed = fixed !== null && !fixed.address;
   const canSubmit = Boolean(
     (origin || position) &&
@@ -241,6 +248,44 @@ export function RadarPanel({
       locked.current = false;
     }
   }
+  async function revise(
+    view: RadarView,
+    rejection?: { poiId: string; reason: RadarFeedback['reason'] },
+  ) {
+    const signal = lifetime.current?.signal;
+    if (locked.current || !signal) return;
+    locked.current = true;
+    setResult({ kind: 'reranking', view });
+    const binding = view.outcome.binding;
+    try {
+      const next = await reviseRadar(
+        binding.session_id,
+        rejection
+          ? {
+              kind: 'reject',
+              input: { binding, poi_id: rejection.poiId, reason: rejection.reason },
+            }
+          : { kind: 'recheck', input: { binding } },
+        signal,
+      );
+      if (!signal.aborted) {
+        setResult({ kind: 'shown', view: next });
+        document.getElementById('screen')?.scrollTo(0, 0);
+      }
+    } catch (error) {
+      if (!signal.aborted && !sessionExpired(error)) {
+        const stale = error instanceof ApiError && error.code === 'PROPOSAL_STALE';
+        setResult({
+          kind: 'shown',
+          view: stale ? { ...view, evidence_status: 'stale' } : view,
+          feedbackError: messageOf(error),
+        });
+      }
+    } finally {
+      locked.current = false;
+    }
+  }
+
   async function confirm(view: RadarView, poiId: string) {
     const signal = lifetime.current?.signal;
     if (locked.current || !signal || !capabilities.trip_writes) return;
@@ -261,8 +306,16 @@ export function RadarPanel({
     } catch (error) {
       if (signal.aborted || isCancellation(error) || sessionExpired(error)) return;
       if (error instanceof ApiError && error.code === 'PROPOSAL_STALE') {
-        remember(null);
-        setResult({ kind: 'stale', message: error.message });
+        if (view.feedback) {
+          setResult({
+            kind: 'shown',
+            view: { ...view, evidence_status: 'stale' },
+            feedbackError: error.message,
+          });
+        } else {
+          remember(null);
+          setResult({ kind: 'stale', message: error.message });
+        }
       } else setResult({ kind: 'shown', view, failure: messageOf(error) });
     } finally {
       locked.current = false;
@@ -478,6 +531,22 @@ export function RadarPanel({
             </a>
           </div>
         )}
+        {shown?.feedback && <RadarFeedbackNote feedback={shown.feedback} />}
+        {shown?.evidence_status === 'stale' && (
+          <p className="note" role="status">
+            此结果需重新核验，暂时无法确认。
+          </p>
+        )}
+        {result.kind === 'reranking' && (
+          <p className="note" role="status">
+            正在更新推荐…
+          </p>
+        )}
+        {result.kind === 'shown' && result.feedbackError && (
+          <p className="note" role="alert">
+            {result.feedbackError}
+          </p>
+        )}
         {result.kind === 'shown' && result.failure && (
           <p className="note" role="alert">
             确认失败：{result.failure}
@@ -492,6 +561,16 @@ export function RadarPanel({
                 : '可以就近休息，或调整时间后再试。'}
             </p>
             <RadarExclusions entries={shown.excluded} />
+            {shown.evidence_status === 'stale' && result.kind !== 'history' && (
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => void revise(shown)}
+              >
+                重新核验
+              </button>
+            )}
           </div>
         )}
         {shown?.outcome.kind === 'recommendations' && (
@@ -500,11 +579,24 @@ export function RadarPanel({
             view={shown}
             outcome={shown.outcome}
             accepting={result.kind === 'accepting'}
+            updating={result.kind === 'reranking'}
             writable={capabilities.trip_writes && result.kind !== 'history'}
             historical={result.kind === 'history'}
+            {...(shown.candidates && result.kind !== 'history'
+              ? {
+                  onReject: (poiId: string, reason: RadarFeedback['reason']) =>
+                    void revise(shown, { poiId, reason }),
+                }
+              : {})}
             onConfirm={(poiId) => void confirm(shown, poiId)}
             onEdit={editResult}
-            onRecalculate={canSubmit ? () => void calculate() : editResult}
+            onRecalculate={
+              shown.candidates && result.kind !== 'history'
+                ? () => void revise(shown)
+                : canSubmit
+                  ? () => void calculate()
+                  : editResult
+            }
           />
         )}
       </section>

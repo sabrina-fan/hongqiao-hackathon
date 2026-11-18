@@ -11,7 +11,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { bookingEvidence, type readBookingPolicy } from './booking-policy.js';
 import type { WalkingEvidence } from './evidence.js';
 
-type RadarOrigin =
+export type RadarOrigin =
   | { origin_id: string }
   | { position: Extract<RadarRequest, { position: unknown }>['position'] };
 export type LocatedOrigin = { place: PlaceOption; point: RoutePoint };

@@ -7,7 +7,7 @@ import type {
 } from '@nextstop/core';
 import './radar-context.css';
 import { useEffect, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { PlaceField } from './PlaceField.js';
 
 export function Icon({ children }: { children: string }) {
@@ -305,6 +305,7 @@ export function PickCard({
   onConfirm,
   onEdit,
   onRecalculate,
+  changeAction,
 }: {
   pick: Pick;
   view: RadarView;
@@ -317,6 +318,7 @@ export function PickCard({
   onConfirm: () => void;
   onEdit: () => void;
   onRecalculate: () => void;
+  changeAction: ReactNode;
 }) {
   const place = candidate?.place ?? view.destination;
   const remaining = candidate?.remaining_min ?? view.window?.remaining_min;
@@ -387,14 +389,18 @@ export function PickCard({
           !historical && <p className="muted">{clock(expiry)} 前可加入</p>
         )}
         <div className="actions">
-          <button
-            className="secondary"
-            type="button"
-            disabled={accepting}
-            onClick={expired ? onRecalculate : onEdit}
-          >
-            {expired ? '重新计算' : '返回修改'}
-          </button>
+          {expired || !changeAction ? (
+            <button
+              className="secondary"
+              type="button"
+              disabled={accepting}
+              onClick={expired ? onRecalculate : onEdit}
+            >
+              {expired ? '重新计算' : '返回修改'}
+            </button>
+          ) : (
+            changeAction
+          )}
           <button
             className="primary"
             type="button"

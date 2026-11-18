@@ -13,9 +13,10 @@ import {
 } from '@nextstop/core';
 import { readWishlist } from '../wishlist/store.js';
 import type { UserRuntime } from '../runtime/open-user-runtime.js';
-import { MapFault, type RadarMap } from './amap.js';
+import { MapFault, type LocatedOrigin, type RadarMap, type RadarOrigin } from './amap.js';
 import { RadarFault, WalkingEvidenceSchema } from './evidence.js';
-import type { RecallSnapshot, Source, VerifiedCandidate } from './recall-snapshot.js';
+import { describeFeedback, feedbackRules } from './feedback-rules.js';
+import type { PoolEntry, RecallSnapshot, Source, VerifiedCandidate } from './recall-snapshot.js';
 
 const walkingEvidence = compile(WalkingEvidenceSchema);
 const candidateLimit = 6;
@@ -23,7 +24,7 @@ const minute = 60_000;
 const ttl = 5 * minute;
 
 type Pick = Extract<RadarOutcome, { kind: 'recommendations' }>['best'];
-type Screened = { pick: Pick; candidate: RadarCandidate };
+type Screened = { pick: Pick; candidate: RadarCandidate; entry: VerifiedCandidate };
 
 function samePoint(
   a: NonNullable<VerifiedCandidate['outbound']['markers']>['origin'],
@@ -74,9 +75,50 @@ export async function recallCandidates({
     ...entries.filter(({ sources }) => sources.includes('nearby')).slice(0, 3),
     ...entries,
   ]);
+  const selectedPool = [...priority].slice(0, candidateLimit);
+  const evidence = await verifyPool({
+    entries: selectedPool,
+    map,
+    origin,
+    location,
+    fixed,
+    startedAt,
+    signal,
+  });
+  return {
+    origin: origin.place,
+    origin_point: origin.point,
+    pool: selectedPool,
+    manual_min: request.available_min,
+    started_ms: startedAt,
+    scanned_at: new Date(now()).toISOString(),
+    fixed,
+    ...evidence,
+    ...(request.fixed_mode ? { fixed_mode: request.fixed_mode } : {}),
+    ...(request.preference ? { preference: request.preference } : {}),
+  };
+}
+
+async function verifyPool({
+  entries,
+  map,
+  origin,
+  location,
+  fixed,
+  startedAt,
+  signal,
+}: {
+  entries: PoolEntry[];
+  map: RadarMap;
+  origin: LocatedOrigin;
+  location: RadarOrigin;
+  fixed: FixedStop | null;
+  startedAt: number;
+  signal: AbortSignal;
+}) {
   const verified: VerifiedCandidate[] = [];
   const excluded: RadarExclusion[] = [];
-  for (const { place, sources } of [...priority].slice(0, candidateLimit)) {
+  for (const { place, sources } of entries) {
     try {
       const outbound = await map.walk({ ...location, poi_id: place.id }, signal, origin);
       if (
@@ -110,17 +152,51 @@ export async function recallCandidates({
       excluded.push({ place, reason: 'route_unverified' });
     }
   }
+  return { verified, excluded };
+}
+
+export async function recheckRecallRoutes(
+  snapshot: RecallSnapshot,
+  map: RadarMap,
+  now: () => number,
+): Promise<RecallSnapshot> {
+  const point =
+    snapshot.origin_point ??
+    snapshot.verified.find(({ outbound }) => outbound.markers)?.outbound.markers?.origin;
+  const location = { origin_id: snapshot.origin.id };
+  const signal = AbortSignal.timeout(15_000);
+  const origin = point
+    ? { place: snapshot.origin, point }
+    : snapshot.origin.id !== liveOriginId && map.resolveOrigin
+      ? await map.resolveOrigin(location, signal)
+      : null;
+  if (!origin || origin.place.id !== snapshot.origin.id) throw new MapFault('ROUTE_UNVERIFIED');
+  const entries =
+    snapshot.pool ??
+    snapshot.verified.map(({ outbound, sources }) => ({ place: outbound.destination, sources }));
+  const { verified, excluded } = await verifyPool({
+    entries,
+    map,
+    origin,
+    location,
+    fixed: snapshot.fixed,
+    startedAt: snapshot.started_ms,
+    signal,
+  });
   return {
-    origin: origin.place,
-    manual_min: request.available_min,
-    started_ms: startedAt,
+    ...snapshot,
+    origin_point: origin.point,
     scanned_at: new Date(now()).toISOString(),
-    fixed,
     verified,
-    excluded,
-    ...(request.fixed_mode ? { fixed_mode: request.fixed_mode } : {}),
-    ...(request.preference ? { preference: request.preference } : {}),
+    excluded: snapshot.pool ? excluded : [...snapshot.excluded, ...excluded],
   };
+}
+
+export function recallEvidenceExpired(snapshot: RecallSnapshot, at: number) {
+  return (
+    at >= Date.parse(snapshot.scanned_at) + ttl ||
+    snapshot.verified.some((entry) => at >= earliestEvidence(entry) + ttl)
+  );
 }
 
 export function openingCovers(hours: string, arrival: number, stay: number) {
@@ -160,10 +236,12 @@ export function screenRecall(snapshot: RecallSnapshot, at: number) {
   const buffer = fixed ? 10 : 0;
   const maxWalk = snapshot.preference === 'short_walk' ? 1500 : 5000;
   const feasible: Screened[] = [];
-  const excluded = [...snapshot.excluded];
+  const rules = feedbackRules(snapshot.rejections ?? []);
+  const excluded = snapshot.excluded.filter(({ place }) => !rules.rejected.has(place.id));
   for (const entry of snapshot.verified) {
     const { outbound, onward, sources } = entry;
     const place = outbound.destination;
+    if (rules.rejected.has(place.id)) continue;
     const facts = outbound.facts ?? {};
     const first = earliestEvidence(entry);
     const last = Math.max(
@@ -196,8 +274,10 @@ export function screenRecall(snapshot: RecallSnapshot, at: number) {
       excluded.push({ place, reason });
       continue;
     }
+    if (!rules.permits(entry)) continue;
     const next = onward?.markers?.destination;
     feasible.push({
+      entry,
       candidate: {
         place,
         sources,
@@ -205,7 +285,7 @@ export function screenRecall(snapshot: RecallSnapshot, at: number) {
         ...(outbound.markers
           ? { markers: { ...outbound.markers, ...(next ? { next } : {}) } }
           : {}),
-        remaining_min: window.available_min - total,
+        remaining_min: Math.floor((window.deadline_ms - at) / minute) - total,
         valid_until: new Date(
           Math.min(first + ttl, window.deadline_ms - total * minute + 1),
         ).toISOString(),
@@ -237,6 +317,7 @@ export function screenRecall(snapshot: RecallSnapshot, at: number) {
       Number(b.candidate.sources.includes('wishlist')) -
       Number(a.candidate.sources.includes('wishlist'));
     return (
+      rules.compare(a.entry, b.entry) ||
       (snapshot.preference === 'short_walk'
         ? a.pick.travel_to_min - b.pick.travel_to_min
         : saved) ||
@@ -274,11 +355,15 @@ export function screenRecall(snapshot: RecallSnapshot, at: number) {
   return { origin, window, feasible: recommended, eligible: feasible, excluded };
 }
 
+export const recallEvaluatedAt = (snapshot: RecallSnapshot) =>
+  Date.parse(snapshot.evaluated_at ?? snapshot.scanned_at);
+
 export function recallView(snapshot: RecallSnapshot, outcome: RadarOutcome): RadarView {
   const { origin, window, feasible, excluded } = screenRecall(
     snapshot,
-    Date.parse(snapshot.scanned_at),
+    recallEvaluatedAt(snapshot),
   );
+  const feedback = snapshot.rejections?.at(-1);
   const [first] = feasible;
   if (
     outcome.kind === 'empty'
@@ -290,9 +375,13 @@ export function recallView(snapshot: RecallSnapshot, outcome: RadarOutcome): Rad
     throw new RadarFault('PROPOSAL_UNVALIDATED');
   const validUntil = first
     ? Math.max(...feasible.map(({ candidate }) => Date.parse(candidate.valid_until)))
-    : Date.parse(snapshot.scanned_at) + ttl;
+    : Math.min(
+        Date.parse(snapshot.scanned_at) + ttl,
+        ...snapshot.verified.map((entry) => earliestEvidence(entry) + ttl),
+      );
   return {
     origin,
+    ...(feedback ? { feedback: describeFeedback(feedback) } : {}),
     destination: first?.candidate.place ?? origin,
     available_min: window.available_min,
     window: {
@@ -325,7 +414,7 @@ export function recallOutcome(
   binding: ProposalBinding,
   reasons?: ReadonlyMap<string, Pick['choice']>,
 ): RadarOutcome {
-  const { feasible, excluded } = screenRecall(snapshot, Date.parse(snapshot.scanned_at));
+  const { feasible, excluded } = screenRecall(snapshot, recallEvaluatedAt(snapshot));
   const picks = feasible.map(({ pick }) => ({
     ...pick,
     choice: reasons?.get(pick.choice.poi_id) ?? pick.choice,

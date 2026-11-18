@@ -16,7 +16,10 @@ import {
   type RadarView,
 } from '@nextstop/core';
 import { createApp } from './app.js';
+import { createGuestSessions } from './guest-session.js';
 import { MapFault, type RadarMap } from './radar/amap.js';
+import { clearRecallFeedback } from './radar/recall-store.js';
+import { openUserRuntime } from './runtime/open-user-runtime.js';
 
 let directory: string;
 let url: string;
@@ -26,6 +29,11 @@ let failMap = false;
 let outboundMinutes = 10;
 let savedMinutes: number | null = null;
 let blockedRoute: string | null = null;
+let farMinutes = 85;
+let farOnwardMinutes = 15;
+let routeReads = 0;
+let facts: Map<string, NonNullable<Awaited<ReturnType<RadarMap['walk']>>['facts']>>;
+let distance: Map<string, number>;
 const secret = randomBytes(32).toString('hex');
 const origin = { id: 'origin', name: '起点', address: '' };
 const destination = { id: 'candidate', name: '候选地', address: '' };
@@ -42,23 +50,28 @@ const map: RadarMap = {
   ...recallMap,
   search: async (q) => [origin, destination, saved].filter((place) => place.name.includes(q)),
   async walk({ poi_id }) {
+    routeReads++;
     if (failMap) throw new MapFault('MAP_UNAVAILABLE');
     if (poi_id === blockedRoute) throw new MapFault('ROUTE_UNVERIFIED');
+    const placeFacts = facts.get(poi_id);
     return {
       origin,
       destination: [destination, saved, far].find((place) => place.id === poi_id) ?? destination,
-      distance_m: 800,
+      distance_m: distance.get(poi_id) ?? 800,
       travel_min:
-        poi_id === far.id ? 85 : ((poi_id === saved.id ? savedMinutes : null) ?? outboundMinutes),
+        poi_id === far.id
+          ? farMinutes
+          : ((poi_id === saved.id ? savedMinutes : null) ?? outboundMinutes),
       fetched_at: new Date(clock).toISOString(),
+      ...(placeFacts ? { facts: placeFacts } : {}),
     };
   },
-  async walkToFixed({ fixed }) {
+  async walkToFixed({ candidate, fixed }) {
     return {
-      origin: destination,
+      origin: candidate.destination,
       destination: { id: fixed.arrangement_id, name: fixed.name, address: fixed.address },
       distance_m: 1200,
-      travel_min: 15,
+      travel_min: candidate.destination.id === far.id ? farOnwardMinutes : 15,
       fetched_at: new Date(clock).toISOString(),
     };
   },
@@ -89,6 +102,11 @@ beforeEach(async () => {
   outboundMinutes = 10;
   savedMinutes = null;
   blockedRoute = null;
+  farMinutes = 85;
+  farOnwardMinutes = 15;
+  routeReads = 0;
+  facts = new Map();
+  distance = new Map();
   await listen();
 });
 afterEach(async () => {
@@ -108,6 +126,21 @@ async function guest() {
   if (!cookie) throw new Error('Missing session cookie');
   return cookie;
 }
+async function clearFeedback(cookie: string, view: RadarView) {
+  const userId = createGuestSessions(secret, false, () => clock).read(cookie);
+  if (!userId) throw new Error('Missing guest');
+  const runtime = await openUserRuntime({ dataDir: directory, userId });
+  try {
+    return await clearRecallFeedback({
+      runtime,
+      sessionId: view.outcome.binding.session_id,
+      now: () => clock,
+    });
+  } finally {
+    await runtime.close();
+  }
+}
+
 function post(path: string, body: unknown, cookie: string, key?: string) {
   return fetch(url + path, {
     method: 'POST',
@@ -197,6 +230,248 @@ describe('radar through HTTP and per-guest SQLite', () => {
     expect((await confirm(destination.id)).status).toBe(200);
     expect(await trip(cookie)).toMatchObject({ stops: [{ poi_id: destination.id }] });
   });
+  it('reranks too far within the original fixed window and persists only this session', async () => {
+    const cookie = await guest();
+    const planned: unknown = await (
+      await post(
+        '/trips',
+        {
+          destination: '苏州',
+          date: '2026-11-18',
+          time_zone: 'Asia/Shanghai',
+          start: '09:00',
+          end: '20:00',
+        },
+        cookie,
+      )
+    ).json();
+    if (!tripDetailValidator.check(planned)) throw new Error('Missing planned trip');
+    const locked = await post(
+      `/trips/${planned.trip_id}/arrangements`,
+      {
+        revision: planned.revision,
+        arrangement: {
+          name: '预约晚餐',
+          start: '17:15',
+          end: '18:30',
+          address: '平江路 10 号',
+          locked: true,
+        },
+      },
+      cookie,
+    );
+    expect(locked.status).toBe(200);
+    const review: unknown = await (
+      await post('/imports/search', { query: saved.name }, cookie)
+    ).json();
+    if (!importReviewValidator.check(review)) throw new Error('Invalid import review');
+    expect(
+      (
+        await post(
+          `/imports/${review.import_id}/confirm`,
+          {
+            provider: 'amap',
+            poi_id: saved.id,
+            revision: review.revision,
+          },
+          cookie,
+        )
+      ).status,
+    ).toBe(200);
+    savedMinutes = 10;
+    outboundMinutes = 8;
+    farMinutes = 5;
+    farOnwardMinutes = 25; // A shorter outbound leg alone is not enough.
+    const input = { origin_id: origin.id, available_min: 90 };
+    const initial: unknown = await (await post('/radar/sessions', input, cookie)).json();
+    if (!radarViewValidator.check(initial)) throw new Error('Invalid radar view');
+    expect(initial.outcome).toMatchObject({
+      kind: 'recommendations',
+      best: { choice: { poi_id: saved.id } },
+    });
+    const reject = (view: RadarView, poi_id: string) =>
+      post(
+        `${pathOf(view)}/reject`,
+        {
+          binding: view.outcome.binding,
+          poi_id,
+          reason: 'too_far',
+        },
+        cookie,
+      );
+    failMap = true; // Fresh evidence must be sufficient even if the provider is down.
+    const result = await reject(initial, saved.id);
+    expect(result.status).toBe(200);
+    const view: unknown = await result.json();
+    if (!radarViewValidator.check(view)) throw new Error('Invalid reranked view');
+    expect(view).toMatchObject({
+      available_min: 75,
+      window: { fixed: initial.window?.fixed, manual_min: 90, remaining_min: 2 },
+      outcome: {
+        kind: 'recommendations',
+        best: { choice: { poi_id: destination.id }, travel_to_min: 8, travel_to_next_min: 15 },
+        alternatives: [],
+      },
+      feedback: { reason: 'too_far', place: saved },
+    });
+    expect(pathOf(view)).toBe(pathOf(initial));
+    expect(view.outcome.binding.eta_revision).toBe(initial.outcome.binding.eta_revision);
+    await expectFault(await reject(initial, saved.id), 409, 'PROPOSAL_STALE');
+    await expectFault(await accept(cookie, initial, 'before-feedback'), 409, 'PROPOSAL_STALE');
+    expect(
+      await fetch(url + pathOf(view), { headers: { cookie: await guest() } }).then((r) => r.status),
+    ).toBe(404);
+    await close();
+    await listen();
+    expect(await fetch(url + pathOf(view), { headers: { cookie } }).then((r) => r.json())).toEqual(
+      view,
+    );
+    const empty = await reject(view, destination.id);
+    expect(empty.status).toBe(200);
+    expect(await empty.json()).toMatchObject({
+      outcome: { kind: 'empty' },
+      window: { fixed: initial.window?.fixed, manual_min: 90 },
+    });
+    failMap = false;
+    const separate = await post('/radar/sessions', input, cookie);
+    expect(separate.status).toBe(201);
+    const independent: unknown = await separate.json();
+    expect(independent).toMatchObject({
+      outcome: { kind: 'recommendations', best: { choice: { poi_id: saved.id } } },
+    });
+    expect(independent).not.toHaveProperty('feedback');
+    failMap = true;
+    const reset = await clearFeedback(cookie, view);
+    expect(reset).toMatchObject({ destination: saved, window: { fixed: initial.window?.fixed } });
+    expect(reset?.feedback).toBeUndefined();
+    expect(await fetch(url + pathOf(view), { headers: { cookie } }).then((r) => r.json())).toEqual(
+      reset,
+    );
+    expect(
+      await fetch(`${url}/radar/history`, { headers: { cookie } }).then((r) => r.json()),
+    ).toEqual({ status: 'saved', view: independent });
+    expect(await trip(cookie)).toMatchObject({ stops: [] });
+  });
+
+  it('reprioritizes categories and estimated prices while keeping unknown prices eligible', async () => {
+    const cookie = await guest();
+    farMinutes = 12;
+    savedMinutes = 11;
+    facts.set(destination.id, { category: '08', price: { text: '100.0', status: 'estimated' } });
+    facts.set(saved.id, { category: '08' });
+    facts.set(far.id, { category: '05', price: { text: '40', status: 'estimated' } });
+    const input = { origin_id: origin.id, available_min: 75 };
+    async function change(reason: 'not_interested' | 'too_expensive', budget?: number) {
+      const initial: unknown = await (await post('/radar/sessions', input, cookie)).json();
+      if (!radarViewValidator.check(initial)) throw new Error('Invalid radar view');
+      expect(initial.destination).toEqual(destination);
+      const result = await post(
+        `${pathOf(initial)}/reject`,
+        {
+          binding: initial.outcome.binding,
+          poi_id: destination.id,
+          reason,
+          ...(budget === undefined ? {} : { budget_yuan: budget }),
+        },
+        cookie,
+      );
+      expect(result.status).toBe(200);
+      const view: unknown = await result.json();
+      if (!radarViewValidator.check(view)) throw new Error('Invalid reranked view');
+      return view;
+    }
+    const interest = await change('not_interested');
+    expect(interest.candidates?.map(({ place }) => place.id)).toEqual([far.id, saved.id]);
+    const cheaper = await change('too_expensive');
+    expect(cheaper.candidates?.map(({ place }) => place.id)).toEqual([far.id, saved.id]);
+    const onBudget = await change('too_expensive', 30);
+    expect(onBudget.candidates).toMatchObject([{ place: saved, facts: {} }]);
+    expect(onBudget.candidates?.[0]?.facts.price).toBeUndefined();
+    expect(await trip(cookie)).toBeNull();
+  });
+
+  it('rechecks shorter-walking routes and blocks stale evidence without losing the feedback', async () => {
+    const cookie = await guest();
+    savedMinutes = 11;
+    farMinutes = 12;
+    const initial: unknown = await (
+      await post('/radar/sessions', { origin_id: origin.id, available_min: 30 }, cookie)
+    ).json();
+    if (!radarViewValidator.check(initial)) throw new Error('Invalid radar view');
+    expect(initial.candidates?.map(({ place }) => place.id)).toEqual([destination.id]);
+    // This route is now viable, but only a fresh lookup can know it.
+    savedMinutes = 4;
+    farMinutes = 5;
+    distance.set(far.id, 1600);
+    const reads = routeReads;
+    const rejection = await post(
+      `${pathOf(initial)}/reject`,
+      {
+        binding: initial.outcome.binding,
+        poi_id: destination.id,
+        reason: 'less_walking',
+      },
+      cookie,
+    );
+    expect(rejection.status).toBe(200);
+    const next: unknown = await rejection.json();
+    if (!radarViewValidator.check(next)) throw new Error('Invalid reranked view');
+    expect(routeReads).toBeGreaterThan(reads);
+    expect(next).toMatchObject({
+      candidates: [{ place: saved }],
+      feedback: { reason: 'less_walking' },
+    });
+    expect(next.outcome.binding.eta_revision).toBe(initial.outcome.binding.eta_revision + 1);
+    clock += 300_000;
+    const restored = await fetch(url + pathOf(next), { headers: { cookie } });
+    expect(restored.status).toBe(200);
+    expect(await restored.json()).toMatchObject({
+      evidence_status: 'stale',
+      feedback: next.feedback,
+    });
+    await expectFault(
+      await post(
+        `${pathOf(next)}/accept`,
+        {
+          binding: next.outcome.binding,
+          poi_id: saved.id,
+        },
+        cookie,
+        'expired-feedback',
+      ),
+      409,
+      'PROPOSAL_STALE',
+    );
+    failMap = true;
+    const recheck = () =>
+      post(`${pathOf(next)}/recheck`, { binding: next.outcome.binding }, cookie);
+    await expectFault(await recheck(), 502, 'MAP_UNAVAILABLE');
+    failMap = false;
+    const reply = await recheck();
+    expect(reply.status).toBe(200);
+    const updated: unknown = await reply.json();
+    if (!radarViewValidator.check(updated)) throw new Error('Invalid reranked view');
+    expect(pathOf(updated)).toBe(pathOf(next));
+    expect(updated).toMatchObject({
+      feedback: next.feedback,
+      // Refresh cannot add five minutes to the original deadline.
+      candidates: [{ place: saved, valid_until: new Date(clock + 60_001).toISOString() }],
+    });
+    expect(updated.evidence_status).toBeUndefined();
+    clock += 300_000;
+    failMap = true;
+    expect(await clearFeedback(cookie, updated)).toBeNull();
+    await expectFault(
+      await fetch(url + pathOf(updated), { headers: { cookie } }),
+      404,
+      'NOT_FOUND',
+    );
+    expect(
+      await fetch(`${url}/radar/history`, { headers: { cookie } }).then((r) => r.json()),
+    ).toBeNull();
+    expect(await trip(cookie)).toBeNull();
+  });
+
   it('keeps a fresh alternative confirmable after another option expires', async () => {
     const cookie = await guest();
     savedMinutes = 24;
