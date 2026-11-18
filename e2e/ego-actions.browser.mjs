@@ -282,7 +282,19 @@ try {
   assert.equal(await value(input), '拙政园');
   await reviewClick(unmatched, '搜索');
   await text(`${unmatched} .library-options`, '苏州东北街 178 号');
-  await click(byText(`${unmatched} .option`, '拙政园'), '核对并选择拙政园');
+  const gardenOption = `${unmatched} .option`;
+  const reachable = await page.evaluate((selector) => {
+    const option = document.querySelector(selector);
+    option.scrollIntoView({ block: 'center', behavior: 'instant' });
+    const bounds = option.getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      bounds.x + bounds.width / 2,
+      bounds.y + bounds.height / 2,
+    );
+    return option.contains(hit);
+  }, gardenOption);
+  assert.ok(reachable, 'The options in the review scroll area must be reachable');
+  await click(gardenOption, '核对并选择拙政园');
   await text('.batch-review-count', '实际新增 3 处');
   assert.ok((await json(batch)).items[3].review.match.candidates.some(({ id }) => id === 'garden'));
   const guessed = '.batch-review-card:has(a[aria-label="查看原图 攻略-5.png"])';
