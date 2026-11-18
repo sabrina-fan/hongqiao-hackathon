@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Server } from 'node:http';
+import { request as httpRequest, type IncomingMessage, type Server } from 'node:http';
+import { json } from 'node:stream/consumers';
 import { capabilitiesValidator, readyValidator } from '@nextstop/core';
 import { createApp } from './app.js';
 
@@ -41,6 +42,18 @@ describe('HTTP scaffold', () => {
       trip_writes: false,
       model_calls: false,
     });
+  });
+  it.each(['//', '//['])('returns 400 for %s and keeps serving health requests', async (path) => {
+    const origin = await startApp();
+    const response = await new Promise<IncomingMessage>((resolve, reject) => {
+      httpRequest(origin, { path }, resolve).once('error', reject).end();
+    });
+    expect(response.statusCode).toBe(400);
+    const body: unknown = await json(response);
+    expect(body).toMatchObject({ error: { code: 'INVALID_REQUEST' } });
+    const ready = await fetch(`${origin}/health/ready`);
+    expect(ready.status).toBe(200);
+    expect(readyValidator.check(await ready.json())).toBe(true);
   });
   it('does not return pretend recommendations from an unimplemented API', async () => {
     const origin = await startApp();

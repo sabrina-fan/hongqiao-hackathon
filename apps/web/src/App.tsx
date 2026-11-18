@@ -7,6 +7,18 @@ type Connection =
   | { kind: 'ready'; capabilities: Capabilities }
   | { kind: 'failed' };
 
+async function readHealth<T>(
+  path: string,
+  signal: AbortSignal,
+  check: (body: unknown) => body is T,
+) {
+  const response = await fetch(path, { signal });
+  if (!response.ok) throw new Error('Service unavailable');
+  const body: unknown = await response.json();
+  if (!check(body)) throw new Error('Invalid service response');
+  return body;
+}
+
 export function App() {
   const [connection, setConnection] = useState<Connection>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
@@ -17,20 +29,15 @@ export function App() {
     setConnection({ kind: 'loading' });
     async function check() {
       try {
-        const [ready, response] = await Promise.all([
-          fetch('/health/ready', { signal: controller.signal }),
-          fetch('/health/capabilities', { signal: controller.signal }),
+        const [, capabilities] = await Promise.all([
+          readHealth('/health/ready', controller.signal, readyValidator.check),
+          readHealth('/health/capabilities', controller.signal, capabilitiesValidator.check),
         ]);
-        if (!ready.ok || !response.ok) throw new Error('Service unavailable');
-        const readiness: unknown = await ready.json();
-        const capabilities: unknown = await response.json();
-        if (!readyValidator.check(readiness) || !capabilitiesValidator.check(capabilities)) {
-          throw new Error('Invalid service response');
-        }
         if (!disposed) setConnection({ kind: 'ready', capabilities });
       } catch {
         if (!disposed) setConnection({ kind: 'failed' });
       } finally {
+        controller.abort();
         clearTimeout(timeout);
       }
     }

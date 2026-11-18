@@ -85,6 +85,45 @@ try {
   await page.click('button', { label: 'Retry restored service connection' });
   await page.waitForFunction(() => document.querySelector('[role=status]')?.textContent?.includes('服务连接正常'), undefined, { timeout: 10000 });
   report.checks.push('retry');
+
+  for (const failure of ['network', 'http', 'schema']) {
+    try {
+      const installedFailure = await page.evaluate((failure) => {
+        const originalFetch = window.fetch;
+        const probe = { started: 0, aborted: 0 };
+        window.healthCancellationProbe = probe;
+        const failedPath = failure === 'schema' ? '/health/capabilities' : '/health/ready';
+        window.fetch = (input, init) => {
+          if (input !== '/health/ready' && input !== '/health/capabilities') return originalFetch(input, init);
+          probe.started++;
+          if (input === failedPath) {
+            if (failure === 'network') return Promise.reject(new TypeError('Simulated connection failure'));
+            if (failure === 'http') return Promise.resolve(new Response(null, { status: 503 }));
+            return Promise.resolve(Response.json({}));
+          }
+          return new Promise((_resolve, reject) => {
+            init.signal.addEventListener('abort', () => {
+              probe.aborted++;
+              reject(init.signal.reason);
+            }, { once: true });
+          });
+        };
+        return failure;
+      }, failure);
+      assert.equal(installedFailure, failure, 'Page must receive the requested failure mode');
+      await page.click('button', { label: 'Check ' + failure + ' failure cancellation' });
+      await page.waitForFunction(() =>
+        window.healthCancellationProbe.started === 2 &&
+        window.healthCancellationProbe.aborted === 1 &&
+        document.querySelector('[role=status]')?.textContent?.includes('连接失败'),
+        undefined, { timeout: 2000 });
+    } finally {
+      // Reload removes the fetch probe and restores the real HTTP client.
+      await page.reload();
+    }
+    await page.waitForFunction(() => document.querySelector('[role=status]')?.textContent?.includes('服务连接正常'), undefined, { timeout: 10000 });
+  }
+  report.checks.push('pending-request-aborted');
   await page.screenshot({ path: settings.screenshot });
   report.status = 'passed';
   await save();
@@ -98,10 +137,15 @@ try {
 
 const report = JSON.parse(await readFile(settings.report, 'utf8'));
 assert.equal(report.status, 'passed', 'Browser acceptance did not finish successfully');
-assert.deepEqual(report.checks, ['mobile-shell', 'backend-error', 'retry']);
+assert.deepEqual(report.checks, [
+  'mobile-shell',
+  'backend-error',
+  'retry',
+  'pending-request-aborted',
+]);
 assert.ok(Number.isInteger(report.space_id), 'Browser report must identify its task space');
 // Finish in a separate browser invocation after the checks have reported success.
 runBrowser(
   `const task = await taskSpace(${JSON.stringify(report.space_id)}); await task.finish({ keep: [] });`,
 );
-console.log('ego-lite: 3 browser checks passed. Inspect mobile.png for visual confirmation.');
+console.log('ego-lite: 4 browser checks passed. Inspect mobile.png for visual confirmation.');

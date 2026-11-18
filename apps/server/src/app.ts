@@ -14,7 +14,16 @@ export function createApp() {
     response.setHeader('content-type', 'application/json; charset=utf-8');
     response.setHeader('cache-control', 'no-store');
     response.setHeader('x-content-type-options', 'nosniff');
-    const path = new URL(request.url ?? '/', 'http://localhost').pathname;
+    let path: string;
+    try {
+      path = new URL(request.url ?? '/', 'http://localhost').pathname;
+    } catch {
+      response.statusCode = 400;
+      response.end(
+        JSON.stringify({ error: { code: 'INVALID_REQUEST', message: '请求路径无效。' } }),
+      );
+      return;
+    }
     if (request.method === 'GET' && path === '/health/ready') {
       response.end(JSON.stringify({ status: 'ok', service: 'nextstop', stage: 'scaffold' }));
     } else if (request.method === 'GET' && path === '/health/capabilities') {

@@ -130,7 +130,7 @@
 **脚手架与目标分开**：目前已实现健康 API、Web 外壳、共享契约、Jev 意图传输和 SQLite 适配。下文完整测试矩阵是业务开发目标；`kill -9` 恢复、accept 幂等、导入/雷达端到端和真实模型质量尚未由脚手架证明。Langfuse 实验入口尚未接通，会明确非零退出；Stryker 与真实写入验收脚本在对应业务落地后接入。
 
 - `.nvmrc` 写 `24`；`engines` 锁 `>=24.18.0 <25`，本地与部署机统一 Node 24 线，不留 22 分支。所有第三方依赖精确锁版（不用 `^`/`~`），提交 lockfile。
-- `pnpm test` 先做 AST 跳过检查，再一次运行 Vitest 的 unit / integration 两个 project 并校验 JSON 报告；CI 不直接跑 `vitest` 绕过门禁。
+- `pnpm test` 先构建共享包，做 AST 跳过检查，再一次运行 Vitest 的 unit / integration 两个 project 并校验 JSON 报告。CI 使用同一入口。
 - 模型评测和 Stryker 不进 `qa`，避免每次提交烧钱/变慢。
 
 **Monorepo 布局（pnpm workspace）**：
@@ -223,7 +223,7 @@ scripts/ evals/ e2e/ testdata/
 
 ## 4. Skill 分工
 
-> Matt 用 mattpocock 系列；下面不重复。原则：**一个阶段一个主 skill，实现与审查分离，Skill 不是 CI。**
+> pstack 主流程与各阶段的 Skill 选择以 [AGENTS.md 第 6 节](./AGENTS.md#6-skill-选择与开发流程) 为准。
 
 | 阶段 | Skill | 用途 |
 | --- | --- | --- |
@@ -246,10 +246,10 @@ scripts/ evals/ e2e/ testdata/
 
 **不用/暂不用**：`claude-api`（非 Anthropic）、`plugin-authoring`、`pstack-bro`、Sentry 系列（未接入）、`refactor-repository`（项目还小）。
 
-**冲突规避**：Matt 的 skills 管 TS 风格/idiom；pstack 管领域类型与重构纪律；同一轮不要让两边改同一文件。写代码的 agent 不自审，`code-review` / `review-refactor` 另起一轮。
+TS 实现采用表中的 pstack Skill。产品决策需要澄清时，按 AGENTS.md 选用 Matt Pocock 的单项 Skill，并将结论写回 PRD。`code-review` 或 `review-refactor` 由独立审查者针对最终差异执行。
 
 ---
 
 ## 5. 一句话
 
-**1.5.2 精确锁，不碰 main；工具链借 heirloom 的“快 lint/格式、真测试、假绿门禁、密钥扫描、单入口 QA”，不借重后端和全量评测；Skill 按阶段分工，Matt 管 TS 风格，pstack 管类型/重构，review 管独立审查，run/ego-browser 管真实验证。**
+**1.5.2 精确锁，不碰 main；工具链借 heirloom 的“快 lint/格式、真测试、假绿门禁、密钥扫描、单入口 QA”，不借重后端和全量评测。** 功能开发遵循 AGENTS.md 的 pstack 主流程。

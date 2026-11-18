@@ -3,11 +3,12 @@ title = "NextStop secret scanning"
 [extend]
 useDefault = true
 
-# Local dir scans exclude real env files; secrets:check-env separately rejects
-# any tracked real env file, even one added with git add -f.
+# Local dir scans exclude only these known private env files. The committable
+# .env.example is scanned; secrets:check-env rejects tracked private env files.
 [allowlist]
 paths = [
-  '''(^|/)\.env($|\.)''',
+  '''(^|/)\.env$''',
+  '''(^|/)\.env\.jev\.local$''',
   '''(^|/)node_modules/''',
   '''(^|/)dist/''',
   '''(^|/)data/''',

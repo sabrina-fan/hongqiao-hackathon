@@ -112,7 +112,7 @@ PRD 的核心路径是线性的：
 | 存储 | durable **内置** SQLite | — | 五种后端可选，见 §8.3 |
 | 图片处理 | `@earendil-works/pi-durable/images/node`（Photon WASM） | 1.5.2 | worker 线程，不阻塞事件循环 |
 | Web UI | **自己写**（React + Vite） | — | **不用 `pi-web-ui`**，见 §2.5 |
-| HTTP | chord 自带；不够再上 Hono | — | 先不引入 |
+| HTTP | 脚手架用 `node:http`；业务接口设计优先使用 chord 自带 HTTP | — | 目前仅有 `/health/ready` 和 `/health/capabilities`。Hono 按需评估。 |
 | 测试 | `fauxProvider()` + `registerStorageConformance()` + Vitest | — | 回放不烧钱；测试矩阵见 ENGINEERING §3.3 |
 | Lint / 格式化 | **oxlint + oxfmt** | 1.83.0 / 0.68.0 | 从 `heirloom-lite` 借；不用 ESLint/Prettier |
 | 浏览器 E2E | **ego-lite（`ego-browser` CLI）** | 本机已安装版本 | 桌面浏览器验收，连接本地真实 Web/API；见 ENGINEERING §3.3 |

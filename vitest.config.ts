@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { integrationInclude, testExclude, testInclude } from './scripts/test-policy.js';
 
 export default defineConfig({
   test: {
@@ -7,14 +8,15 @@ export default defineConfig({
       {
         test: {
           name: 'unit',
-          include: ['packages/**/*.test.ts', 'apps/server/**/*.test.ts'],
-          exclude: ['**/*.integration.test.ts', '**/node_modules/**', '**/dist/**'],
+          include: testInclude,
+          exclude: [...testExclude, ...integrationInclude],
         },
       },
       {
         test: {
           name: 'integration',
-          include: ['apps/server/**/*.integration.test.ts'],
+          include: integrationInclude,
+          exclude: testExclude,
           fileParallelism: false,
           maxWorkers: 1,
           testTimeout: 15000,
