@@ -117,7 +117,7 @@ export function ArrangementForm({
       <h2>{item ? '编辑固定安排' : '添加固定安排'}</h2>
       <label className="field">
         活动名称
-        <input name="name" required maxLength={100} defaultValue={item?.name} />
+        <input name="name" required maxLength={200} defaultValue={item?.name} />
       </label>
       <TimeFields start={item?.start} end={item?.end} />
       <label className="field">
