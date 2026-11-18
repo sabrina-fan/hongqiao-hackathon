@@ -66,6 +66,23 @@ const present = (selector) =>
   wait((selector) => Boolean(document.querySelector(selector)), selector);
 const absent = (selector) => wait((selector) => !document.querySelector(selector), selector);
 
+// Long, independently scrolling action lists need an explicit visible hit target.
+async function clickVisible(selector, label) {
+  await present(selector);
+  const point = await page.evaluate((selector) => {
+    const control = document.querySelector(selector);
+    control.scrollIntoView({ block: 'center', behavior: 'instant' });
+    const bounds = control.getBoundingClientRect();
+    const x = bounds.x + bounds.width / 2;
+    const y = bounds.y + bounds.height / 2;
+    return control.contains(document.elementFromPoint(x, y)) ? { x, y } : null;
+  }, selector);
+  assert.ok(point, `The action must have a visible hit target: ${label}`);
+  await page.mouse.click(point.x, point.y, { label });
+}
+const draftAction = (label) =>
+  clickVisible(`.draft-rows button[aria-label="${label}"]:enabled`, label);
+
 async function shot(name, anchor) {
   const layout = await page.evaluate((anchor) => {
     for (const id of ['immersive-translate-popup', 'immersive-translate-popup-overlay']) {
@@ -282,19 +299,7 @@ try {
   assert.equal(await value(input), '拙政园');
   await reviewClick(unmatched, '搜索');
   await text(`${unmatched} .library-options`, '苏州东北街 178 号');
-  const gardenOption = `${unmatched} .option`;
-  const reachable = await page.evaluate((selector) => {
-    const option = document.querySelector(selector);
-    option.scrollIntoView({ block: 'center', behavior: 'instant' });
-    const bounds = option.getBoundingClientRect();
-    const hit = document.elementFromPoint(
-      bounds.x + bounds.width / 2,
-      bounds.y + bounds.height / 2,
-    );
-    return option.contains(hit);
-  }, gardenOption);
-  assert.ok(reachable, 'The options in the review scroll area must be reachable');
-  await click(gardenOption, '核对并选择拙政园');
+  await clickVisible(`${unmatched} .option`, '核对并选择拙政园');
   await text('.batch-review-count', '实际新增 3 处');
   assert.ok((await json(batch)).items[3].review.match.candidates.some(({ id }) => id === 'garden'));
   const guessed = '.batch-review-card:has(a[aria-label="查看原图 攻略-5.png"])';
@@ -627,33 +632,33 @@ async function runTrip() {
   const [a, b, c] = original.map(({ name }) => name);
   const firstVisible = (name) => text('.draft-row:first-child strong', name);
   await present(`button[aria-label="上移 ${a}"]:disabled`);
-  await tap(`上移 ${b}`);
+  await draftAction(`上移 ${b}`);
   await firstVisible(b);
   assert.deepEqual(
     (await ordered()).map(({ name }) => name),
     [b, a, c],
   );
-  await tap(`下移 ${b}`);
+  await draftAction(`下移 ${b}`);
   await firstVisible(a);
   assert.deepEqual(
     (await ordered()).map(({ name }) => name),
     [a, b, c],
   );
-  await tap(`锁定 ${a}`);
+  await draftAction(`锁定 ${a}`);
   await present(`button[aria-label="解锁 ${a}"]`);
   assert.equal((await ordered())[0].locked, true);
-  await tap(`解锁 ${a}`);
+  await draftAction(`解锁 ${a}`);
   await present(`button[aria-label="锁定 ${a}"]`);
   assert.equal((await ordered())[0].locked, false);
-  await tap(`锁定 ${a}`);
+  await draftAction(`锁定 ${a}`);
   await present(`button[aria-label="解锁 ${a}"]`);
-  await tap(`跳过 ${c}`);
+  await draftAction(`跳过 ${c}`);
   await present(`button[aria-label="重新安排 ${c}"]`);
   assert.equal((await ordered()).find(({ name }) => name === c).kind, 'skipped');
-  await tap(`重新安排 ${c}`);
+  await draftAction(`重新安排 ${c}`);
   await present(`button[aria-label="跳过 ${c}"]`);
   assert.equal((await ordered()).find(({ name }) => name === c).kind, 'scheduled');
-  await tap(`跳过 ${c}`);
+  await draftAction(`跳过 ${c}`);
   await present(`button[aria-label="重新安排 ${c}"]`);
   const before = await ordered();
   assert.deepEqual(await json(trip), initial);
