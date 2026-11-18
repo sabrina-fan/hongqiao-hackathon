@@ -47,6 +47,8 @@ export type RoutePoint = Static<typeof RoutePointSchema>;
 const candidateFields = {
   poi_id: IdentifierSchema,
   available_min: AvailableMinutes,
+  // `without_fixed` uses the manual window only when the next lock is missing an address.
+  // An addressed next lock still sets a deadline. A running lock blocks both modes.
   fixed_mode: opt(oneOf(['next_locked', 'without_fixed'])),
   preference: opt(lit('short_walk')),
 };
@@ -58,15 +60,23 @@ export const radarRequestValidator = compile(RadarRequestSchema);
 export type RadarRequest = Static<typeof RadarRequestSchema>;
 export const liveOriginId = 'browser-position';
 
-export const FixedStopSchema = obj({
+const FixedStopFields = {
   arrangement_id: IdentifierSchema,
   name: str({ minLength: 1, maxLength: 100 }),
+  time_zone: str({ minLength: 1, maxLength: 100 }),
+};
+export const FixedStopSchema = obj({
+  ...FixedStopFields,
   address: str({ maxLength: 500 }),
   starts_at: str({ format: 'date-time' }),
-  time_zone: str({ minLength: 1, maxLength: 100 }),
 });
 export type FixedStop = Static<typeof FixedStopSchema>;
-export const radarContextValidator = compile(obj({ fixed: nullable(FixedStopSchema) }));
+const RadarContextSchema = obj({
+  fixed: nullable(FixedStopSchema),
+  in_progress: nullable(obj({ ...FixedStopFields, ends_at: str({ format: 'date-time' }) })),
+});
+export type RadarContext = Static<typeof RadarContextSchema>;
+export const radarContextValidator = compile(RadarContextSchema);
 
 const RadarViewSchema = obj({
   outcome: RadarOutcomeSchema,

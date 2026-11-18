@@ -24,6 +24,7 @@ export class RadarFault extends Error {
       | 'PROPOSAL_UNVALIDATED'
       | 'NO_FEASIBLE_OPTION'
       | 'FIXED_LOCATION_REQUIRED'
+      | 'FIXED_IN_PROGRESS'
       | 'FIXED_TIME_INVALID'
       | 'IDEMPOTENCY_CONFLICT'
       | 'ACCEPTANCE_MISMATCH',

@@ -1,4 +1,4 @@
-import type { FixedStop, PlaceOption, RadarOutcome, RadarView } from '@nextstop/core';
+import type { FixedStop, PlaceOption, RadarContext, RadarOutcome, RadarView } from '@nextstop/core';
 import { RadarRoutePreview } from './RadarRoutePreview.js';
 import './radar-context.css';
 import { useEffect, useRef, useState } from 'react';
@@ -35,9 +35,11 @@ export function RadarForm({
   location: { active: boolean; locating: boolean; hint: string; onLocate: () => void };
   fixed: {
     stop: FixedStop | null;
+    inProgress: RadarContext['in_progress'];
     skipped: boolean;
     hint: string;
     onSkip: (value: boolean) => void;
+    onRefresh: () => void;
   };
   shortWalk: boolean;
   onShortWalk: (value: boolean) => void;
@@ -169,6 +171,21 @@ export function RadarForm({
                 />
               </div>
             </section>
+            {fixed.inProgress && (
+              <section aria-labelledby="running-lock-heading">
+                <h2 id="running-lock-heading">
+                  <Icon>▦</Icon> 当前固定安排
+                </h2>
+                <p className="locked" role="status">
+                  {fixed.inProgress.name}进行中 ·{' '}
+                  {zonedClock(fixed.inProgress.ends_at, fixed.inProgress.time_zone)} 结束
+                </p>
+                <p className="radar-hint">安排结束后，检查时段再计算。</p>
+                <button className="text-button" type="button" onClick={fixed.onRefresh}>
+                  检查时段
+                </button>
+              </section>
+            )}
             <section>
               <h2>
                 <Icon>▦</Icon> 下一项固定安排 <small>（可选）</small>
@@ -261,8 +278,12 @@ export function RadarForm({
 }
 
 export function fixedClock({ starts_at, time_zone }: FixedStop) {
-  return new Date(starts_at).toLocaleTimeString('zh-CN', {
-    timeZone: time_zone,
+  return zonedClock(starts_at, time_zone);
+}
+
+function zonedClock(at: string, timeZone: string) {
+  return new Date(at).toLocaleTimeString('zh-CN', {
+    timeZone,
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
