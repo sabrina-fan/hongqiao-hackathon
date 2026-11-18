@@ -54,6 +54,7 @@ const errors = {
   FIXED_LOCATION_UNRESOLVED: [409, '地图无法核验固定安排的地址，请在行程中补全门牌地址后重算。'],
   FIXED_TIME_INVALID: [409, '固定安排的时间在旅行时区中无效，请在行程中修改。'],
   IDEMPOTENCY_CONFLICT: [409, '同一确认标识已用于其他操作。'],
+  ACCEPTANCE_MISMATCH: [409, '本次确认与要撤销的地点不匹配，请重新读取行程。'],
   TRIP_NOT_FOUND: [404, '未找到旅行或固定安排。'],
   TRIP_STALE: [409, '行程已更新，请重新读取后再编辑。'],
   INVALID_TRIP_DAY: [400, '请选择有效日期和时区，游玩结束时间须晚于开始时间且在同一天。'],

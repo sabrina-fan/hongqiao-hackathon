@@ -6,6 +6,7 @@ import {
   type Capabilities,
   type FixedStop,
   type PlaceOption,
+  type RadarAcceptance,
   type RadarView,
 } from '@nextstop/core';
 import {
@@ -13,11 +14,14 @@ import {
   acceptRadar,
   createRadarSession,
   createSession,
+  getRadarAcceptance,
   getRadarContext,
   getRadarHistory,
   getRadarSession,
   isCancellation,
+  undoRadarAcceptance,
 } from './api.js';
+import { RadarAcceptanceCard, type UndoState } from './RadarAcceptanceCard.js';
 import { fixedClock, Icon, PickCard, RadarForm } from './RadarScreens.js';
 import { TripPanel } from './TripPanel.js';
 
@@ -29,7 +33,7 @@ type Result =
   | { kind: 'stale'; message: string }
   | { kind: 'shown'; view: RadarView; failure?: string }
   | { kind: 'accepting'; view: RadarView }
-  | { kind: 'done'; name: string };
+  | { kind: 'accepted'; sessionId: string; acceptance: RadarAcceptance; undo: UndoState };
 const draftKey = 'nextstop.radar-session';
 function draftId() {
   try {
@@ -96,14 +100,33 @@ export function RadarPanel({
         if (signal.aborted) return;
         // Keep the form closed until restoration finishes so an old selection never replaces new input.
         const id = draftId();
-        if (id && capabilities.radar) {
+        if (id) {
           try {
-            const view = await getRadarSession(id, signal);
+            // Check the proposal first. If a concurrent confirmation advanced the trip revision,
+            // this request becomes stale and the durable acceptance can then be read.
+            const restored = capabilities.radar
+              ? await getRadarSession(id, signal).catch(async (error: unknown) => {
+                  if (!(error instanceof ApiError) || error.code !== 'PROPOSAL_STALE') throw error;
+                  const saved = await getRadarAcceptance(id, signal);
+                  if (!saved) throw error;
+                  return saved;
+                })
+              : await getRadarAcceptance(id, signal);
             if (signal.aborted) return;
-            if (view.origin.id !== liveOriginId) setOrigin(view.origin);
-            setDestination(view.destination);
-            setMinutes(String(view.window?.manual_min ?? view.available_min));
-            setResult({ kind: 'shown', view });
+            if (restored && 'receipt' in restored) {
+              setDestination(restored.destination);
+              setResult({
+                kind: 'accepted',
+                sessionId: id,
+                acceptance: restored,
+                undo: { kind: 'idle' },
+              });
+            } else if (restored) {
+              if (restored.origin.id !== liveOriginId) setOrigin(restored.origin);
+              setDestination(restored.destination);
+              setMinutes(String(restored.window?.manual_min ?? restored.available_min));
+              setResult({ kind: 'shown', view: restored });
+            }
           } catch (error) {
             if (signal.aborted || sessionExpired(error)) return;
             if (error instanceof ApiError && (error.status === 404 || error.status === 409))
@@ -200,7 +223,9 @@ export function RadarPanel({
     }
   }
   const available = Number(minutes);
-  const busy = result.kind === 'calculating' || result.kind === 'accepting' || historyLoading;
+  const writePending =
+    result.kind === 'accepting' || (result.kind === 'accepted' && result.undo.kind === 'pending');
+  const busy = result.kind === 'calculating' || writePending || historyLoading;
   const missingFixed = fixed !== null && !fixed.address;
   const canSubmit = Boolean(
     (origin || position) &&
@@ -249,15 +274,21 @@ export function RadarPanel({
     const binding = view.outcome.binding;
     try {
       // One choice per proposal. Every tab and retry can reconstruct the same confirmation key.
-      const receipt = await acceptRadar(
+      await acceptRadar(
         binding.session_id,
         { binding, poi_id: poiId },
         binding.proposal_id,
         signal,
       );
+      const acceptance = await getRadarAcceptance(binding.session_id, signal);
       if (signal.aborted) return;
-      remember(null);
-      setResult({ kind: 'done', name: receipt.stop.name });
+      if (!acceptance) throw new Error('Missing confirmation status');
+      setResult({
+        kind: 'accepted',
+        sessionId: binding.session_id,
+        acceptance,
+        undo: { kind: 'idle' },
+      });
     } catch (error) {
       if (signal.aborted || isCancellation(error) || sessionExpired(error)) return;
       if (error instanceof ApiError && error.code === 'PROPOSAL_STALE') {
@@ -268,8 +299,35 @@ export function RadarPanel({
       locked.current = false;
     }
   }
+  async function undo() {
+    const signal = lifetime.current?.signal;
+    if (
+      !signal ||
+      locked.current ||
+      result.kind !== 'accepted' ||
+      result.acceptance.status !== 'added'
+    )
+      return;
+    const { sessionId, acceptance } = result;
+    locked.current = true;
+    setResult({ ...result, undo: { kind: 'pending' } });
+    try {
+      const updated = await undoRadarAcceptance(sessionId, acceptance.receipt.stop.stop_id, signal);
+      if (!signal.aborted) setResult({ ...result, acceptance: updated, undo: { kind: 'idle' } });
+    } catch (error) {
+      if (signal.aborted || isCancellation(error) || sessionExpired(error)) return;
+      // The transaction may have committed even if the response did not reach this tab.
+      const saved = await getRadarAcceptance(sessionId, signal).catch(() => null);
+      if (signal.aborted) return;
+      if (saved?.status === 'undone') {
+        setResult({ ...result, acceptance: saved, undo: { kind: 'idle' } });
+      } else setResult({ ...result, undo: { kind: 'failed', message: messageOf(error) } });
+    } finally {
+      locked.current = false;
+    }
+  }
   const shown = 'view' in result ? result.view : null;
-  const showResults = shown !== null || result.kind === 'stale' || result.kind === 'done';
+  const showResults = shown !== null || result.kind === 'stale' || result.kind === 'accepted';
 
   function editResult() {
     if (result.kind === 'history') {
@@ -309,15 +367,15 @@ export function RadarPanel({
   if (page === 'trip') {
     return (
       <>
-        {(sessionStatus || result.kind === 'accepting') && (
+        {(sessionStatus || writePending) && (
           <header className="bar">
             <h1>我的行程</h1>
           </header>
         )}
         {sessionStatus ??
-          (result.kind === 'accepting' ? (
+          (writePending ? (
             <p role="status" className="note">
-              正在确认地点，完成后将读取行程…
+              正在更新行程，完成后将重新读取…
             </p>
           ) : (
             <TripPanel onSessionExpired={sessionExpired} />
@@ -459,21 +517,26 @@ export function RadarPanel({
             <p>{result.message}</p>
             <button className="primary" type="button" onClick={() => void calculate()}>
               重新计算
-            </button>
-          </div>
-        )}
-        {result.kind === 'done' && (
-          <div className="panel padded-panel">
-            <p role="status">已加入行程：{result.name}</p>
-            <a href="#trip" className="primary">
-              查看已加入的地点 →
+            </button>{' '}
+            <a href="#trip" className="secondary">
+              查看当前行程 →
             </a>
           </div>
         )}
+        {result.kind === 'accepted' && (
+          <RadarAcceptanceCard
+            acceptance={result.acceptance}
+            undo={result.undo}
+            onUndo={() => void undo()}
+          />
+        )}
         {result.kind === 'shown' && result.failure && (
-          <p className="note" role="alert">
-            确认失败：{result.failure}
-          </p>
+          <div className="note" role="alert">
+            <p>确认失败：{result.failure} 可再次点「确认加入行程」核对本次结果。</p>
+            <a href="#trip" className="secondary">
+              查看当前行程 →
+            </a>
+          </div>
         )}
         {shown?.outcome.kind === 'empty' && (
           <p className="note" role="status">

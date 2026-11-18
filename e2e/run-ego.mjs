@@ -53,13 +53,15 @@ try {
     screenshot: join(directory, 'mobile.png'),
     proposalScreenshot: join(directory, 'proposal.png'),
     radarScreenshot: join(directory, 'radar.png'),
+    acceptanceScreenshot: join(directory, 'acceptance.png'),
+    undoScreenshot: join(directory, 'undo.png'),
   };
   console.log(`Browser report and screenshot: ${directory}`);
   runBrowser(`
 const settings = ${JSON.stringify(settings)};
 const assert = (await import('node:assert/strict')).default;
 const { writeFile } = await import('node:fs/promises');
-const task = await taskSpace('NextStop browser acceptance');
+const task = await taskSpace('NextStop acceptance ' + new URL(settings.fixture).hostname);
 const page = task.page('p1');
 const report = { status: 'running', space_id: task.spaceId, checks: [], screenshot: settings.screenshot };
 const save = () => writeFile(settings.report, JSON.stringify(report, null, 2));
@@ -206,8 +208,53 @@ try {
   assert.deepEqual(await tripStops(), ['验收书店']);
   await page.screenshot({path:settings.screenshot});
   report.checks.push('trip-after-reload');
-  await page.click(radarLink, {label:'Return to the radar form'});
-  await pick('origin', '验收起点'); await pick('destination', '验收书店'); await propose('90');
+  await page.click(radarLink, {label:'Recover the confirmed destination'});
+  const card = '.radar-acceptance';
+  await page.waitForSelector(card);
+  const links = await page.evaluate(() => [...document.querySelectorAll('.radar-acceptance a[target="_blank"]')].map(a => a.href));
+  assert.equal(links.length, 2);
+  for (const [index, href] of links.entries()) {
+    const target = new URL(href);
+    assert.equal(target.origin, 'https://uri.amap.com');
+    assert.equal(target.pathname, '/navigation');
+    assert.equal(target.searchParams.get('to'), '120.11,31.11,验收书店');
+    assert.equal(target.searchParams.get('mode'), 'walk');
+    assert.equal(target.searchParams.get('callnative'), index === 0 ? '1' : '0');
+  }
+  // Use a controlled clipboard so the user's real clipboard is untouched.
+  await page.evaluate(() => Object.defineProperty(navigator.clipboard, 'writeText', {
+    value: async (value) => { window.copiedAddress = value; },
+  }));
+  await page.click('loc=role:button[name="复制地址"]', {label:'Copy the confirmed address'});
+  assert.equal(await page.evaluate(() => window.copiedAddress), '测试街二号');
+  await page.screenshot({path:settings.acceptanceScreenshot});
+  report.checks.push('navigation-links-and-copy-after-reload');
+  await page.evaluate(() => {
+    const original = window.fetch;
+    let attempts = 0;
+    window.fetch = async (input, init) => {
+      if (typeof input === 'string' && input.endsWith('/acceptance/undo')) {
+        attempts += 1;
+        if (attempts === 1) throw new TypeError('Undo unavailable');
+        const result = await original(input, init);
+        if (attempts === 2 && result.ok) throw new TypeError('Lost undo acknowledgement');
+        return result;
+      }
+      return original(input, init);
+    };
+  });
+  await page.click('loc=role:button[name="撤销本次加入"]', {label:'Try undo while disconnected'});
+  await wait(() => document.querySelector('.radar-acceptance [role=alert]')?.textContent.includes('撤销未能确认'));
+  assert.equal(JSON.parse((await page.fetch('/api/v1/trip')).body).stops.length, 1);
+  await page.click('loc=role:button[name="重试撤销"]', {label:'Retry undo and recover receipt'});
+  await wait(() => document.querySelector('.radar-acceptance [role=status]')?.textContent.includes('已撤销本次加入'));
+  await page.reload();
+  await wait(() => document.querySelector('.radar-acceptance [role=status]')?.textContent.includes('已撤销本次加入'));
+  assert.deepEqual(JSON.parse((await page.fetch('/api/v1/trip')).body).stops, []);
+  await page.screenshot({path:settings.undoScreenshot});
+  report.checks.push('undo-failure-retry-and-recovery');
+  await page.click('loc=role:button[name="修改条件"]', {label:'Return to radar conditions'});
+  await pick('origin', '验收起点'); await propose('90');
   await page.waitForSelector(confirm);
   // A second client of this guest legitimately changes the trip while the first tab is open.
   const competing = await page.fetch('/api/v1/radar/sessions', {method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({origin_id:'qa-origin',poi_id:'qa-stop',available_min:90})});
@@ -218,7 +265,7 @@ try {
   await page.click(confirm, {label:'Confirm the outdated proposal'});
   await wait(() => document.querySelector('.result [role=alert]')?.textContent.includes('PROPOSAL_STALE'));
   const trip = JSON.parse((await page.fetch('/api/v1/trip')).body);
-  assert.equal(trip.stops.length, 2);
+  assert.equal(trip.stops.length, 1);
   report.checks.push('stale-keeps-trip');
   await page.click('loc=role:button[name="重新计算"]', {label:'Calculate a current proposal'});
   await page.waitForSelector(confirm);
@@ -240,6 +287,8 @@ try {
     'confirmation-replayed',
     'trip-via-bottom-navigation',
     'trip-after-reload',
+    'navigation-links-and-copy-after-reload',
+    'undo-failure-retry-and-recovery',
     'stale-keeps-trip',
     'stale-recalculated',
   ]);
