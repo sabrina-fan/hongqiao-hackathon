@@ -73,7 +73,7 @@ e2e/                     移动端启动和服务失败/重试测试
 | --- | --- |
 | `POST /api/v1/sessions` | 建立签名匿名 Cookie。同一浏览器刷新时继续使用原行程。 |
 | `GET /api/v1/places?q=…` | 搜索可选地点，服务端保管地图密钥。 |
-| `POST /api/v1/radar/sessions` · `GET /api/v1/radar/sessions/{id}` | 按两个地点 ID 和可用分钟生成或读取当前提案。 |
+| `POST /api/v1/radar/sessions` · `GET /api/v1/radar/sessions/{id}` | 按出发地与时间生成或读取提案。默认联合召回未去收藏与附近地点，也支持指定一个 `poi_id`。 |
 | `POST /api/v1/radar/sessions/{id}/accept` | 提交绑定、选中的 POI 和 `Idempotency-Key`。 |
 | `GET /api/v1/trip` | 返回本人的行程，尚无行程时返回 `null`。 |
 
@@ -83,7 +83,8 @@ e2e/                     移动端启动和服务失败/重试测试
 - 模型提案输入只允许候选 ID 与定性理由；数值、证据和版本由服务端输出契约承载。
 - 验证引用绑定雷达会话、提案 ID/版本、候选池版本、ETA 版本及行程 ID/版本。`checkProposalBinding` 只检查绑定，不能代替完整业务闸门。
 - durable 结果文档以雷达会话为 family key。SQLite 每用户一文件；进程内阻止同一路径重复打开写者。部署仍要求单进程，禁止多副本同时写同一用户文件。
-- 单个已选 POI 的追加在同一 durable 事务中检查幂等、候选、ETA、时间窗口与行程版本，写入停靠点及确认回执。本切片由应用规则生成理由。模型工具、多候选排序与按引用删除属于后续范围。
+- 确认选中的 POI 时，在同一事务中复核幂等、候选、ETA、时间窗口和行程版本，再写入停靠点及回执。联合召回最多核验六个候选，展示最多三个。配置 `ARK_API_KEY`、`ARK_MODEL_TEXT` 和 `ARK_BASE_URL` 后，pi-durable 只允许模型查询筛选结果和提出定性理由。
+- 可选的 `RADAR_POLICY_PATH` 指向应用侧策展 JSON 数组。每项包含 `poi_id`、`state`（`required` 或 `not_required`）、`source`、`verified_at` 和 `valid_until`。缺少预约证据时页面显示待核验。
 - Jev 使用 `/v1/systemone`，传输不跟随重定向，遵守调用方传入的总 deadline。`unknown` 原样交还应用；`ATTEMPT_TIMEOUT` 与总 `DEADLINE_EXCEEDED` 分开，非法 JSON / schema / 概率分布通过受控 `reason` 区分；业务 fallback、预算账本、Langfuse 观测和置信阈值尚未接入。Score 暂不启用。
 
 ## 检查与测试

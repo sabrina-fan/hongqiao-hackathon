@@ -3,9 +3,12 @@ import {
   acceptRadarValidator,
   IdentifierSchema,
   radarRequestValidator,
+  recheckRadarValidator,
+  rejectRadarValidator,
   type Capabilities,
 } from '@nextstop/core';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { RadarModel } from '@nextstop/model-gateway';
 import { createGuestSessions } from './guest-session.js';
 import { checkPostOrigin, HttpFault, readJson, send, sendError } from './http.js';
 import { createImportHandler, importRoute, type ImportVision } from './imports/http.js';
@@ -13,7 +16,9 @@ import { handlePrivacy, privacyRoute } from './privacy/http.js';
 import type { RadarMap } from './radar/amap.js';
 import { acceptRadar, getRadar, getRadarHistory } from './radar/store.js';
 import { radarAcceptanceRoute } from './radar/acceptance-http.js';
+import { radarFeedbackRoute } from './radar/feedback-http.js';
 import { getRadarContext, proposeRadar } from './radar/propose.js';
+import { recheckRecall, rejectRecall } from './radar/recall-store.js';
 import { createUserAccess } from './radar/user-access.js';
 
 import { draftRoute } from './trip/draft-routes.js';
@@ -26,6 +31,7 @@ type Options = {
   dataDir: string;
   cookieSecret: string | null;
   map: RadarMap | null;
+  radarModel?: RadarModel | null;
   vision?: ImportVision | null;
   secureCookie?: boolean;
   now?: () => number;
@@ -37,7 +43,8 @@ export function createApp(options?: Options) {
   const sessions = options?.cookieSecret
     ? createGuestSessions(options.cookieSecret, options.secureCookie ?? false, now)
     : null;
-  const withUser = options && sessions ? createUserAccess(options.dataDir) : null;
+  const withUser =
+    options && sessions ? createUserAccess(options.dataDir, options.radarModel) : null;
   const handleImport =
     options && createImportHandler({ dataDir: options.dataDir, map, vision: options.vision });
   const capabilities: Capabilities = {
@@ -68,9 +75,15 @@ export function createApp(options?: Options) {
     const manageTrip =
       draftRoute(request.method, path, map, now) ?? tripRoute(request.method, path);
     const acceptance = radarAcceptanceRoute(request, path);
-    const member = /^\/api\/v1\/radar\/sessions\/([A-Za-z0-9_-]{1,100})(\/accept)?$/.exec(path);
+    const feedback = radarFeedbackRoute(request.method, path, now);
+    const member =
+      /^\/api\/v1\/radar\/sessions\/([A-Za-z0-9_-]{1,100})(\/(?:accept|reject|recheck))?$/.exec(
+        path,
+      );
     const sessionId = member?.[1];
-    const accept = Boolean(member?.[2]) && request.method === 'POST';
+    const accept = member?.[2] === '/accept' && request.method === 'POST';
+    const reject = member?.[2] === '/reject' && request.method === 'POST';
+    const recheck = member?.[2] === '/recheck' && request.method === 'POST';
     const view = sessionId && !member?.[2] && request.method === 'GET';
     const imports = importRoute(request.method, path);
     const wishlist = wishlistRoute(request.method, path);
@@ -85,7 +98,10 @@ export function createApp(options?: Options) {
         trip ||
         manageTrip ||
         accept ||
+        reject ||
+        recheck ||
         acceptance ||
+        feedback ||
         view ||
         imports ||
         wishlist ||
@@ -157,6 +173,7 @@ export function createApp(options?: Options) {
           proposeRadar({
             request: input,
             map,
+            model: options.radarModel ?? null,
             now,
             signal,
             bindTrip,
@@ -167,6 +184,7 @@ export function createApp(options?: Options) {
     }
     if (trip) return send(response, 200, await withUser(userId, (runtime) => getTrip({ runtime })));
     if (acceptance) return send(response, 200, await withUser(userId, acceptance));
+    if (feedback) return send(response, 200, await withUser(userId, feedback));
     if (sessionId && accept) {
       const key = request.headers['idempotency-key'];
       if (!identifier.check(key)) throw new HttpFault('INVALID_REQUEST');
@@ -175,6 +193,27 @@ export function createApp(options?: Options) {
         response,
         200,
         await withUser(userId, (runtime) => acceptRadar({ runtime, sessionId, input, key, now })),
+      );
+    }
+    if (sessionId && (reject || recheck)) {
+      if (!map) throw new HttpFault('RADAR_NOT_CONFIGURED');
+      if (reject) {
+        const input = await readJson(request, rejectRadarValidator.check);
+        return send(
+          response,
+          200,
+          await withUser(userId, (runtime) =>
+            rejectRecall({ runtime, sessionId, input, map, now }),
+          ),
+        );
+      }
+      const { binding } = await readJson(request, recheckRadarValidator.check);
+      return send(
+        response,
+        200,
+        await withUser(userId, (runtime) =>
+          recheckRecall({ runtime, sessionId, binding, map, now }),
+        ),
       );
     }
     if (sessionId && view)

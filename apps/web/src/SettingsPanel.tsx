@@ -7,6 +7,7 @@ import {
   readAnonymousData,
   type DeleteTarget,
 } from './settings-client.js';
+import { SettingsFeedback } from './SettingsFeedback.js';
 import './settings.css';
 
 const emptyData: AnonymousData = { trips: [], places: [], uploads: [] };
@@ -54,7 +55,15 @@ function messageOf(error: unknown) {
   return error instanceof ApiError && error.status < 500 ? error.message : '服务暂不可用，请重试。';
 }
 
-export function SettingsPanel({ available }: { available: boolean }) {
+export function SettingsPanel({
+  available,
+  dataRevision,
+  onFeedbackChanged,
+}: {
+  available: boolean;
+  dataRevision: number;
+  onFeedbackChanged: () => void;
+}) {
   const [data, setData] = useState<AnonymousData | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [target, setTarget] = useState<DeleteTarget | null>(null);
@@ -126,7 +135,13 @@ export function SettingsPanel({ available }: { available: boolean }) {
         </section>
         <div className="settings-group">
           <SettingsSection icon="☷" title="本次偏好与反馈" hint="仅当前雷达会话生效">
-            <p>当前版本暂未开放反馈清除。</p>
+            <SettingsFeedback
+              key={dataRevision}
+              available={available}
+              busy={busy || target !== null}
+              onChanged={onFeedbackChanged}
+              onClear={(action) => run(action, '未能确认清除反馈。')}
+            />
           </SettingsSection>
           <SettingsSection icon="⌖" title="位置与隐私" hint="仅在主动使用定位时申请权限">
             <p>雷达使用一次性定位来计算路线，也支持手动选择出发地。应用不会持续在后台定位。</p>

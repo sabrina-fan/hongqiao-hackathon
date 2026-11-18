@@ -8,17 +8,21 @@ import {
   type RoutePoint,
 } from '@nextstop/core';
 import { setTimeout as delay } from 'node:timers/promises';
+import { bookingEvidence, type readBookingPolicy } from './booking-policy.js';
 import type { WalkingEvidence } from './evidence.js';
 
+export type RadarOrigin =
+  | { origin_id: string }
+  | { position: Extract<RadarRequest, { position: unknown }>['position'] };
+export type LocatedOrigin = { place: PlaceOption; point: RoutePoint };
 export type RadarMap = {
   search(query: string, signal?: AbortSignal): Promise<PlaceOption[]>;
+  resolveOrigin?(origin: RadarOrigin, signal: AbortSignal): Promise<LocatedOrigin>;
+  nearby?(origin: LocatedOrigin, signal: AbortSignal): Promise<PlaceOption[]>;
   walk(
-    request: Pick<RadarRequest, 'poi_id'> &
-      (
-        | { origin_id: string }
-        | { position: Extract<RadarRequest, { position: unknown }>['position'] }
-      ),
+    request: RadarOrigin & { poi_id: string },
     signal?: AbortSignal,
+    origin?: LocatedOrigin,
   ): Promise<WalkingEvidence>;
   walkToFixed(
     input: { candidate: WalkingEvidence; fixed: FixedStop },
@@ -32,6 +36,7 @@ export class MapFault extends Error {
       | 'MAP_UNAVAILABLE'
       | 'MAP_RATE_LIMITED'
       | 'PLACE_NOT_FOUND'
+      | 'ROUTE_UNVERIFIED'
       | 'FIXED_LOCATION_UNRESOLVED',
   ) {
     super(code);
@@ -47,9 +52,32 @@ const placeFields = {
 const places = compile(
   obj({ pois: arr(obj(placeFields, { open: true }), { maxItems: 10 }) }, { open: true }),
 );
+const optionalBusinessText = (maxLength: number) =>
+  opt(union([str({ maxLength }), arr(str(), { maxItems: 0 })]));
 const details = compile(
   obj(
-    { pois: arr(obj({ ...placeFields, location: str() }, { open: true }), { maxItems: 2 }) },
+    {
+      pois: arr(
+        obj(
+          {
+            ...placeFields,
+            location: str(),
+            typecode: optionalBusinessText(80),
+            business: opt(
+              union([
+                obj(
+                  { opentime_today: optionalBusinessText(200), cost: optionalBusinessText(80) },
+                  { open: true },
+                ),
+                arr(str(), { maxItems: 0 }),
+              ]),
+            ),
+          },
+          { open: true },
+        ),
+        { maxItems: 2 },
+      ),
+    },
     { open: true },
   ),
 );
@@ -69,6 +97,21 @@ const route = compile(
             distance: wholeNumber,
             duration: wholeNumber,
           },
+          { open: true },
+        ),
+        { minItems: 1, maxItems: 1 },
+      ),
+    },
+    { open: true },
+  ),
+);
+
+const unavailableRoute = compile(
+  obj(
+    {
+      results: arr(
+        obj(
+          { origin_id: lit('1'), dest_id: lit('1'), info: str({ minLength: 1 }) },
           { open: true },
         ),
         { minItems: 1, maxItems: 1 },
@@ -112,10 +155,12 @@ export function createAmap({
   key,
   fetcher = fetch,
   now = Date.now,
+  bookingPolicy,
 }: {
   key: string;
   fetcher?: typeof fetch;
   now?: () => number;
+  bookingPolicy?: Awaited<ReturnType<typeof readBookingPolicy>>;
 }): RadarMap {
   let nextSlot = 0;
   async function read(
@@ -175,6 +220,8 @@ export function createAmap({
       },
       signal,
     );
+    if (unavailableRoute.check(result) && result.results.some(({ info }) => info !== 'OK'))
+      throw new MapFault('ROUTE_UNVERIFIED');
     if (!route.check(result) || !result.results[0]) throw new MapFault('MAP_UNAVAILABLE');
     const leg = result.results[0];
     return {
@@ -186,7 +233,57 @@ export function createAmap({
       fetched_at: new Date(now()).toISOString(),
     };
   }
+  async function detail(ids: string[], signal: AbortSignal) {
+    const body = await request(
+      '/v5/place/detail',
+      { id: ids.join('|'), show_fields: 'business' },
+      signal,
+    );
+    if (
+      !details.check(body) ||
+      body.pois.some((poi) => !ids.includes(poi.id)) ||
+      new Set(body.pois.map((poi) => poi.id)).size !== body.pois.length
+    )
+      throw new MapFault('MAP_UNAVAILABLE');
+    return body.pois;
+  }
+  async function resolveOrigin(input: RadarOrigin, signal: AbortSignal): Promise<LocatedOrigin> {
+    if ('position' in input) {
+      const { longitude, latitude } = input.position;
+      const result = await request(
+        '/v3/assistant/coordinate/convert',
+        {
+          locations: `${longitude},${latitude}`,
+          coordsys: 'gps',
+        },
+        signal,
+      );
+      if (!converted.check(result)) throw new MapFault('MAP_UNAVAILABLE');
+      return {
+        place: { id: liveOriginId, name: '我的当前位置', address: '' },
+        point: amapPoint(result.locations),
+      };
+    }
+    const [origin] = await detail([input.origin_id], signal);
+    if (!origin) throw new MapFault('PLACE_NOT_FOUND');
+    return { place: toOption(origin), point: amapPoint(origin.location) };
+  }
   return {
+    resolveOrigin,
+    async nearby({ point }, signal) {
+      const body = await request(
+        '/v5/place/around',
+        {
+          location: pointQuery(point),
+          radius: '2000',
+          page_size: '8',
+          types: '050000|080000|110000|140000',
+        },
+        signal,
+      );
+      if (!places.check(body)) throw new MapFault('MAP_UNAVAILABLE');
+      return body.pois.map(toOption);
+    },
     async search(query, signal) {
       const budget = AbortSignal.timeout(6500);
       const body = await request(
@@ -197,49 +294,55 @@ export function createAmap({
       if (!places.check(body)) throw new MapFault('MAP_UNAVAILABLE');
       return body.pois.map(toOption);
     },
-    async walk(input, signal = AbortSignal.timeout(6500)) {
+    async walk(input, signal = AbortSignal.timeout(6500), resolved) {
       const ids = [
-        ...new Set('origin_id' in input ? [input.origin_id, input.poi_id] : [input.poi_id]),
+        ...new Set(
+          !resolved && 'origin_id' in input ? [input.origin_id, input.poi_id] : [input.poi_id],
+        ),
       ];
-      const body = await request('/v5/place/detail', { id: ids.join('|') }, signal);
-      if (!details.check(body)) throw new MapFault('MAP_UNAVAILABLE');
-      if (
-        body.pois.some((poi) => !ids.includes(poi.id)) ||
-        new Set(body.pois.map((poi) => poi.id)).size !== body.pois.length
-      )
-        throw new MapFault('MAP_UNAVAILABLE');
-      const destination = body.pois.find((poi) => poi.id === input.poi_id);
+      const pois = await detail(ids, signal);
+      const destination = pois.find((poi) => poi.id === input.poi_id);
       if (!destination) throw new MapFault('PLACE_NOT_FOUND');
-      const destinationPoint = amapPoint(destination.location);
-      if ('position' in input) {
-        const { longitude, latitude } = input.position;
-        const result = await request(
-          '/v3/assistant/coordinate/convert',
-          {
-            locations: `${longitude},${latitude}`,
-            coordsys: 'gps',
-          },
-          signal,
-        );
-        if (!converted.check(result)) throw new MapFault('MAP_UNAVAILABLE');
-        return routeBetween(
-          { id: liveOriginId, name: '我的当前位置', address: '' },
-          toOption(destination),
-          { origin: amapPoint(result.locations), destination: destinationPoint },
-          signal,
-        );
-      }
-      const origin = body.pois.find((poi) => poi.id === input.origin_id);
-      if (!origin) throw new MapFault('PLACE_NOT_FOUND');
-      return routeBetween(
-        toOption(origin),
+      const originRow = 'origin_id' in input && pois.find((poi) => poi.id === input.origin_id);
+      const origin =
+        resolved ??
+        (originRow
+          ? { place: toOption(originRow), point: amapPoint(originRow.location) }
+          : await resolveOrigin(input, signal));
+      const evidence = await routeBetween(
+        origin.place,
         toOption(destination),
         {
-          origin: amapPoint(origin.location),
-          destination: destinationPoint,
+          origin: origin.point,
+          destination: amapPoint(destination.location),
         },
         signal,
       );
+      const business = Array.isArray(destination.business) ? undefined : destination.business;
+      const opening =
+        typeof business?.opentime_today === 'string' ? business.opentime_today.trim() : '';
+      const price = typeof business?.cost === 'string' ? business.cost.trim() : '';
+      const category =
+        typeof destination.typecode === 'string'
+          ? /^\d{2}/.exec(destination.typecode)?.[0]
+          : undefined;
+      const booking = bookingEvidence(
+        bookingPolicy?.get(destination.id),
+        Date.parse(evidence.fetched_at),
+      );
+      return {
+        ...evidence,
+        ...(opening || price || booking || category
+          ? {
+              facts: {
+                ...(opening ? { opening: { today: opening, status: 'verified' } } : {}),
+                ...(price ? { price: { text: price, status: 'estimated' } } : {}),
+                ...(booking ? { booking } : {}),
+                ...(category ? { category } : {}),
+              },
+            }
+          : {}),
+      };
     },
     async walkToFixed({ candidate, fixed }, signal = AbortSignal.timeout(6500)) {
       if (!candidate.markers) throw new MapFault('MAP_UNAVAILABLE');

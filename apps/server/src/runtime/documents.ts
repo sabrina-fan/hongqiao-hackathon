@@ -1,6 +1,7 @@
 import { defineDocFamily } from '@earendil-works/pi-durable';
 import { arr, compile, int, lit, nullable, obj, oneOf, opt, str } from '@earendil-works/pi-schema';
 import { WalkingEvidenceSchema, WalkingMarkersSchema } from '../radar/evidence.js';
+import { RecallSnapshotSchema } from '../radar/recall-snapshot.js';
 import type { Static } from '@earendil-works/pi-schema';
 import {
   AcceptReceiptSchema,
@@ -9,6 +10,7 @@ import {
   FixedStopSchema,
   PlaceOptionSchema,
   RadarOutcomeSchema,
+  RadarPlaceFactsSchema,
   ArrangementSchema,
   TripDaySchema,
   tripFields,
@@ -26,6 +28,7 @@ const RadarSessionSnapshotSchema = obj({
   distance_m: int({ minimum: 0 }),
   fetched_at: str({ format: 'date-time' }),
   markers: opt(WalkingMarkersSchema),
+  facts: opt(RadarPlaceFactsSchema),
   constraints: opt(
     obj({
       fixed: nullable(FixedStopSchema),
@@ -46,6 +49,7 @@ export const RadarRecordSchema = obj({
   outcome: nullable(RadarOutcomeSchema),
   validated: nullable(BindingSchema),
   session: opt(nullable(RadarSessionSnapshotSchema)),
+  recall: opt(obj({ snapshot: RecallSnapshotSchema, binding: BindingSchema })),
 });
 export type RadarRecord = Static<typeof RadarRecordSchema>;
 

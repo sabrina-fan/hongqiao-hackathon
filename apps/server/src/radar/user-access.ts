@@ -1,3 +1,4 @@
+import type { RadarModel } from '@nextstop/model-gateway';
 import { createHash } from 'node:crypto';
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -6,7 +7,7 @@ import { openUserRuntime, type UserRuntime } from '../runtime/open-user-runtime.
 import { TripFault } from '../trip/store.js';
 
 // Data deletion shares the SQLite queue so an older request cannot open a writer after revocation.
-export function createUserAccess(dataDir: string) {
+export function createUserAccess(dataDir: string, radarModel?: RadarModel | null) {
   const tails = new Map<string, Promise<void>>();
   type Task = { controller: AbortController; tripId: string | null };
   const tasks = new Map<string, Set<Task>>();
@@ -33,7 +34,7 @@ export function createUserAccess(dataDir: string) {
   function withUser<T>(userId: string, run: (runtime: UserRuntime) => Promise<T>): Promise<T> {
     return exclusive(userId, async () => {
       if (await isRevoked(userId)) throw new HttpFault('SESSION_REQUIRED');
-      const runtime = await openUserRuntime({ dataDir, userId });
+      const runtime = await openUserRuntime({ dataDir, userId, radarModel: radarModel ?? null });
       try {
         return await run(runtime);
       } finally {

@@ -1,0 +1,92 @@
+.radar-candidate-map {
+  min-height: 186px;
+}
+
+.radar-map-pin,
+.radar-map-anchor {
+  position: absolute;
+  translate: -50% -50%;
+  border-radius: 999px;
+  background: white;
+  color: #13294f;
+  font-weight: 700;
+}
+
+.radar-map-anchor {
+  padding: 3px 8px;
+  font-size: 0.75rem;
+  pointer-events: none;
+}
+
+.radar-map-pin {
+  width: 44px;
+  height: 44px;
+  border: 2px solid #3773a6;
+  box-shadow: 0 0 0 2px white;
+}
+
+.radar-map-pin[aria-pressed='true'] {
+  z-index: 1;
+  background: #3773a6;
+  color: white;
+  outline: 2px solid #13294f;
+  outline-offset: 2px;
+}
+
+.radar-card-list {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.radar-card-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 50px;
+  padding: 8px 12px;
+  color: inherit;
+  text-align: start;
+}
+
+.radar-card-choice[aria-pressed='true'] {
+  border-color: #3773a6;
+  background: #ecf5ff;
+}
+
+.radar-card-choice small {
+  display: block;
+  color: var(--muted);
+}
+
+.radar-card-number {
+  min-width: 24px;
+  border: 1px solid #3773a6;
+  border-radius: 999px;
+  text-align: center;
+}
+
+.radar-exclusions {
+  margin: 12px 4px;
+  color: var(--muted);
+}
+
+.radar-feedback-note {
+  display: grid;
+  gap: 4px;
+}
+
+.radar-feedback-sheet p {
+  color: var(--muted);
+}
+
+.radar-feedback-reasons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.radar-feedback-reasons button {
+  min-height: 44px;
+}

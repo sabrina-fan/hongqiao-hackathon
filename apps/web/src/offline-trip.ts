@@ -7,6 +7,14 @@ export const radarPointerKey = 'nextstop.radar-session';
 export const batchPointerKey = 'nextstop:last-import-batch';
 const draftKeys = [radarPointerKey, batchPointerKey];
 
+export function readRadarPointer() {
+  try {
+    return sessionStorage.getItem(radarPointerKey);
+  } catch {
+    return null;
+  }
+}
+
 export function cacheGeneration() {
   try {
     return localStorage.getItem(changeKey);

@@ -50,6 +50,7 @@ export function App() {
   const [connection, setConnection] = useState<Connection>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [sessionEpoch, setSessionEpoch] = useState(0);
+  const [feedbackRevision, setFeedbackRevision] = useState(0);
   const [offline, setOffline] = useState(() => !navigator.onLine);
   useEffect(() => watchTripData(() => setSessionEpoch((value) => value + 1)), []);
   useEffect(() => {
@@ -102,6 +103,7 @@ export function App() {
           <RadarPanel
             key={`radar-${sessionEpoch}`}
             capabilities={ready}
+            feedbackRevision={feedbackRevision}
             page={page === 'radar' || page === 'trip' ? page : null}
           />
         )}
@@ -124,7 +126,13 @@ export function App() {
             <h1>我的灵感库</h1>
           </header>
         )}
-        {page === 'settings' && <SettingsPanel available={ready?.trip_writes ?? false} />}
+        {page === 'settings' && (
+          <SettingsPanel
+            available={ready?.trip_writes ?? false}
+            dataRevision={sessionEpoch}
+            onFeedbackChanged={() => setFeedbackRevision((value) => value + 1)}
+          />
+        )}
         {(page === 'settings' || !ready) && (
           <section className="panel service padded-panel" aria-labelledby="service-heading">
             <h2 id="service-heading">服务连接</h2>

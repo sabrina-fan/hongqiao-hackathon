@@ -13,6 +13,8 @@ import type {
   AcceptReceipt,
   RadarRequest,
   RadarView,
+  RejectRadarInput,
+  ProposalBinding,
   ArrangementInput,
   TripDay,
 } from '@nextstop/core';
@@ -161,7 +163,13 @@ export function getRadarHistory(signal?: AbortSignal) {
 }
 
 export function createRadarSession(input: RadarRequest, signal?: AbortSignal): Promise<RadarView> {
-  return requestJson('/api/v1/radar/sessions', post(input), radarViewValidator.check, signal);
+  return requestJson(
+    '/api/v1/radar/sessions',
+    post(input),
+    radarViewValidator.check,
+    signal,
+    32_000,
+  );
 }
 
 export function getRadarSession(sessionId: string, signal?: AbortSignal): Promise<RadarView> {
@@ -170,6 +178,22 @@ export function getRadarSession(sessionId: string, signal?: AbortSignal): Promis
     {},
     radarViewValidator.check,
     signal,
+  );
+}
+
+export function reviseRadar(
+  sessionId: string,
+  change:
+    | { kind: 'reject'; input: RejectRadarInput }
+    | { kind: 'recheck'; input: { binding: ProposalBinding } },
+  signal?: AbortSignal,
+) {
+  return requestJson(
+    `/api/v1/radar/sessions/${encodeURIComponent(sessionId)}/${change.kind}`,
+    post(change.input),
+    radarViewValidator.check,
+    signal,
+    32_000,
   );
 }
 

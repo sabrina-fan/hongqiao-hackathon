@@ -79,9 +79,10 @@ it('removes exclusive trip uploads, retains shared sources, and removes both sou
   const dataDir = await mkdtemp(join(tmpdir(), 'nextstop-privacy-sources-'));
   const oldPoi = { id: 'old', name: '误匹配门店', address: '旧地址' };
   const newPoi = { id: 'new', name: '正确门店', address: '新地址' };
-  let notifyRouteStarted = () => {};
-  const routeStarted = new Promise<void>((resolve) => {
-    notifyRouteStarted = resolve;
+  let startedLookups = 0;
+  let notifyRoutesStarted = () => {};
+  const routesStarted = new Promise<void>((resolve) => {
+    notifyRoutesStarted = resolve;
   });
   const server = createApp({
     dataDir,
@@ -92,7 +93,7 @@ it('removes exclusive trip uploads, retains shared sources, and removes both sou
         if (new URL(String(url)).pathname === '/v5/place/detail') {
           const signal = init?.signal;
           assert(signal);
-          notifyRouteStarted();
+          if (++startedLookups === 2) notifyRoutesStarted();
           return new Promise<Response>((_resolve, reject) => {
             signal.addEventListener('abort', () => reject(signal.reason), { once: true });
           });
@@ -180,19 +181,24 @@ it('removes exclusive trip uploads, retains shared sources, and removes both sou
     const imageRoot = join(dataDir, 'import-images', user);
     expect(await readdir(join(imageRoot, exclusive.import_id))).toEqual(['normalized', 'original']);
     const tripPath = `/trips/${owned.trip_id}`;
-    const runningRadar = call('/radar/sessions', 'POST', {
-      origin_id: oldPoi.id,
-      poi_id: newPoi.id,
-      available_min: 75,
-    });
-    await Promise.race([
-      routeStarted,
-      runningRadar.then((response) => {
-        throw new Error(`Radar returned ${response.status} before map lookup`);
+    const runningRadar = [
+      call('/radar/sessions', 'POST', {
+        origin_id: oldPoi.id,
+        poi_id: newPoi.id,
+        available_min: 75,
       }),
+      call('/radar/sessions', 'POST', { origin_id: oldPoi.id, available_min: 75 }),
+    ];
+    await Promise.race([
+      routesStarted,
+      ...runningRadar.map((request) =>
+        request.then((response) => {
+          throw new Error(`Radar returned ${response.status} before both map lookups started`);
+        }),
+      ),
     ]);
     expect((await call(tripPath, 'DELETE')).status).toBe(204);
-    expect((await runningRadar).status).toBe(409);
+    expect((await Promise.all(runningRadar)).map(({ status }) => status)).toEqual([409, 409]);
     expect((await call(tripPath, 'DELETE')).status).toBe(204);
     expect((await call(tripPath)).status).toBe(404);
     expect((await call(`/trips/${other.trip_id}`)).status).toBe(200);

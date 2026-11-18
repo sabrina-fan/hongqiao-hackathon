@@ -31,10 +31,12 @@ import {
   type RadarSessionSnapshot,
 } from '../runtime/documents.js';
 import { activeTripDocument, readActiveTrip } from '../trip/store.js';
-import { effectiveFixed, nextFixedStop } from './fixed-stop.js';
+import { fixedForSearch } from './fixed-stop.js';
 import { RadarAcceptances } from './acceptance.js';
 import type { UserRuntime } from '../runtime/open-user-runtime.js';
 import { RadarFault, WalkingEvidenceSchema, type WalkingEvidence } from './evidence.js';
+import { checkedRecall } from './recall-store.js';
+import { openingCovers, screenRecall } from './recall.js';
 
 const walkingEvidence = compile(WalkingEvidenceSchema);
 const recordValidator = compile(RadarRecordSchema);
@@ -73,6 +75,9 @@ function fits(session: RadarSessionSnapshot, at: number) {
   const maxWalk = session.constraints?.preference === 'short_walk' ? 1500 : MAX_WALK_M;
   return (
     (!fixed || travelAfter !== null) &&
+    session.facts?.booking?.state !== 'required' &&
+    (!session.facts?.opening ||
+      openingCovers(session.facts.opening.today, at + session.travel_min * MINUTE, stay)) &&
     session.distance_m <= maxWalk &&
     (session.constraints?.onward?.distance_m ?? 0) <= MAX_WALK_M &&
     fitsTimeWindow({
@@ -116,6 +121,7 @@ function viewOf(
       limited_by,
       remaining_min: feasible ? available_min - total : null,
     },
+    ...(session.facts ? { facts: session.facts } : {}),
     ...(session.markers
       ? { markers: { ...session.markers, ...(nextMarker ? { next: nextMarker } : {}) } }
       : {}),
@@ -180,6 +186,7 @@ function checkedView(
   trip: ActiveTrip,
   at: number,
 ): RadarView {
+  if (record?.recall) return checkedRecall(record, sessionId, { trip, at });
   const { session, outcome, validated } = checkedRecord(record, sessionId);
   const current = bindingFor(session, trip);
   const verdict = checkProposalBinding({ outcome, validated, current });
@@ -192,21 +199,21 @@ function checkedView(
     at >= Date.parse(session.valid_until)
   )
     throw new RadarFault('PROPOSAL_STALE');
+  let fixed: FixedStop | null;
+  try {
+    fixed = fixedForSearch(trip, session.constraints?.fixed_mode, at);
+  } catch (error) {
+    if (error instanceof RadarFault) throw new RadarFault('PROPOSAL_STALE');
+    throw error;
+  }
+  if (
+    fixed?.arrangement_id !== session.constraints?.fixed?.arrangement_id ||
+    fixed?.starts_at !== session.constraints?.fixed?.starts_at
+  )
+    throw new RadarFault('PROPOSAL_STALE');
   const feasible = fits(session, at);
   if (outcome.kind === 'recommendations') {
     if (!feasible) throw new RadarFault('PROPOSAL_STALE');
-    let fixed: FixedStop | null;
-    try {
-      fixed = effectiveFixed(nextFixedStop(trip, at), session.constraints?.fixed_mode, at);
-    } catch (error) {
-      if (error instanceof RadarFault) throw new RadarFault('PROPOSAL_STALE');
-      throw error;
-    }
-    if (
-      fixed?.arrangement_id !== session.constraints?.fixed?.arrangement_id ||
-      fixed?.starts_at !== session.constraints?.fixed?.starts_at
-    )
-      throw new RadarFault('PROPOSAL_STALE');
   } else if (feasible) throw new RadarFault('PROPOSAL_UNVALIDATED');
   return viewOf(session, current, feasible);
 }
@@ -245,7 +252,7 @@ export async function createRadar({
       throw new RadarFault('PROPOSAL_STALE');
     const at = now();
     const created_ms = startedAt ?? at;
-    const fixed = effectiveFixed(nextFixedStop(trip, created_ms), request.fixed_mode, created_ms);
+    const fixed = fixedForSearch(trip, request.fixed_mode, created_ms);
     const fetched = Date.parse(evidence.fetched_at);
     const onwardFetched = onward ? Date.parse(onward.fetched_at) : fetched;
     if (
@@ -257,7 +264,7 @@ export async function createRadar({
     if (at >= expires) throw new RadarFault('PROPOSAL_STALE');
     const session: RadarSessionSnapshot = {
       origin_id,
-      poi_id: request.poi_id,
+      poi_id: evidence.destination.id,
       available_min: request.available_min,
       ...evidence,
       constraints: {
@@ -298,7 +305,18 @@ export async function getRadar({
 }): Promise<RadarView> {
   if (!identifier.check(sessionId)) throw new RadarFault('NOT_FOUND');
   const record = await readResult(runtime, sessionId);
-  return checkedView(record, sessionId, await readActiveTrip(runtime), now());
+  const trip = await readActiveTrip(runtime);
+  try {
+    return checkedView(record, sessionId, trip, now());
+  } catch (error) {
+    if (
+      !(error instanceof RadarFault) ||
+      error.code !== 'PROPOSAL_STALE' ||
+      !record?.recall?.snapshot.rejections?.length
+    )
+      throw error;
+    return { ...checkedRecall(record, sessionId), evidence_status: 'stale' };
+  }
 }
 
 function readResult(runtime: UserRuntime, sessionId: string) {
@@ -357,6 +375,7 @@ export async function getRadarHistory(runtime: UserRuntime, at: number) {
     };
   } catch (error) {
     if (!(error instanceof RadarFault) || error.code !== 'PROPOSAL_STALE') throw error;
+    if (record?.recall) return { status: 'stale' as const, view: checkedRecall(record, sessionId) };
     const { session, outcome, validated } = checkedRecord(record, sessionId);
     const original = bindingFor(
       session,
@@ -421,13 +440,27 @@ export async function acceptRadar({
     if (!sameProposalBinding(input.binding, record.outcome.binding))
       throw new RadarFault('PROPOSAL_STALE');
     const tripDoc = await activeTripDocument(tx, conversationId);
-    const view = checkedView(record, sessionId, tripDoc.trip, now());
+    const at = now();
+    const view = checkedView(record, sessionId, tripDoc.trip, at);
     if (view.outcome.kind === 'empty') throw new RadarFault('NO_FEASIBLE_OPTION');
-    if (view.destination.id !== input.poi_id) throw new RadarFault('NOT_FOUND');
+    const selected = view.candidates
+      ? view.candidates.find(({ place }) => place.id === input.poi_id)
+      : view.destination.id === input.poi_id
+        ? { place: view.destination, markers: view.markers }
+        : undefined;
+    if (!selected) throw new RadarFault('NOT_FOUND');
+    const { place: destination, markers } = selected;
+    if (
+      record.recall &&
+      !screenRecall(record.recall.snapshot, at).eligible.some(
+        ({ candidate }) => candidate.place.id === input.poi_id,
+      )
+    )
+      throw new RadarFault('PROPOSAL_STALE');
     const stop = {
       stop_id: `stop-${randomUUID()}`,
       poi_id: input.poi_id,
-      name: view.destination.name,
+      name: destination.name,
     };
     const prior = tripDoc.trip;
     const trip = {
@@ -446,8 +479,8 @@ export async function acceptRadar({
     confirmation.acceptance = {
       status: 'added',
       receipt,
-      destination: view.destination,
-      ...(view.markers ? { point: { ...view.markers.destination } } : {}),
+      destination,
+      ...(markers ? { point: { ...markers.destination } } : {}),
     };
     return receipt;
   }, BACKGROUND_CONTEXT);

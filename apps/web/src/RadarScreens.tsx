@@ -1,8 +1,14 @@
-import type { FixedStop, PlaceOption, RadarOutcome, RadarView } from '@nextstop/core';
-import { RadarRoutePreview } from './RadarRoutePreview.js';
+import type {
+  FixedStop,
+  PlaceOption,
+  RadarCandidate,
+  RadarContext,
+  RadarOutcome,
+  RadarView,
+} from '@nextstop/core';
 import './radar-context.css';
 import { useEffect, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { PlaceField } from './PlaceField.js';
 
 export function Icon({ children }: { children: string }) {
@@ -35,9 +41,11 @@ export function RadarForm({
   location: { active: boolean; locating: boolean; hint: string; onLocate: () => void };
   fixed: {
     stop: FixedStop | null;
+    inProgress: RadarContext['in_progress'];
     skipped: boolean;
     hint: string;
     onSkip: (value: boolean) => void;
+    onRefresh: () => void;
   };
   shortWalk: boolean;
   onShortWalk: (value: boolean) => void;
@@ -107,7 +115,16 @@ export function RadarForm({
                 </p>
               )}
               <div className="between place-row destination-row">
-                <strong>{places.destination?.name ?? '尚未选择目的地'}</strong>
+                <strong>{places.destination?.name ?? '从收藏和附近找地点'}</strong>
+                {places.destination && (
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={() => onPlace('destination', null)}
+                  >
+                    联合搜索
+                  </button>
+                )}
                 <button
                   className="text-button"
                   type="button"
@@ -169,6 +186,21 @@ export function RadarForm({
                 />
               </div>
             </section>
+            {fixed.inProgress && (
+              <section aria-labelledby="running-lock-heading">
+                <h2 id="running-lock-heading">
+                  <Icon>▦</Icon> 当前固定安排
+                </h2>
+                <p className="locked" role="status">
+                  {fixed.inProgress.name}进行中 ·{' '}
+                  {zonedClock(fixed.inProgress.ends_at, fixed.inProgress.time_zone)} 结束
+                </p>
+                <p className="radar-hint">安排结束后，检查时段再计算。</p>
+                <button className="text-button" type="button" onClick={fixed.onRefresh}>
+                  检查时段
+                </button>
+              </section>
+            )}
             <section>
               <h2>
                 <Icon>▦</Icon> 下一项固定安排 <small>（可选）</small>
@@ -261,8 +293,12 @@ export function RadarForm({
 }
 
 export function fixedClock({ starts_at, time_zone }: FixedStop) {
-  return new Date(starts_at).toLocaleTimeString('zh-CN', {
-    timeZone: time_zone,
+  return zonedClock(starts_at, time_zone);
+}
+
+function zonedClock(at: string, timeZone: string) {
+  return new Date(at).toLocaleTimeString('zh-CN', {
+    timeZone,
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
@@ -285,87 +321,118 @@ export function PickCard({
   accepting,
   writable,
   historical,
+  candidate,
+  primary,
+  expired,
   onConfirm,
   onEdit,
+  onRecalculate,
+  changeAction,
 }: {
   pick: Pick;
   view: RadarView;
+  candidate: RadarCandidate | undefined;
+  primary: boolean;
+  expired: boolean;
   accepting: boolean;
   writable: boolean;
   historical: boolean;
   onConfirm: () => void;
   onEdit: () => void;
+  onRecalculate: () => void;
+  changeAction: ReactNode;
 }) {
+  const place = candidate?.place ?? view.destination;
+  const remaining = candidate?.remaining_min ?? view.window?.remaining_min;
+  const expiry = candidate?.valid_until ?? view.valid_until;
+  const facts = candidate?.facts ?? view.facts;
   const total =
     pick.travel_to_min + (pick.travel_to_next_min ?? 0) + pick.stay_min_estimate + pick.buffer_min;
   return (
-    <>
-      <RadarRoutePreview view={view} />
-      <div className="between title-row">
-        <h2>为你找到的选择</h2>
-        <small>高德步行估算</small>
+    <article className="panel pick">
+      <div className="pick-top">
+        <span className="place-mark" aria-hidden="true">
+          ⌖
+        </span>
+        <div>
+          <span className={`badge${primary ? ' lime' : ''}`}>{primary ? '优先推荐' : '备选'}</span>
+          <h3>{place.name}</h3>
+          {place.address && <small>{place.address}</small>}
+          {candidate && (
+            <p className="muted">
+              {candidate.sources
+                .map((source) => (source === 'wishlist' ? '灵感库收藏' : '高德附近'))
+                .join(' · ')}
+            </p>
+          )}
+        </div>
       </div>
-      <article className="panel pick">
-        <div className="pick-top">
-          <span className="place-mark" aria-hidden="true">
-            ⌖
-          </span>
-          <div>
-            <span className="badge lime">优先推荐</span>
-            <h3>{view.destination.name}</h3>
-            {view.destination.address && <small>{view.destination.address}</small>}
-          </div>
+      <p className="reason">
+        <strong>✧ 推荐理由</strong>　{pick.choice.reason_text}
+      </p>
+      <div className="times">
+        <div>
+          <small>步行前往</small>
+          <strong>约 {pick.travel_to_min} 分钟</strong>
         </div>
-        <p className="reason">
-          <strong>✧ 推荐理由</strong>　{pick.choice.reason_text}
+        <div>
+          <small>建议停留</small>
+          <strong>约 {pick.stay_min_estimate} 分钟</strong>
+        </div>
+        {pick.travel_to_next_min !== null && (
+          <div>
+            <small>下一站</small>
+            <strong>{pick.travel_to_next_min} 分钟</strong>
+          </div>
+        )}
+        {pick.buffer_min > 0 && (
+          <div>
+            <small>缓冲</small>
+            <strong>{pick.buffer_min} 分钟</strong>
+          </div>
+        )}
+      </div>
+      <div className="pick-bottom">
+        <p className="muted">
+          共约 {total} 分钟
+          {remaining != null && ` · 计算时剩余 ${remaining} 分钟`}
         </p>
-        <div className="times">
-          <div>
-            <small>步行前往</small>
-            <strong>约 {pick.travel_to_min} 分钟</strong>
-          </div>
-          <div>
-            <small>建议停留</small>
-            <strong>约 {pick.stay_min_estimate} 分钟</strong>
-          </div>
-          {pick.travel_to_next_min !== null && (
-            <div>
-              <small>下一站</small>
-              <strong>{pick.travel_to_next_min} 分钟</strong>
-            </div>
-          )}
-          {pick.buffer_min > 0 && (
-            <div>
-              <small>缓冲</small>
-              <strong>{pick.buffer_min} 分钟</strong>
-            </div>
-          )}
-        </div>
-        <div className="pick-bottom">
-          <p className="muted">
-            共约 {total} 分钟
-            {view.window?.remaining_min != null &&
-              ` · 计算时剩余 ${view.window.remaining_min} 分钟`}
-          </p>
-          <p className="muted">
-            高德路线估算 · {clock(pick.evidence.fetched_at)} 获取 · 营业、预约和价格待确认
-          </p>
-          {!historical && <p className="muted">{clock(view.valid_until)} 前可加入</p>}
-          <div className="actions">
-            <button className="secondary" type="button" disabled={accepting} onClick={onEdit}>
-              返回修改
-            </button>
+        <p className="muted">高德步行估算 · {clock(pick.evidence.fetched_at)} 获取</p>
+        <p className="muted">
+          营业 {facts?.opening ? `高德今日 ${facts.opening.today}（已查询）` : '待核验'} · 预约{' '}
+          {facts?.booking
+            ? `${facts.booking.state === 'required' ? '需预约' : '无需预约'}（${facts.booking.source}，${facts.booking.status === 'stale' ? '已过期' : '已核验'}）`
+            : '待核验'}{' '}
+          · 价格 {facts?.price ? `高德参考 ${facts.price.text}（估计）` : '待核验'}
+        </p>
+        {expired ? (
+          <p role="status">本项证据已过期，请重新计算。</p>
+        ) : (
+          !historical && <p className="muted">{clock(expiry)} 前可加入</p>
+        )}
+        <div className="actions">
+          {expired || !changeAction ? (
             <button
-              className="primary"
+              className="secondary"
               type="button"
-              disabled={accepting || !writable}
-              onClick={onConfirm}
+              disabled={accepting}
+              onClick={expired ? onRecalculate : onEdit}
             >
-              {accepting ? '正在确认…' : '确认加入行程'}
+              {expired ? '重新计算' : '返回修改'}
             </button>
-          </div>
+          ) : (
+            changeAction
+          )}
+          <button
+            className="primary"
+            type="button"
+            disabled={accepting || !writable || expired}
+            onClick={onConfirm}
+          >
+            {accepting ? '正在确认…' : '确认加入行程'}
+          </button>
         </div>
-      </article>
-    </>
+      </div>
+    </article>
   );
 }

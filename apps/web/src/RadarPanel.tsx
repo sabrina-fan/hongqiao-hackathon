@@ -4,10 +4,11 @@ import {
   liveOriginId,
   type BrowserPosition,
   type Capabilities,
-  type FixedStop,
   type PlaceOption,
+  type RadarContext,
   type RadarAcceptance,
   type RadarView,
+  type RadarFeedback,
 } from '@nextstop/core';
 import {
   ApiError,
@@ -20,16 +21,20 @@ import {
   getRadarSession,
   getTripDetail,
   isCancellation,
+  reviseRadar,
   undoRadarAcceptance,
 } from './api.js';
 import {
   cacheGeneration,
   invalidateTripData,
   radarPointerKey as draftKey,
+  readRadarPointer,
   rememberTrip,
 } from './offline-trip.js';
 import { RadarAcceptanceCard, type UndoState } from './RadarAcceptanceCard.js';
-import { fixedClock, Icon, PickCard, RadarForm } from './RadarScreens.js';
+import { RadarFeedbackNote } from './RadarFeedback.js';
+import { RadarExclusions, RadarRecommendations } from './RadarRecommendations.js';
+import { fixedClock, Icon, RadarForm } from './RadarScreens.js';
 import { TripPanel } from './TripPanel.js';
 
 type Session = { kind: 'loading' | 'ready' } | { kind: 'failed'; message: string };
@@ -38,16 +43,9 @@ type Result =
   | { kind: 'error'; message: string }
   | { kind: 'history'; view: RadarView; stale: boolean }
   | { kind: 'stale'; message: string }
-  | { kind: 'shown'; view: RadarView; failure?: string }
-  | { kind: 'accepting'; view: RadarView }
+  | { kind: 'shown'; view: RadarView; failure?: string; feedbackError?: string }
+  | { kind: 'accepting' | 'reranking'; view: RadarView }
   | { kind: 'accepted'; sessionId: string; acceptance: RadarAcceptance; undo: UndoState };
-function draftId() {
-  try {
-    return sessionStorage.getItem(draftKey);
-  } catch {
-    return null;
-  }
-}
 function remember(id: string | null) {
   try {
     if (id) sessionStorage.setItem(draftKey, id);
@@ -72,9 +70,11 @@ function messageOf(error: unknown) {
 export function RadarPanel({
   capabilities,
   page,
+  feedbackRevision,
 }: {
   capabilities: Capabilities;
   page: 'radar' | 'trip' | null;
+  feedbackRevision: number;
 }) {
   const [attempt, setAttempt] = useState(0);
   const [session, setSession] = useState<Session>({ kind: 'loading' });
@@ -86,7 +86,9 @@ export function RadarPanel({
   const [locating, setLocating] = useState(false);
   const [locationHint, setLocationHint] = useState('');
   const locationAttempt = useRef(0);
-  const [fixed, setFixed] = useState<FixedStop | null>(null);
+  const [context, setContext] = useState<RadarContext | null>(null);
+  const { fixed, in_progress: inProgress } = context ?? { fixed: null, in_progress: null };
+  const [contextAttempt, setContextAttempt] = useState(0);
   const [contextHint, setContextHint] = useState('');
   const [skipFixed, setSkipFixed] = useState(false);
   const [shortWalk, setShortWalk] = useState(false);
@@ -115,19 +117,25 @@ export function RadarPanel({
         await createSession(signal);
         if (signal.aborted) return;
         // Keep the form closed until restoration finishes so an old selection never replaces new input.
-        const id = draftId();
+        const id = readRadarPointer();
         if (id) {
           try {
-            // Check the proposal first. If a concurrent confirmation advanced the trip revision,
-            // this request becomes stale and the durable acceptance can then be read.
-            const restored = capabilities.radar
+            // Expired feedback can still return a read-only view. A durable receipt takes precedence.
+            let restored = capabilities.radar
               ? await getRadarSession(id, signal).catch(async (error: unknown) => {
-                  if (!(error instanceof ApiError) || error.code !== 'PROPOSAL_STALE') throw error;
+                  if (
+                    !(error instanceof ApiError) ||
+                    (error.code !== 'PROPOSAL_STALE' && error.code !== 'NOT_FOUND')
+                  )
+                    throw error;
                   const saved = await getRadarAcceptance(id, signal);
                   if (!saved) throw error;
                   return saved;
                 })
               : await getRadarAcceptance(id, signal);
+            if (restored && 'outcome' in restored && restored.evidence_status === 'stale') {
+              restored = (await getRadarAcceptance(id, signal)) ?? restored;
+            }
             if (signal.aborted) return;
             if (restored && 'receipt' in restored) {
               setDestination(restored.destination);
@@ -139,7 +147,7 @@ export function RadarPanel({
               });
             } else if (restored) {
               if (restored.origin.id !== liveOriginId) setOrigin(restored.origin);
-              setDestination(restored.destination);
+              setDestination(restored.candidates ? null : restored.destination);
               setMinutes(String(restored.window?.manual_min ?? restored.available_min));
               setResult({ kind: 'shown', view: restored });
             }
@@ -147,6 +155,10 @@ export function RadarPanel({
             if (signal.aborted || sessionExpired(error)) return;
             if (error instanceof ApiError && (error.status === 404 || error.status === 409))
               remember(null);
+            if (error instanceof ApiError && error.code === 'NOT_FOUND') {
+              setSession({ kind: 'ready' });
+              return;
+            }
             setResult({ kind: 'error', message: messageOf(error) });
           }
         }
@@ -159,22 +171,22 @@ export function RadarPanel({
       controller.abort();
       lifetime.current = null;
     };
-  }, [attempt, canOpen, capabilities.radar]);
+  }, [attempt, canOpen, capabilities.radar, feedbackRevision]);
 
   useEffect(() => {
     if (page !== 'radar' || session.kind !== 'ready' || !capabilities.radar) return;
     const controller = new AbortController();
     void getRadarContext(controller.signal)
-      .then(({ fixed }) => {
+      .then((updated) => {
         if (controller.signal.aborted) return;
-        setFixed(fixed);
+        setContext(updated);
         setContextHint('');
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) setContextHint(messageOf(error));
       });
     return () => controller.abort();
-  }, [page, session.kind, capabilities.radar]);
+  }, [page, session.kind, capabilities.radar, contextAttempt]);
 
   function clearProposal() {
     remember(null);
@@ -227,9 +239,12 @@ export function RadarPanel({
     try {
       const saved = await getRadarHistory(signal);
       if (signal.aborted) return;
-      if (!saved) setResult({ kind: 'idle' });
-      if (!saved) setHistoryNote('还没有保存的雷达结果。');
-      else setResult({ kind: 'history', view: saved.view, stale: saved.status === 'stale' });
+      setHistoryNote(saved ? '' : '还没有保存的雷达结果。');
+      setResult(
+        saved
+          ? { kind: 'history', view: saved.view, stale: saved.status === 'stale' }
+          : { kind: 'idle' },
+      );
     } catch (error) {
       if (!signal.aborted && !sessionExpired(error))
         setResult({ kind: 'error', message: messageOf(error) });
@@ -241,21 +256,22 @@ export function RadarPanel({
   const available = Number(minutes);
   const writePending =
     result.kind === 'accepting' || (result.kind === 'accepted' && result.undo.kind === 'pending');
-  const busy = result.kind === 'calculating' || writePending || historyLoading;
+  const busy =
+    result.kind === 'calculating' || result.kind === 'reranking' || writePending || historyLoading;
   const missingFixed = fixed !== null && !fixed.address;
   const canSubmit = Boolean(
     (origin || position) &&
-    destination &&
     Number.isInteger(available) &&
     available >= 1 &&
     available <= 720 &&
     (!missingFixed || skipFixed) &&
+    !inProgress &&
     !busy &&
     !locating,
   );
   async function calculate() {
     const signal = lifetime.current?.signal;
-    if (!destination || !canSubmit || locked.current || !signal) return;
+    if (!canSubmit || locked.current || !signal) return;
     const source = position ? { position } : origin ? { origin_id: origin.id } : null;
     if (!source) return;
     locked.current = true;
@@ -265,7 +281,7 @@ export function RadarPanel({
       const view = await createRadarSession(
         {
           ...source,
-          poi_id: destination.id,
+          ...(destination ? { poi_id: destination.id } : {}),
           available_min: available,
           fixed_mode: missingFixed && skipFixed ? 'without_fixed' : 'next_locked',
           ...(shortWalk ? { preference: 'short_walk' } : {}),
@@ -274,14 +290,57 @@ export function RadarPanel({
       );
       if (signal.aborted) return;
       remember(view.outcome.binding.session_id);
+      setHistoryNote('');
       setResult({ kind: 'shown', view });
     } catch (error) {
-      if (!signal.aborted && !sessionExpired(error))
-        setResult({ kind: 'error', message: messageOf(error) });
+      if (signal.aborted || sessionExpired(error)) return;
+      if (error instanceof ApiError && error.code === 'FIXED_IN_PROGRESS') {
+        setContextHint(error.message);
+        setContextAttempt((value) => value + 1);
+        setResult({ kind: 'idle' });
+      } else setResult({ kind: 'error', message: messageOf(error) });
     } finally {
       locked.current = false;
     }
   }
+  async function revise(
+    view: RadarView,
+    rejection?: { poiId: string; reason: RadarFeedback['reason'] },
+  ) {
+    const signal = lifetime.current?.signal;
+    if (locked.current || !signal) return;
+    locked.current = true;
+    setResult({ kind: 'reranking', view });
+    const binding = view.outcome.binding;
+    try {
+      const next = await reviseRadar(
+        binding.session_id,
+        rejection
+          ? {
+              kind: 'reject',
+              input: { binding, poi_id: rejection.poiId, reason: rejection.reason },
+            }
+          : { kind: 'recheck', input: { binding } },
+        signal,
+      );
+      if (!signal.aborted) {
+        setResult({ kind: 'shown', view: next });
+        document.getElementById('screen')?.scrollTo(0, 0);
+      }
+    } catch (error) {
+      if (!signal.aborted && !sessionExpired(error)) {
+        const stale = error instanceof ApiError && error.code === 'PROPOSAL_STALE';
+        setResult({
+          kind: 'shown',
+          view: stale ? { ...view, evidence_status: 'stale' } : view,
+          feedbackError: messageOf(error),
+        });
+      }
+    } finally {
+      locked.current = false;
+    }
+  }
+
   async function confirm(view: RadarView, poiId: string) {
     const signal = lifetime.current?.signal;
     if (locked.current || !signal || !capabilities.trip_writes) return;
@@ -310,8 +369,16 @@ export function RadarPanel({
     } catch (error) {
       if (signal.aborted || isCancellation(error) || sessionExpired(error)) return;
       if (error instanceof ApiError && error.code === 'PROPOSAL_STALE') {
-        remember(null);
-        setResult({ kind: 'stale', message: error.message });
+        if (view.feedback) {
+          setResult({
+            kind: 'shown',
+            view: { ...view, evidence_status: 'stale' },
+            feedbackError: error.message,
+          });
+        } else {
+          remember(null);
+          setResult({ kind: 'stale', message: error.message });
+        }
       } else setResult({ kind: 'shown', view, failure: messageOf(error) });
     } finally {
       locked.current = false;
@@ -358,7 +425,7 @@ export function RadarPanel({
       setLocationHint('');
       setPosition(null);
       setOrigin(result.view.origin.id === liveOriginId ? null : result.view.origin);
-      setDestination(result.view.destination);
+      setDestination(result.view.candidates ? null : result.view.destination);
       setMinutes(String(result.view.window?.manual_min ?? result.view.available_min));
     }
     clearProposal();
@@ -441,7 +508,14 @@ export function RadarPanel({
                 hint: locationHint,
                 onLocate: locate,
               }}
-              fixed={{ stop: fixed, skipped: skipFixed, hint: contextHint, onSkip: setSkipFixed }}
+              fixed={{
+                stop: fixed,
+                inProgress,
+                skipped: skipFixed,
+                hint: contextHint,
+                onSkip: setSkipFixed,
+                onRefresh: () => setContextAttempt((value) => value + 1),
+              }}
               shortWalk={shortWalk}
               onShortWalk={setShortWalk}
               minutes={minutes}
@@ -483,9 +557,17 @@ export function RadarPanel({
           </div>
         )}
         {result.kind === 'error' && (
-          <p className="note" role="alert">
-            {result.message}
-          </p>
+          <div className="note" role="alert">
+            <p>{result.message}</p>
+            <button
+              type="button"
+              className="secondary"
+              disabled={!canSubmit}
+              onClick={() => void calculate()}
+            >
+              重试计算
+            </button>
+          </div>
         )}
       </>
     );
@@ -537,8 +619,12 @@ export function RadarPanel({
           <div role="alert" className="note">
             <p>提案已失效 · PROPOSAL_STALE</p>
             <p>{result.message}</p>
-            <button className="primary" type="button" onClick={() => void calculate()}>
-              重新计算
+            <button
+              className="primary"
+              type="button"
+              onClick={inProgress ? editResult : () => void calculate()}
+            >
+              {inProgress ? '返回雷达' : '重新计算'}
             </button>{' '}
             <a href="#trip" className="secondary">
               查看当前行程 →
@@ -552,6 +638,22 @@ export function RadarPanel({
             onUndo={() => void undo()}
           />
         )}
+        {shown?.feedback && <RadarFeedbackNote feedback={shown.feedback} />}
+        {shown?.evidence_status === 'stale' && (
+          <p className="note" role="status">
+            此结果需重新核验，暂时无法确认。
+          </p>
+        )}
+        {result.kind === 'reranking' && (
+          <p className="note" role="status">
+            正在更新推荐…
+          </p>
+        )}
+        {result.kind === 'shown' && result.feedbackError && (
+          <p className="note" role="alert">
+            {result.feedbackError}
+          </p>
+        )}
         {result.kind === 'shown' && result.failure && (
           <div className="note" role="alert">
             <p>确认失败：{result.failure} 可再次点「确认加入行程」核对本次结果。</p>
@@ -561,19 +663,50 @@ export function RadarPanel({
           </div>
         )}
         {shown?.outcome.kind === 'empty' && (
-          <p className="note" role="status">
-            当前条件下没有可行方案。可以延长可用时间或换个地点。
-          </p>
+          <div className="note" role="status">
+            <p>当前条件下没有可行方案，建议不绕路。</p>
+            <p>
+              {shown.window?.fixed
+                ? `可以直接前往 ${shown.window.fixed.name}，或先休息。`
+                : '可以就近休息，或调整时间后再试。'}
+            </p>
+            <RadarExclusions entries={shown.excluded} />
+            {shown.evidence_status === 'stale' && result.kind !== 'history' && (
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => void revise(shown)}
+              >
+                重新核验
+              </button>
+            )}
+          </div>
         )}
         {shown?.outcome.kind === 'recommendations' && (
-          <PickCard
-            pick={shown.outcome.best}
+          <RadarRecommendations
+            key={shown.outcome.binding.proposal_id}
             view={shown}
+            outcome={shown.outcome}
             accepting={result.kind === 'accepting'}
+            updating={result.kind === 'reranking'}
             writable={capabilities.trip_writes && result.kind !== 'history'}
             historical={result.kind === 'history'}
-            onConfirm={() => void confirm(shown, shown.destination.id)}
+            {...(shown.candidates && result.kind !== 'history'
+              ? {
+                  onReject: (poiId: string, reason: RadarFeedback['reason']) =>
+                    void revise(shown, { poiId, reason }),
+                }
+              : {})}
+            onConfirm={(poiId) => void confirm(shown, poiId)}
             onEdit={editResult}
+            onRecalculate={
+              shown.candidates && result.kind !== 'history'
+                ? () => void revise(shown)
+                : canSubmit
+                  ? () => void calculate()
+                  : editResult
+            }
           />
         )}
       </section>

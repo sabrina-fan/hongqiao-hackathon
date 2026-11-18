@@ -21,11 +21,15 @@ const catalog = [
     address: '测试街二号',
     location: fixedWindow ? '120.636,31.306' : '120.11,31.11',
   },
+  { id: 'qa-park', name: '验收公园', address: '测试街三号', location: '120.12,31.097' },
+  { id: 'qa-tea', name: '验收茶馆', address: '测试街四号', location: '120.098,31.12' },
 ];
 function mapResponse(url) {
   let data;
   if (url.pathname === '/v5/place/text') {
     data = { pois: catalog.filter((row) => row.name.includes(url.searchParams.get('keywords'))) };
+  } else if (url.pathname === '/v5/place/around') {
+    data = { pois: catalog.filter((row) => row.id !== 'qa-origin') };
   } else if (url.pathname === '/v5/place/detail') {
     data = {
       pois: catalog.filter((row) => url.searchParams.get('id').split('|').includes(row.id)),
