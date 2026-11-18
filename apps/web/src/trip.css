@@ -99,3 +99,9 @@
 .trip .timeline .trip-entry button {
   min-height: 44px;
 }
+
+.trip-bar .mini,
+.trip > .mini {
+  min-height: 44px;
+  min-width: 44px;
+}
