@@ -58,3 +58,19 @@
 .draft-controls:empty {
   display: none;
 }
+
+.trip-draft .draft-generate {
+  min-height: 47px;
+  color: #153d45;
+  background: linear-gradient(105deg, #c4ff3c, #a9ed17);
+  box-shadow: 0 8px 18px #749b2730;
+}
+.draft-preview {
+  border-radius: 17px;
+}
+.draft-preview h2 {
+  font-size: 17px;
+}
+.draft-controls button {
+  min-height: 44px;
+}
