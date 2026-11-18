@@ -163,3 +163,17 @@ button.settings-link {
 .settings-erase {
   min-height: 44px;
 }
+
+.settings-confirm {
+  width: min(360px, calc(100% - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  color: inherit;
+  background: #fff;
+}
+.settings-confirm::backdrop {
+  background: rgb(18 38 87 / 40%);
+}
+.settings-confirm-actions button {
+  min-height: 44px;
+}
