@@ -6,7 +6,7 @@
   align-items: center;
   gap: 7px;
   padding: 0;
-  margin: 12px 0 18px;
+  margin: 26px 0 20px;
   list-style: none;
   counter-reset: batch-step;
   color: #526981;
@@ -45,14 +45,45 @@
 .batch-steps .complete::before {
   content: '✓';
 }
-.batch-drop {
-  cursor: pointer;
+.batch-screen .batch-drop {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  min-height: 130px;
+  gap: 5px;
+  padding: 10px;
+  border: 1px dashed #458ecb;
+  border-radius: 16px;
+  background: #f0f8ff;
   text-align: center;
 }
-.batch-drop input {
-  min-width: 0;
+.batch-screen label.batch-drop {
+  cursor: pointer;
+}
+.batch-screen .batch-drop .upload-mark {
+  color: #1266bf;
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1;
+}
+.batch-drop strong {
+  font-size: 15px;
+}
+.batch-screen .batch-drop input {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  max-width: 240px;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.batch-drop:focus-within {
+  outline: 3px solid #4c93ff;
+  outline-offset: 2px;
+}
+.batch-grid-heading {
+  margin: 15px 4px 0;
 }
 .batch-grid {
   display: grid;
@@ -65,7 +96,7 @@
 .batch-thumb {
   position: relative;
   overflow: hidden;
-  aspect-ratio: 1;
+  aspect-ratio: 1.1;
   border-radius: 12px;
   background: #e5eff8;
   border: 1px solid var(--line);
@@ -79,15 +110,32 @@
 }
 .batch-thumb .batch-remove {
   position: absolute;
-  top: 2px;
-  right: 2px;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: start end;
   min-width: 44px;
   min-height: 44px;
   padding: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  font-size: 0;
+}
+.batch-thumb .batch-remove::before {
+  content: '×';
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin: 3px;
   border-radius: 50%;
-  background: #18314ecc;
-  color: #fff;
-  font-size: 18px;
+  background: #18314edb;
+  color: white;
+  font-size: 16px;
+}
+.batch-thumb .batch-remove:focus-visible {
+  outline-offset: -3px;
 }
 .batch-filename {
   display: block;
@@ -99,6 +147,8 @@
   font-size: 0.74rem;
 }
 .batch-image-status {
+  position: absolute;
+  inset: auto auto 3px 3px;
   display: inline-block;
   border-radius: 5px;
   padding: 2px 4px;
@@ -108,7 +158,7 @@
 }
 .status-ready,
 .status-saved {
-  background: #e3f4e8;
+  background: #d3fba5;
   color: #186239;
 }
 .status-failed,
@@ -122,15 +172,29 @@
   color: #16579e;
 }
 .batch-grid .batch-retry {
-  display: block;
-  margin-top: 4px;
-  width: 100%;
-  min-height: 32px;
-  padding: 2px 4px;
+  position: absolute;
+  inset: auto auto 0 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
   color: #783a13;
+  border: 0;
+  background: transparent;
+  font-size: 0;
+}
+.batch-grid .batch-retry::before {
+  content: '重试';
+  display: block;
+  width: fit-content;
+  margin: 19px 2px 2px;
+  padding: 2px 5px;
+  border-radius: 5px;
   background: #fff1dc;
-  border: 1px solid #e9c7a4;
-  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.batch-grid .batch-retry:focus-visible {
+  outline-offset: -3px;
 }
 .batch-progress,
 .batch-confirm-summary {
@@ -140,7 +204,19 @@
   display: block;
   width: 100%;
   height: 10px;
-  accent-color: #096ad4;
+  margin-top: 9px;
+  appearance: none;
+  border: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #dcebf7;
+}
+.batch-progress progress::-webkit-progress-bar {
+  background: #dcebf7;
+}
+.batch-progress progress::-webkit-progress-value {
+  border-radius: 10px;
+  background: linear-gradient(90deg, #138cf2, #14abba);
 }
 .batch-progress p,
 .batch-confirm-summary p {
@@ -226,4 +302,24 @@
 }
 .batch-review-count p {
   margin: 4px 0 0;
+}
+
+.batch-screen .library-back {
+  border: 0;
+}
+.batch-screen .batch-uploaded {
+  color: #163a62;
+}
+.batch-screen .batch-progress {
+  box-shadow: 0 8px 22px #204f7310;
+}
+.batch-screen .batch-source-note {
+  background: transparent;
+  padding-inline: 4px;
+}
+.batch-screen .cta {
+  box-shadow: 0 8px 18px #095ecd24;
+}
+.batch-screen form > .full + .full {
+  margin-top: 8px;
 }
