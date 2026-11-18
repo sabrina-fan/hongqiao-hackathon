@@ -6,6 +6,7 @@ import {
   type Capabilities,
 } from '@nextstop/core';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import type { RadarModel } from '@nextstop/model-gateway';
 import { createGuestSessions } from './guest-session.js';
 import { checkPostOrigin, HttpFault, readJson, send, sendError } from './http.js';
 import { createImportHandler, importRoute, type ImportVision } from './imports/http.js';
@@ -23,6 +24,7 @@ type Options = {
   dataDir: string;
   cookieSecret: string | null;
   map: RadarMap | null;
+  radarModel?: RadarModel | null;
   vision?: ImportVision | null;
   secureCookie?: boolean;
   now?: () => number;
@@ -34,7 +36,8 @@ export function createApp(options?: Options) {
   const sessions = options?.cookieSecret
     ? createGuestSessions(options.cookieSecret, options.secureCookie ?? false, now)
     : null;
-  const withUser = options && sessions ? createUserAccess(options.dataDir) : null;
+  const withUser =
+    options && sessions ? createUserAccess(options.dataDir, options.radarModel) : null;
   const handleImport =
     options && createImportHandler({ dataDir: options.dataDir, map, vision: options.vision });
   const capabilities: Capabilities = {
@@ -134,6 +137,7 @@ export function createApp(options?: Options) {
         await proposeRadar({
           request: input,
           map,
+          model: options?.radarModel ?? null,
           now,
           withRuntime: (run) => withUser(userId, run),
         }),

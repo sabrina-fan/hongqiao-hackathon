@@ -18,7 +18,8 @@ import {
   getRadarSession,
   isCancellation,
 } from './api.js';
-import { fixedClock, Icon, PickCard, RadarForm } from './RadarScreens.js';
+import { fixedClock, Icon, RadarForm } from './RadarScreens.js';
+import { RadarExclusions, RadarRecommendations } from './RadarRecommendations.js';
 import { TripPanel } from './TripPanel.js';
 
 type Session = { kind: 'loading' | 'ready' } | { kind: 'failed'; message: string };
@@ -101,7 +102,7 @@ export function RadarPanel({
             const view = await getRadarSession(id, signal);
             if (signal.aborted) return;
             if (view.origin.id !== liveOriginId) setOrigin(view.origin);
-            setDestination(view.destination);
+            setDestination(view.candidates ? null : view.destination);
             setMinutes(String(view.window?.manual_min ?? view.available_min));
             setResult({ kind: 'shown', view });
           } catch (error) {
@@ -204,7 +205,6 @@ export function RadarPanel({
   const missingFixed = fixed !== null && !fixed.address;
   const canSubmit = Boolean(
     (origin || position) &&
-    destination &&
     Number.isInteger(available) &&
     available >= 1 &&
     available <= 720 &&
@@ -214,7 +214,7 @@ export function RadarPanel({
   );
   async function calculate() {
     const signal = lifetime.current?.signal;
-    if (!destination || !canSubmit || locked.current || !signal) return;
+    if (!canSubmit || locked.current || !signal) return;
     const source = position ? { position } : origin ? { origin_id: origin.id } : null;
     if (!source) return;
     locked.current = true;
@@ -224,7 +224,7 @@ export function RadarPanel({
       const view = await createRadarSession(
         {
           ...source,
-          poi_id: destination.id,
+          ...(destination ? { poi_id: destination.id } : {}),
           available_min: available,
           fixed_mode: missingFixed && skipFixed ? 'without_fixed' : 'next_locked',
           ...(shortWalk ? { preference: 'short_walk' } : {}),
@@ -278,7 +278,7 @@ export function RadarPanel({
       setLocationHint('');
       setPosition(null);
       setOrigin(result.view.origin.id === liveOriginId ? null : result.view.origin);
-      setDestination(result.view.destination);
+      setDestination(result.view.candidates ? null : result.view.destination);
       setMinutes(String(result.view.window?.manual_min ?? result.view.available_min));
     }
     clearProposal();
@@ -403,9 +403,17 @@ export function RadarPanel({
           </div>
         )}
         {result.kind === 'error' && (
-          <p className="note" role="alert">
-            {result.message}
-          </p>
+          <div className="note" role="alert">
+            <p>{result.message}</p>
+            <button
+              type="button"
+              className="secondary"
+              disabled={!canSubmit}
+              onClick={() => void calculate()}
+            >
+              重试计算
+            </button>
+          </div>
         )}
       </>
     );
@@ -476,19 +484,27 @@ export function RadarPanel({
           </p>
         )}
         {shown?.outcome.kind === 'empty' && (
-          <p className="note" role="status">
-            当前条件下没有可行方案。可以延长可用时间或换个地点。
-          </p>
+          <div className="note" role="status">
+            <p>当前条件下没有可行方案，建议不绕路。</p>
+            <p>
+              {shown.window?.fixed
+                ? `可以直接前往 ${shown.window.fixed.name}，或先休息。`
+                : '可以就近休息，或调整时间后再试。'}
+            </p>
+            <RadarExclusions entries={shown.excluded} />
+          </div>
         )}
         {shown?.outcome.kind === 'recommendations' && (
-          <PickCard
-            pick={shown.outcome.best}
+          <RadarRecommendations
+            key={shown.outcome.binding.proposal_id}
             view={shown}
+            outcome={shown.outcome}
             accepting={result.kind === 'accepting'}
             writable={capabilities.trip_writes && result.kind !== 'history'}
             historical={result.kind === 'history'}
-            onConfirm={() => void confirm(shown, shown.destination.id)}
+            onConfirm={(poiId) => void confirm(shown, poiId)}
             onEdit={editResult}
+            onRecalculate={canSubmit ? () => void calculate() : editResult}
           />
         )}
       </section>

@@ -45,7 +45,7 @@ export const RoutePointSchema = obj({ system: lit('gcj02'), ...CoordinateFields 
 export type RoutePoint = Static<typeof RoutePointSchema>;
 
 const candidateFields = {
-  poi_id: IdentifierSchema,
+  poi_id: opt(IdentifierSchema),
   available_min: AvailableMinutes,
   fixed_mode: opt(oneOf(['next_locked', 'without_fixed'])),
   preference: opt(lit('short_walk')),
@@ -68,6 +68,38 @@ export const FixedStopSchema = obj({
 export type FixedStop = Static<typeof FixedStopSchema>;
 export const radarContextValidator = compile(obj({ fixed: nullable(FixedStopSchema) }));
 
+export const RadarMarkersSchema = obj({
+  origin: RoutePointSchema,
+  destination: RoutePointSchema,
+  next: opt(RoutePointSchema),
+});
+export const RadarPlaceFactsSchema = obj({
+  category: opt(str({ pattern: '^\\d{2}$' })),
+  opening: opt(obj({ today: str({ minLength: 1, maxLength: 200 }), status: lit('verified') })),
+  price: opt(obj({ text: str({ minLength: 1, maxLength: 80 }), status: lit('estimated') })),
+  booking: opt(
+    obj({
+      state: oneOf(['required', 'not_required']),
+      source: str({ minLength: 1, maxLength: 200 }),
+      status: oneOf(['verified', 'stale']),
+    }),
+  ),
+});
+export const RadarCandidateSchema = obj({
+  place: PlaceOptionSchema,
+  sources: arr(oneOf(['wishlist', 'nearby']), { minItems: 1, maxItems: 2 }),
+  markers: opt(RadarMarkersSchema),
+  facts: RadarPlaceFactsSchema,
+  remaining_min: int({ minimum: 0 }),
+  valid_until: str({ format: 'date-time' }),
+});
+export type RadarCandidate = Static<typeof RadarCandidateSchema>;
+export const RadarExclusionSchema = obj({
+  place: PlaceOptionSchema,
+  reason: oneOf(['time_or_distance', 'route_unverified', 'booking_required', 'closed']),
+});
+export type RadarExclusion = Static<typeof RadarExclusionSchema>;
+
 const RadarViewSchema = obj({
   outcome: RadarOutcomeSchema,
   origin: PlaceOptionSchema,
@@ -82,9 +114,10 @@ const RadarViewSchema = obj({
       remaining_min: nullable(int({ minimum: 0 })),
     }),
   ),
-  markers: opt(
-    obj({ origin: RoutePointSchema, destination: RoutePointSchema, next: opt(RoutePointSchema) }),
-  ),
+  markers: opt(RadarMarkersSchema),
+  facts: opt(RadarPlaceFactsSchema),
+  candidates: opt(arr(RadarCandidateSchema, { maxItems: 3 })),
+  excluded: opt(arr(RadarExclusionSchema, { maxItems: 6 })),
 });
 export type RadarView = Static<typeof RadarViewSchema>;
 export const radarViewValidator = compile(RadarViewSchema);

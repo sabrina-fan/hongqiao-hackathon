@@ -3,9 +3,14 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
+import { createServer } from 'node:http';
+import { json } from 'node:stream/consumers';
+import { arr, compile, nullable, obj, opt, str } from '@earendil-works/pi-schema';
+import { createRadarModel, type RadarModel } from '@nextstop/model-gateway';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   acceptReceiptValidator,
+  importReviewValidator,
   radarViewValidator,
   tripDetailValidator,
   type RadarView,
@@ -19,18 +24,32 @@ let server: ReturnType<typeof createApp>;
 let clock = 0;
 let failMap = false;
 let outboundMinutes = 10;
+let savedMinutes: number | null = null;
+let blockedRoute: string | null = null;
 const secret = randomBytes(32).toString('hex');
 const origin = { id: 'origin', name: '起点', address: '' };
 const destination = { id: 'candidate', name: '候选地', address: '' };
+const saved = { id: 'saved', name: '收藏书店', address: '书店路 1 号' };
+const far = { id: 'far', name: '远方公园', address: '' };
+const recallMap = {
+  resolveOrigin: async () => ({
+    place: origin,
+    point: { system: 'gcj02' as const, longitude: 120.62, latitude: 31.32 },
+  }),
+  nearby: async () => [saved, destination, far],
+};
 const map: RadarMap = {
-  search: async (q) => [origin, destination].filter((place) => place.name.includes(q)),
-  async walk() {
+  ...recallMap,
+  search: async (q) => [origin, destination, saved].filter((place) => place.name.includes(q)),
+  async walk({ poi_id }) {
     if (failMap) throw new MapFault('MAP_UNAVAILABLE');
+    if (poi_id === blockedRoute) throw new MapFault('ROUTE_UNVERIFIED');
     return {
       origin,
-      destination,
+      destination: [destination, saved, far].find((place) => place.id === poi_id) ?? destination,
       distance_m: 800,
-      travel_min: outboundMinutes,
+      travel_min:
+        poi_id === far.id ? 85 : ((poi_id === saved.id ? savedMinutes : null) ?? outboundMinutes),
       fetched_at: new Date(clock).toISOString(),
     };
   },
@@ -44,8 +63,14 @@ const map: RadarMap = {
     };
   },
 };
-async function listen() {
-  server = createApp({ dataDir: directory, cookieSecret: secret, map, now: () => clock });
+async function listen(radarModel: RadarModel | null = null) {
+  server = createApp({
+    dataDir: directory,
+    cookieSecret: secret,
+    map,
+    radarModel,
+    now: () => clock,
+  });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address();
@@ -62,6 +87,8 @@ beforeEach(async () => {
   clock = Date.UTC(2026, 10, 18, 8);
   failMap = false;
   outboundMinutes = 10;
+  savedMinutes = null;
+  blockedRoute = null;
   await listen();
 });
 afterEach(async () => {
@@ -116,6 +143,219 @@ async function expectFault(response: Response, status: number, code: string) {
 }
 
 describe('radar through HTTP and per-guest SQLite', () => {
+  it('merges saved and nearby places and only confirms screened candidates', async () => {
+    const cookie = await guest();
+    const search = await post('/imports/search', { query: saved.name }, cookie);
+    expect(search.status).toBe(201);
+    const review: unknown = await search.json();
+    if (!importReviewValidator.check(review)) throw new Error('Invalid import review');
+    expect(
+      (
+        await post(
+          `/imports/${review.import_id}/confirm`,
+          {
+            provider: 'amap',
+            poi_id: saved.id,
+            revision: review.revision,
+          },
+          cookie,
+        )
+      ).status,
+    ).toBe(200);
+
+    const response = await post(
+      '/radar/sessions',
+      { origin_id: origin.id, available_min: 45 },
+      cookie,
+    );
+    expect(response.status).toBe(201);
+    const view: unknown = await response.json();
+    if (!radarViewValidator.check(view) || view.outcome.kind !== 'recommendations')
+      throw new Error('Expected recommendations');
+    expect(
+      [view.outcome.best, ...view.outcome.alternatives].map(({ choice }) => choice.poi_id),
+    ).toEqual([saved.id, destination.id]);
+    expect(view).toMatchObject({
+      candidates: [
+        { place: saved, sources: ['wishlist', 'nearby'] },
+        { place: destination, sources: ['nearby'] },
+      ],
+    });
+    const confirm = (poi_id: string) =>
+      post(
+        `${pathOf(view)}/accept`,
+        {
+          binding: view.outcome.binding,
+          poi_id,
+        },
+        cookie,
+        `accept-${poi_id}`,
+      );
+    await expectFault(await confirm(far.id), 404, 'NOT_FOUND');
+    await expectFault(await confirm('outside-the-pool'), 404, 'NOT_FOUND');
+    expect(await trip(cookie)).toBeNull();
+    expect((await confirm(destination.id)).status).toBe(200);
+    expect(await trip(cookie)).toMatchObject({ stops: [{ poi_id: destination.id }] });
+  });
+  it('keeps a fresh alternative confirmable after another option expires', async () => {
+    const cookie = await guest();
+    savedMinutes = 24;
+    blockedRoute = far.id;
+    const response = await post(
+      '/radar/sessions',
+      { origin_id: origin.id, available_min: 45 },
+      cookie,
+    );
+    expect(response.status).toBe(201);
+    const view: unknown = await response.json();
+    if (!radarViewValidator.check(view)) throw new Error('Invalid radar view');
+    expect(view.excluded).toEqual([{ place: far, reason: 'route_unverified' }]);
+    await expectFault(
+      await post(
+        `${pathOf(view)}/accept`,
+        { binding: view.outcome.binding, poi_id: far.id },
+        cookie,
+        'unverified',
+      ),
+      404,
+      'NOT_FOUND',
+    );
+    clock += 60_001;
+    await close();
+    await listen();
+    await expectFault(
+      await post(
+        `${pathOf(view)}/accept`,
+        { binding: view.outcome.binding, poi_id: saved.id },
+        cookie,
+        'expired-option',
+      ),
+      409,
+      'PROPOSAL_STALE',
+    );
+    expect(await trip(cookie)).toBeNull();
+    expect((await accept(cookie, view, 'fresh-option')).status).toBe(200);
+  });
+  it('runs only the two durable radar tools and rejects out-of-pool and mixed tool proposals', async () => {
+    const request = compile(
+      obj(
+        {
+          tools: arr(obj({ function: obj({ name: str() }, { open: true }) }, { open: true })),
+          messages: arr(obj({ role: str(), content: opt(nullable(str())) }, { open: true })),
+        },
+        { open: true },
+      ),
+    );
+    const toolSurfaces: string[][] = [];
+    const queryResults: string[] = [];
+    let mode: 'valid' | 'outside' | 'mixed' | 'offline' = 'valid';
+    const reason = '适合散步时顺道看看。';
+    const upstream = createServer(async (incoming, response) => {
+      const body: unknown = await json(incoming);
+      if (!request.check(body)) {
+        response.writeHead(400).end();
+        return;
+      }
+      const names = body.tools.map((tool) => tool.function.name);
+      toolSurfaces.push(names);
+      if (mode === 'offline') {
+        response.writeHead(502).end();
+        return;
+      }
+      const [name] = names;
+      const isQuery = name === 'candidates_query';
+      const result = body.messages.find(({ role }) => role === 'tool')?.content;
+      if (!isQuery && result) queryResults.push(result);
+      const args = isQuery
+        ? {}
+        : {
+            best: {
+              poi_id: mode === 'outside' ? 'outside-the-pool' : destination.id,
+              reason_code: 'short_detour',
+              reason_text: reason,
+            },
+            alternatives: [{ poi_id: saved.id, reason_code: 'short_detour', reason_text: reason }],
+          };
+      const calls = [
+        {
+          index: 0,
+          id: 'call-a',
+          type: 'function',
+          function: { name, arguments: JSON.stringify(args) },
+        },
+      ];
+      if (mode === 'mixed' && !isQuery)
+        calls.push({
+          index: 1,
+          id: 'call-b',
+          type: 'function',
+          function: { name: 'trip_write', arguments: '{}' },
+        });
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      response.end(
+        `data: ${JSON.stringify({ id: 'fixture', model: 'fixture', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: calls }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`,
+      );
+    });
+    upstream.listen(0, '127.0.0.1');
+    await once(upstream, 'listening');
+    try {
+      const address = upstream.address();
+      if (!address || typeof address === 'string') throw new Error('TCP port required');
+      await close();
+      await listen(
+        createRadarModel({
+          modelId: 'fixture',
+          apiKey: 'fixture',
+          baseUrl: `http://127.0.0.1:${address.port}`,
+        }),
+      );
+      const cookie = await guest();
+      const scan = async () => {
+        const response = await post(
+          '/radar/sessions',
+          { origin_id: origin.id, available_min: 45 },
+          cookie,
+        );
+        expect(response.status).toBe(201);
+        const view: unknown = await response.json();
+        if (!radarViewValidator.check(view) || view.outcome.kind !== 'recommendations')
+          throw new Error('Expected recommendations');
+        return view.outcome;
+      };
+      // Only the two nearby feasible places are visible. A query never sees the rejected route.
+      expect((await scan()).best.choice).toMatchObject({
+        poi_id: destination.id,
+        reason_text: reason,
+      });
+      mode = 'outside';
+      expect((await scan()).best.choice.reason_text).not.toBe(reason);
+      mode = 'mixed';
+      expect((await scan()).best.choice.reason_text).not.toBe(reason);
+      expect(toolSurfaces).toEqual(
+        Array.from({ length: 3 }, () => [['candidates_query'], ['candidates_propose']]).flat(),
+      );
+      expect(queryResults).toEqual(
+        Array.from({ length: 3 }, () =>
+          JSON.stringify([
+            { poi_id: destination.id, saved: false },
+            { poi_id: saved.id, saved: false },
+          ]),
+        ),
+      );
+      expect(await trip(cookie)).toBeNull();
+      mode = 'offline';
+      await expectFault(
+        await post('/radar/sessions', { origin_id: origin.id, available_min: 45 }, cookie),
+        502,
+        'RADAR_MODEL_UNAVAILABLE',
+      );
+    } finally {
+      upstream.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        upstream.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
   it('restores the same receipt across concurrent confirmation, expiry and a server restart', async () => {
     const cookie = await guest();
     expect(await trip(cookie)).toBeNull();

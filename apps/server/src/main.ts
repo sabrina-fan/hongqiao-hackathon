@@ -1,16 +1,23 @@
 import { visualExtractionValidator } from '@nextstop/core';
-import { configuredVisionExtractor } from '@nextstop/model-gateway';
+import { configuredRadarModel, configuredVisionExtractor } from '@nextstop/model-gateway';
 import { createApp } from './app.js';
 import { readServerConfig } from './config.js';
 
 import { createAmap } from './radar/amap.js';
+import { readBookingPolicy } from './radar/booking-policy.js';
 
 const config = readServerConfig(process.env);
 const server = createApp({
   dataDir: config.data_dir,
   cookieSecret: config.cookieSecret,
   secureCookie: config.secureCookie,
-  map: config.mapKey ? createAmap({ key: config.mapKey }) : null,
+  map: config.mapKey
+    ? createAmap({
+        key: config.mapKey,
+        bookingPolicy: await readBookingPolicy(process.env.RADAR_POLICY_PATH),
+      })
+    : null,
+  radarModel: configuredRadarModel(process.env),
   vision: configuredVisionExtractor(process.env, visualExtractionValidator.check),
 });
 await new Promise<void>((resolve, reject) => {

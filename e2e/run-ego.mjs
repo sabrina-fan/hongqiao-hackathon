@@ -53,13 +53,15 @@ try {
     screenshot: join(directory, 'mobile.png'),
     proposalScreenshot: join(directory, 'proposal.png'),
     radarScreenshot: join(directory, 'radar.png'),
+    recallScreenshot: join(directory, 'recall.png'),
+    mapFallbackScreenshot: join(directory, 'recall-map-fallback.png'),
   };
   console.log(`Browser report and screenshot: ${directory}`);
   runBrowser(`
 const settings = ${JSON.stringify(settings)};
 const assert = (await import('node:assert/strict')).default;
 const { writeFile } = await import('node:fs/promises');
-const task = await taskSpace('NextStop browser acceptance');
+const task = await taskSpace('NextStop 08 mobile radar recall');
 const page = task.page('p1');
 const report = { status: 'running', space_id: task.spaceId, checks: [], screenshot: settings.screenshot };
 const save = () => writeFile(settings.report, JSON.stringify(report, null, 2));
@@ -224,6 +226,41 @@ try {
   await page.waitForSelector(confirm);
   await wait(() => !document.querySelector('.result [role=alert]') && document.querySelector('.pick')?.textContent.includes('验收书店'));
   report.checks.push('stale-recalculated');
+  const edit = 'loc=role:button[name="修改条件"]';
+  await page.click(edit, {label:'Open the recall conditions'});
+  await page.click('loc=role:button[name="联合搜索"]', {label:'Search saved and nearby places'});
+  await propose('75');
+  await wait(() => document.querySelectorAll('.radar-map-pin').length === 3);
+  for (const name of ['验收公园', '验收书店', '验收茶馆']) {
+    await page.click('css=.radar-card-choice:has-text("' + name + '")', {label:'Select a recommendation card'});
+    await wait((name) => document.querySelector('.radar-map-pin[aria-pressed=true]')?.getAttribute('aria-label') === '地图标记 ' + name, name);
+  }
+  await page.click('loc=role:button[name="地图标记 验收书店"]', {label:'Select the bookshop marker'});
+  await wait(() => document.querySelector('.radar-card-choice[aria-pressed=true]')?.textContent.includes('验收书店') && document.querySelector('.pick h3')?.textContent === '验收书店');
+  await page.screenshot({path:settings.recallScreenshot});
+  report.checks.push('three-cards-and-map-selection');
+  await page.click(edit, {label:'Open the recall conditions'});
+  await page.evaluate(() => {
+    const original = window.fetch;
+    window.fetch = async (input, init) => {
+      const response = await original(input, init);
+      if (input !== '/api/v1/radar/sessions' || !response.ok) return response;
+      const view = await response.json();
+      for (const candidate of view.candidates) delete candidate.markers;
+      return Response.json(view, {status:201});
+    };
+  });
+  await propose('75');
+  await wait(() => document.querySelector('.result')?.textContent.includes('地图预览暂不可用'));
+  await page.click('css=.radar-card-choice >> nth=1', {label:'Select an alternative without map'});
+  await wait(() => document.querySelector('.radar-card-choice[aria-pressed=true] strong')?.textContent === document.querySelector('.pick h3')?.textContent && !document.querySelector('.pick button.primary')?.disabled);
+  await page.screenshot({path:settings.mapFallbackScreenshot});
+  report.checks.push('map-failure-keeps-cards-actionable');
+  await page.click(edit, {label:'Open the time window'});
+  await propose('5');
+  await wait(() => document.querySelector('.result')?.textContent.includes('建议不绕路'));
+  assert.equal(await page.evaluate(() => [...document.querySelectorAll('.result button')].some((button) => button.textContent.includes('确认加入行程'))), false);
+  report.checks.push('tc-18-no-detour');
   report.status = 'passed'; await save();
   console.log(await page.snapshot());
 } catch (error) { report.status = 'failed'; await save(); throw error; }
@@ -242,6 +279,9 @@ try {
     'trip-after-reload',
     'stale-keeps-trip',
     'stale-recalculated',
+    'three-cards-and-map-selection',
+    'map-failure-keeps-cards-actionable',
+    'tc-18-no-detour',
   ]);
   assert.ok(Number.isInteger(report.space_id));
   runBrowser(

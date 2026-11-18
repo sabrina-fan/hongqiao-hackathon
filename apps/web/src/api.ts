@@ -153,7 +153,13 @@ export function getRadarHistory(signal?: AbortSignal) {
 }
 
 export function createRadarSession(input: RadarRequest, signal?: AbortSignal): Promise<RadarView> {
-  return requestJson('/api/v1/radar/sessions', post(input), radarViewValidator.check, signal);
+  return requestJson(
+    '/api/v1/radar/sessions',
+    post(input),
+    radarViewValidator.check,
+    signal,
+    32_000,
+  );
 }
 
 export function getRadarSession(sessionId: string, signal?: AbortSignal): Promise<RadarView> {

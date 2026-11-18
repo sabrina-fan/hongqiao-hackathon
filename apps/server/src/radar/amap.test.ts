@@ -97,7 +97,6 @@ describe('Amap walking evidence', () => {
     expect(onward.markers?.origin).toEqual(outbound.markers?.destination);
   });
   it.each([
-    { results: [{ ...leg, info: 'OUT_OF_SERVICE' }] },
     { results: [{ ...leg, duration: '' }] },
     { results: [] },
     { results: [{ ...leg, origin_id: '2' }] },
@@ -108,6 +107,17 @@ describe('Amap walking evidence', () => {
       .mockResolvedValueOnce(ok(data));
     await expect(createAmap({ key: 'unused', fetcher }).walk(selection)).rejects.toMatchObject({
       code: 'MAP_UNAVAILABLE',
+    });
+  });
+  it('distinguishes a missing individual walking route from a provider error', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(ok({ pois: [origin, destination] }))
+      .mockResolvedValueOnce(
+        ok({ results: [{ origin_id: '1', dest_id: '1', info: 'OUT_OF_SERVICE' }] }),
+      );
+    await expect(createAmap({ key: 'unused', fetcher }).walk(selection)).rejects.toMatchObject({
+      code: 'ROUTE_UNVERIFIED',
     });
   });
   it('distinguishes a removed place from an invalid upstream response', async () => {

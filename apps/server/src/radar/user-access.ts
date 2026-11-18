@@ -1,7 +1,8 @@
+import type { RadarModel } from '@nextstop/model-gateway';
 import { openUserRuntime, type UserRuntime } from '../runtime/open-user-runtime.js';
 
 // A file has one writer, even when the same guest opens two tabs. Release it before handing off.
-export function createUserAccess(dataDir: string) {
+export function createUserAccess(dataDir: string, radarModel?: RadarModel | null) {
   const tails = new Map<string, Promise<void>>();
   return async function withUser<T>(
     userId: string,
@@ -9,7 +10,7 @@ export function createUserAccess(dataDir: string) {
   ): Promise<T> {
     const previous = tails.get(userId) ?? Promise.resolve();
     const result = previous.then(async () => {
-      const runtime = await openUserRuntime({ dataDir, userId });
+      const runtime = await openUserRuntime({ dataDir, userId, radarModel: radarModel ?? null });
       try {
         return await run(runtime);
       } finally {
