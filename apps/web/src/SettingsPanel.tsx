@@ -1,17 +1,26 @@
-import type { AnonymousData } from '@nextstop/core';
+import type { SettingsData } from '@nextstop/core';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError, readWithGuestSession } from './api.js';
 import {
   deleteData,
   downloadData,
-  readAnonymousData,
+  readSettingsData,
   type DeleteTarget,
 } from './settings-client.js';
 import { SettingsFeedback } from './SettingsFeedback.js';
 import './settings.css';
 
-const emptyData: AnonymousData = { trips: [], places: [], uploads: [] };
-const eraseAll: DeleteTarget = { kind: 'all' };
+type ConfirmationTarget =
+  | Extract<DeleteTarget, { kind: 'all' }>
+  | (Extract<DeleteTarget, { kind: 'source' }> & { label: string })
+  | (Extract<DeleteTarget, { kind: 'trip' }> & {
+      label: string;
+      exclusive: number;
+      shared: number;
+    });
+
+const emptyData: SettingsData = { trips: [], places: [], uploads: [] };
+const eraseAll = { kind: 'all' } satisfies DeleteTarget;
 
 function SettingsSection({
   icon,
@@ -43,10 +52,10 @@ function SettingsSection({
   );
 }
 
-function deleteMessage(target: DeleteTarget) {
+function deleteMessage(target: ConfirmationTarget) {
   if (target.kind === 'all')
     return '删除当前访客的全部旅行、收藏、上传与本机离线行程。此操作无法撤销。';
-  if (target.kind === 'image')
+  if (target.kind === 'source')
     return `删除「${target.label}」的原图、副本与来源记录。已确认的收藏会保留。`;
   return `删除「${target.label}」和该旅行独占的 ${target.exclusive} 张截图及派生记录。${target.shared} 张共享截图、已确认的收藏和其他旅行会保留。`;
 }
@@ -64,9 +73,9 @@ export function SettingsPanel({
   dataRevision: number;
   onFeedbackChanged: () => void;
 }) {
-  const [data, setData] = useState<AnonymousData | null>(null);
+  const [data, setData] = useState<SettingsData | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [target, setTarget] = useState<DeleteTarget | null>(null);
+  const [target, setTarget] = useState<ConfirmationTarget | null>(null);
   const [pending, setPending] = useState<'export' | 'delete' | 'feedback' | null>(null);
   const busy = pending !== null;
   const [readError, setReadError] = useState('');
@@ -89,7 +98,7 @@ export function SettingsPanel({
     const controller = new AbortController();
     const { signal } = controller;
     setReadError('');
-    void readWithGuestSession(() => readAnonymousData(signal), signal).then(
+    void readWithGuestSession(() => readSettingsData(signal), signal).then(
       (value) => {
         if (!signal.aborted) setData(value);
       },
@@ -100,10 +109,16 @@ export function SettingsPanel({
     return () => controller.abort();
   }, [available, attempt]);
 
-  function confirm(target: DeleteTarget) {
+  function confirm(target: ConfirmationTarget) {
     setTarget(target);
     setActionError('');
     setNotice('');
+  }
+
+  function dismissConfirmation() {
+    if (actionError && target?.kind !== 'all') setAttempt((value) => value + 1);
+    setTarget(null);
+    setActionError('');
   }
 
   async function run(
@@ -124,6 +139,32 @@ export function SettingsPanel({
     }
   }
 
+  function submitDeletion(target: DeleteTarget) {
+    return run(
+      'delete',
+      async () => {
+        await deleteData(target);
+        setTarget(null);
+        setNotice(
+          target.kind === 'all'
+            ? '已删除全部匿名数据。'
+            : target.kind === 'trip'
+              ? '已删除此旅行。'
+              : '已删除此截图。',
+        );
+        if (target.kind === 'all') {
+          setData(emptyData);
+          setReadError('');
+        } else {
+          setData(null);
+          setAttempt((value) => value + 1);
+        }
+      },
+      '删除未能确认。可重试同一次删除。',
+    );
+  }
+
+  const pendingDeletions = data?.pending_deletions ?? [];
   const sharedImages = new Set(
     data?.places.flatMap(({ sources }) => sources.map(({ import_id }) => import_id)),
   );
@@ -144,6 +185,48 @@ export function SettingsPanel({
           <strong>匿名使用 · 轻量出行助手</strong>
           <p>无需注册。你可以查看、导出或删除自己的数据。</p>
         </section>
+        {!target && actionError && (
+          <p className="note" role="alert">
+            {actionError}
+          </p>
+        )}
+        {notice && (
+          <p className="note state-card" data-state="success" role="status">
+            {notice}
+          </p>
+        )}
+        {pendingDeletions.length > 0 && (
+          <section
+            className="settings-group settings-content settings-cleanup"
+            aria-labelledby="pending-deletions-title"
+          >
+            <h2 id="pending-deletions-title">待完成的删除</h2>
+            <p>记录已删除，仍需清理截图文件。</p>
+            <ul className="settings-list">
+              {pendingDeletions.map((deletion) => {
+                const name = deletion.kind === 'trip' ? '旅行' : '截图';
+                return (
+                  <li key={`${deletion.kind}:${deletion.id}`}>
+                    <span>{name}删除</span>
+                    <button
+                      type="button"
+                      className="settings-danger"
+                      disabled={!available || busy}
+                      onClick={() => void submitDeletion(deletion)}
+                    >
+                      继续删除{name}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            {!target && pending === 'delete' && (
+              <p className="state-card" data-state="pending" role="status">
+                正在清理截图文件…
+              </p>
+            )}
+          </section>
+        )}
         <div className="settings-group">
           <SettingsSection icon="☷" title="本次偏好与反馈" hint="仅当前雷达会话生效">
             <SettingsFeedback
@@ -179,7 +262,7 @@ export function SettingsPanel({
                         disabled={busy}
                         onClick={() =>
                           confirm({
-                            kind: 'image',
+                            kind: 'source',
                             id: image.import_id,
                             label: image.name || '攻略截图',
                           })
@@ -314,7 +397,7 @@ export function SettingsPanel({
             ref={confirmation}
             onCancel={(event) => {
               event.preventDefault();
-              if (!busy) setTarget(null);
+              if (!busy) dismissConfirmation();
             }}
             className="panel padded-panel settings-confirm"
             aria-labelledby="delete-data-title"
@@ -332,10 +415,7 @@ export function SettingsPanel({
                 type="button"
                 className="secondary"
                 disabled={busy}
-                onClick={() => {
-                  setTarget(null);
-                  setActionError('');
-                }}
+                onClick={dismissConfirmation}
               >
                 取消
               </button>
@@ -343,30 +423,7 @@ export function SettingsPanel({
                 type="button"
                 className="settings-danger"
                 disabled={busy || !available}
-                onClick={() =>
-                  void run(
-                    'delete',
-                    async () => {
-                      await deleteData(target);
-                      setTarget(null);
-                      setNotice(
-                        target.kind === 'all'
-                          ? '已删除全部匿名数据。'
-                          : target.kind === 'trip'
-                            ? '已删除此旅行。'
-                            : '已删除此截图。',
-                      );
-                      if (target.kind === 'all') {
-                        setData(emptyData);
-                        setReadError('');
-                      } else {
-                        setData(null);
-                        setAttempt((value) => value + 1);
-                      }
-                    },
-                    '删除未能确认。可重试同一次删除。',
-                  )
-                }
+                onClick={() => void submitDeletion(target)}
               >
                 {busy ? '正在删除…' : actionError ? '重试删除' : '确认删除'}
               </button>
@@ -382,19 +439,9 @@ export function SettingsPanel({
             删除全部匿名数据
           </button>
         )}
-        {!target && actionError && (
-          <p className="note" role="alert">
-            {actionError}
-          </p>
-        )}
         {(pending === 'export' || pending === 'feedback') && (
           <p className="note state-card" data-state="pending" role="status">
             {pending === 'export' ? '正在导出匿名数据…' : '正在清除本次反馈…'}
-          </p>
-        )}
-        {notice && (
-          <p className="note state-card" data-state="success" role="status">
-            {notice}
           </p>
         )}
       </div>

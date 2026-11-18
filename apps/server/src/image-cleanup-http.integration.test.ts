@@ -158,6 +158,11 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
       );
       const readData = async () =>
         checkedJson(await call('/me/data'), 200, anonymousDataValidator.check);
+      const settingsPath = '/me/data?include=pending_deletions';
+      const pendingDeletion =
+        operation === 'batch'
+          ? []
+          : [{ kind: operation, id: operation === 'source' ? single.import_id : owned.trip_id }];
       const before = await readData();
       const fixtures = [single, shared, pending, unrelated];
       if (earlierTarget) fixtures.push(earlierTarget);
@@ -287,6 +292,15 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
           sources: place.sources.filter(({ import_id }) => !targetIds.has(import_id)),
         })),
       };
+      async function expectPending(expected: typeof pendingDeletion, guestCookie = cookie) {
+        const response = await fetch(base + settingsPath, { headers: { cookie: guestCookie } });
+        assert.equal(response.status, 200);
+        expect(response.headers.get('cache-control')).toBe('no-store');
+        expect(await response.json()).toEqual({
+          ...(guestCookie === cookie ? expectedData : { trips: [], places: [], uploads: [] }),
+          pending_deletions: expected,
+        });
+      }
       async function checkCommittedState() {
         expect(await databases()).toEqual([database]);
         expect(await readBatch()).toEqual(expectedBatch);
@@ -301,6 +315,24 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
         for (const image of pictures.filter(({ id }) => !targetIds.has(id))) await intact(image);
       }
       await checkCommittedState();
+      await expectPending(pendingDeletion);
+      const exported = await call('/me/export');
+      expect(exported.status).toBe(200);
+      expect(await exported.json()).toEqual(expectedData);
+      if (operation !== 'batch') {
+        await expectError(await fetch(base + settingsPath), 401, 'SESSION_REQUIRED');
+        const foreignSession = await fetch(`${base}/sessions`, { method: 'POST' });
+        const foreignCookie = foreignSession.headers.get('set-cookie')?.split(';')[0];
+        assert(foreignCookie && foreignCookie !== cookie);
+        await expectPending([], foreignCookie);
+        const foreignPath = operation === 'source' ? importPath(target.id) : tripPath;
+        const foreignDelete = (path: string) =>
+          fetch(base + path, { method: 'DELETE', headers: { cookie: foreignCookie } });
+        assert.equal((await foreignDelete(foreignPath)).status, 204);
+        assert.deepEqual(imageRemovals(), targetDirectories);
+        await expectPending(pendingDeletion);
+        assert.equal((await foreignDelete('/me/data')).status, 204);
+      }
       const copies = fault === 'before unlink' ? ['normalized', 'original'] : ['normalized'];
       expect((await readdir(target.directory)).sort()).toEqual(copies);
       expect(await readFile(join(target.directory, 'normalized'))).toEqual(target.normalized);
@@ -333,6 +365,7 @@ it.each(operations.flatMap((operation) => faults.map((fault) => ({ operation, fa
       }
       await Promise.all([expectSuccess(), expectSuccess()]);
       await checkCommittedState();
+      await expectPending([]);
       const targetRemovals = [...targetDirectories, ...targetDirectories];
       expect(imageRemovals()).toEqual(targetRemovals);
       if (operation === 'batch') {

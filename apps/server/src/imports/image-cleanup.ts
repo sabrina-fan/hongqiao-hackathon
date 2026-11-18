@@ -1,10 +1,11 @@
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { defineDocFamily, type Tx } from '@earendil-works/pi-durable';
 import { arr, compile, obj, str, type Static } from '@earendil-works/pi-schema';
+import { pendingDeletionValidator, type PendingDeletion } from '@nextstop/core';
 import type { UserRuntime } from '../runtime/open-user-runtime.js';
 
 type Deletion =
-  | { kind: 'source' | 'trip'; id: string }
+  | PendingDeletion
   | { kind: 'batch_item'; batchId: string; imageId: string; revision: number };
 
 const CleanupSchema = obj({ image_ids: arr(str({ pattern: '^imp-[a-f0-9-]{36}$' })) });
@@ -24,6 +25,20 @@ function cleanupKey(deletion: Deletion) {
   return deletion.kind === 'batch_item'
     ? `batch_item:${deletion.batchId}:${deletion.imageId}:${deletion.revision}`
     : `${deletion.kind}:${deletion.id}`;
+}
+
+// This family lookup only visits active cleanup records in this visitor's conversation.
+export async function listPendingDeletions(runtime: UserRuntime): Promise<PendingDeletion[]> {
+  const deletions: PendingDeletion[] = [];
+  for (const key of await runtime.familyKeys(ImageCleanups.definition.kind)) {
+    const match = /^(source|trip):(.*)$/.exec(key);
+    if (!match) continue; // Batch-item replay records belong to the batch workflow.
+    const [, kind, id] = match;
+    const deletion = { kind, id };
+    if (!pendingDeletionValidator.check(deletion)) throw new Error('Invalid stored cleanup key');
+    deletions.push(deletion);
+  }
+  return deletions;
 }
 
 export async function recordImageCleanup(

@@ -99,6 +99,17 @@ button.settings-link {
 .settings-content p {
   margin: 4px 0 9px;
 }
+.settings-cleanup {
+  padding: 12px 14px;
+}
+.settings-cleanup h2 {
+  margin: 0;
+  color: #122657;
+  font-size: 16px;
+}
+.settings-cleanup button {
+  min-height: 44px;
+}
 .settings-list {
   display: grid;
   gap: 8px;

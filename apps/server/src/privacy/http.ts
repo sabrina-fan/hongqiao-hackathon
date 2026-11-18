@@ -2,12 +2,17 @@ import type { ServerResponse } from 'node:http';
 import { HttpFault, send } from '../http.js';
 import { createImportImages } from '../imports/images.js';
 import type { createUserAccess } from '../radar/user-access.js';
-import { eraseSource, eraseTrip, exportData } from './store.js';
+import { eraseSource, eraseTrip, exportData, readSettingsData } from './store.js';
 
-type Route = { kind: 'export' | 'read' | 'erase' } | { kind: 'trip' | 'source'; id: string };
+type Route =
+  | { kind: 'export' | 'read' | 'settings' | 'erase' }
+  | { kind: 'trip' | 'source'; id: string };
 
-export function privacyRoute(method: string | undefined, path: string): Route | null {
-  if (method === 'GET' && path === '/api/v1/me/data') return { kind: 'read' };
+export function privacyRoute(method: string | undefined, url: URL): Route | null {
+  const path = url.pathname;
+  if (method === 'GET' && path === '/api/v1/me/data') {
+    return { kind: url.searchParams.get('include') === 'pending_deletions' ? 'settings' : 'read' };
+  }
   if (method === 'GET' && path === '/api/v1/me/export') return { kind: 'export' };
   if (method !== 'DELETE') return null;
   if (path === '/api/v1/me/data') return { kind: 'erase' };
@@ -42,6 +47,8 @@ export async function handlePrivacy({
   switch (route.kind) {
     case 'read':
       return send(response, 200, await withUser(userId, exportData));
+    case 'settings':
+      return send(response, 200, await withUser(userId, readSettingsData));
     case 'export': {
       const data = await withUser(userId, exportData);
       response.setHeader('content-disposition', 'attachment; filename="nextstop-data.json"');

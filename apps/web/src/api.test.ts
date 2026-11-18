@@ -128,6 +128,32 @@ it('retries SESSION_REQUIRED once even after a cold session POST, then surfaces 
   ]);
 });
 
+it('loads settings with the original anonymous-data response from an older server', async () => {
+  const legacy = { trips: [], uploads: [], places: [] };
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json(legacy));
+  vi.stubGlobal('fetch', fetcher);
+  const { readSettingsData } = await import('./settings-client.js');
+
+  await expect(readSettingsData()).resolves.toEqual(legacy);
+  expect(fetcher.mock.calls[0]?.[0]).toBe(`${dataPath}?include=pending_deletions`);
+});
+
+it('requires the DELETE completion status before acknowledging source deletion', async () => {
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(new Response(null, { status: 202 }));
+  vi.stubGlobal('fetch', fetcher);
+  const { deleteData } = await import('./settings-client.js');
+
+  const id = 'imp-00000000-0000-4000-8000-000000000000';
+  await expect(deleteData({ kind: 'source', id })).rejects.toMatchObject({
+    code: 'INVALID_RESPONSE',
+    status: 202,
+  });
+  expect(fetcher).toHaveBeenCalledWith(
+    `/api/v1/imports/${id}`,
+    expect.objectContaining({ method: 'DELETE' }),
+  );
+});
+
 it.each(['NETWORK', 'INVALID_RESPONSE', 'HTTP_401'])(
   'propagates %s without retrying',
   async (code) => {

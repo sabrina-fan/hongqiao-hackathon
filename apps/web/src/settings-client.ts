@@ -1,15 +1,12 @@
-import { anonymousDataValidator } from '@nextstop/core';
-import { request, requestJson } from './api.js';
+import { settingsDataValidator, type PendingDeletion } from '@nextstop/core';
+import { ApiError, request, requestJson } from './api.js';
 import { invalidateTripData } from './offline-trip.js';
 
 const dataPath = '/api/v1/me/data';
-export const readAnonymousData = (signal?: AbortSignal) =>
-  requestJson(dataPath, {}, anonymousDataValidator.check, signal);
+export const readSettingsData = (signal?: AbortSignal) =>
+  requestJson(`${dataPath}?include=pending_deletions`, {}, settingsDataValidator.check, signal);
 
-export type DeleteTarget =
-  | { kind: 'all' }
-  | { kind: 'trip'; id: string; label: string; exclusive: number; shared: number }
-  | { kind: 'image'; id: string; label: string };
+export type DeleteTarget = PendingDeletion | { kind: 'all' };
 
 export async function deleteData(target: DeleteTarget) {
   const path =
@@ -17,10 +14,12 @@ export async function deleteData(target: DeleteTarget) {
       ? dataPath
       : `/api/v1/${target.kind === 'trip' ? 'trips' : 'imports'}/${encodeURIComponent(target.id)}`;
   try {
-    await request(path, { method: 'DELETE' });
+    const response = await request(path, { method: 'DELETE' });
+    if (response.status !== 204)
+      throw new ApiError('INVALID_RESPONSE', '服务响应格式无效。', response.status);
   } finally {
     // The server may have committed even if the reply was lost. Never serve the affected cache offline after an attempt.
-    if (target.kind !== 'image') invalidateTripData(target.kind === 'trip' ? target.id : null);
+    if (target.kind !== 'source') invalidateTripData(target.kind === 'trip' ? target.id : null);
   }
 }
 

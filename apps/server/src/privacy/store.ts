@@ -1,7 +1,11 @@
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import type { AnonymousData, UploadRecord } from '@nextstop/core';
 import { listImportBatches, removeBatchImages } from '../imports/batch-store.js';
-import { recordImageCleanup, resumeImageCleanup } from '../imports/image-cleanup.js';
+import {
+  listPendingDeletions,
+  recordImageCleanup,
+  resumeImageCleanup,
+} from '../imports/image-cleanup.js';
 import { listImportRecords, removeImportRecords } from '../imports/store.js';
 import { prepareRadarRetirement } from '../radar/store.js';
 import type { UserRuntime } from '../runtime/open-user-runtime.js';
@@ -44,6 +48,13 @@ export async function exportData(runtime: UserRuntime): Promise<AnonymousData> {
     trips: await Promise.all(trips.map(({ trip_id }) => getTripDetail(runtime, trip_id))),
     places: (await readWishlist(runtime, {})).places,
     uploads: (await inventory(runtime)).uploads,
+  };
+}
+
+export async function readSettingsData(runtime: UserRuntime) {
+  return {
+    ...(await exportData(runtime)),
+    pending_deletions: await listPendingDeletions(runtime),
   };
 }
 

@@ -87,7 +87,7 @@ export function createApp(options?: Options) {
     const view = sessionId && !member?.[2] && request.method === 'GET';
     const imports = importRoute(request.method, path);
     const wishlist = wishlistRoute(request.method, path);
-    const privacy = privacyRoute(request.method, path);
+    const privacy = privacyRoute(request.method, url);
     if (
       !(
         createSession ||
