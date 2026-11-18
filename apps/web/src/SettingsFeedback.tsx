@@ -1,6 +1,6 @@
 import type { RadarFeedback, RadarFeedbackClear } from '@nextstop/core';
 import { useEffect, useState } from 'react';
-import { ApiError, createSession, getRadarHistory, requestJson } from './api.js';
+import { ApiError, getRadarHistory, readWithGuestSession, requestJson } from './api.js';
 import { radarFeedbackClearValidator, radarFeedbackStatusValidator } from '@nextstop/core';
 import { readRadarPointer } from './offline-trip.js';
 import { RadarFeedbackNote } from './RadarFeedback.js';
@@ -38,18 +38,20 @@ export function SettingsFeedback({
     setState({ kind: 'loading' });
     void (async () => {
       try {
-        await createSession(signal);
-        const id =
-          readRadarPointer() ?? (await getRadarHistory(signal))?.view.outcome.binding.session_id;
-        const status =
-          id &&
-          (await requestJson(feedbackPath(id), {}, radarFeedbackStatusValidator.check, signal));
+        const feedback = await readWithGuestSession(async () => {
+          const id =
+            readRadarPointer() ?? (await getRadarHistory(signal))?.view.outcome.binding.session_id;
+          if (!id) return null;
+          const status = await requestJson(
+            feedbackPath(id),
+            {},
+            radarFeedbackStatusValidator.check,
+            signal,
+          );
+          return status.kind === 'active' ? { sessionId: id, feedback: status.feedback } : null;
+        }, signal);
         if (signal.aborted) return;
-        setState(
-          id && status && status.kind === 'active'
-            ? { kind: 'active', sessionId: id, feedback: status.feedback }
-            : { kind: 'finished', result: 'none' },
-        );
+        setState(feedback ? { kind: 'active', ...feedback } : { kind: 'finished', result: 'none' });
       } catch (error) {
         if (!signal.aborted)
           setState({

@@ -1,6 +1,6 @@
 import type { ImportReview, Wishlist, WishlistFilter, WishlistPlace } from '@nextstop/core';
 import { useEffect, useState } from 'react';
-import { ApiError, createSession } from './api.js';
+import { ApiError, readWithGuestSession } from './api.js';
 import { ImportBatchPanel } from './ImportBatchPanel.js';
 import { WishlistDetail } from './WishlistDetail.js';
 import { WishlistList } from './WishlistList.js';
@@ -63,8 +63,10 @@ export function LibraryPanel({
     setList({ kind: 'loading' });
     void (async () => {
       try {
-        await createSession(controller.signal);
-        const value = await getWishlist(controller.signal);
+        const value = await readWithGuestSession(
+          () => getWishlist(controller.signal),
+          controller.signal,
+        );
         if (!controller.signal.aborted) setList({ kind: 'ready', value });
       } catch (error) {
         if (!controller.signal.aborted) setList({ kind: 'error', message: messageOf(error) });
