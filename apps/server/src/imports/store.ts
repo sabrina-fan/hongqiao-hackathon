@@ -123,6 +123,61 @@ export async function readWishlist(runtime: UserRuntime): Promise<Wishlist> {
   return state;
 }
 
+type UserTransaction = Parameters<Parameters<UserRuntime['conversation']['commit']>[0]>[0];
+type WishlistWrite = {
+  selection: ConfirmImport;
+  review: ImportReview;
+  chosen: Extract<ImportReview['match'], { kind: 'results' }>['candidates'][number];
+};
+
+function appendSource(wishlist: Wishlist, { selection, review, chosen }: WishlistWrite) {
+  const index = wishlist.places.findIndex(
+    ({ provider, poi_id }) => provider === selection.provider && poi_id === chosen.id,
+  );
+  const existing = wishlist.places[index];
+  const place: WishlistPlace = {
+    provider: selection.provider,
+    poi_id: chosen.id,
+    city: '苏州',
+    name: existing?.name ?? chosen.name,
+    address: existing?.address ?? chosen.address,
+    sources: [...(existing?.sources ?? []).map((source) => ({ ...source })), { ...review.source }],
+  };
+  if (existing) wishlist.places[index] = place;
+  else wishlist.places.push(place);
+  return place;
+}
+
+export async function writeBatchChoices({
+  tx,
+  scope,
+  choices,
+  newCount,
+}: {
+  tx: UserTransaction;
+  scope: UserRuntime['conversation']['id'];
+  choices: (WishlistWrite & { imageType: ImportRecord['image_type'] })[];
+  newCount: number;
+}) {
+  const wishlist = await tx.doc(Wishes, scope, WISHLIST_KEY, WISHLIST_KEY);
+  if (!wishlistValidator.check(wishlist)) throw new Error('Invalid stored wishlist');
+  const known = new Set(wishlist.places.map(({ provider, poi_id }) => `${provider}:${poi_id}`));
+  const added = new Set(
+    choices
+      .map(({ selection }) => `${selection.provider}:${selection.poi_id}`)
+      .filter((id) => !known.has(id)),
+  );
+  if (added.size !== newCount) throw new HttpFault('IMPORT_STALE');
+  for (const choice of choices) {
+    const id = choice.review.import_id;
+    const record = await tx.doc(Imports, scope, id, id);
+    if (record.review) throw new Error('Import ID collision');
+    record.review = choice.review;
+    record.image_type = choice.imageType;
+    record.receipt = { selection: choice.selection, place: appendSource(wishlist, choice) };
+  }
+}
+
 export function confirmImport({
   runtime,
   id,
@@ -153,23 +208,7 @@ export function confirmImport({
     if (!chosen) throw new HttpFault('IMPORT_INVALID_CHOICE');
     const wishlist = await tx.doc(Wishes, scope, WISHLIST_KEY, WISHLIST_KEY);
     if (!wishlistValidator.check(wishlist)) throw new Error('Invalid stored wishlist');
-    const index = wishlist.places.findIndex(
-      ({ provider, poi_id }) => provider === selection.provider && poi_id === chosen.id,
-    );
-    const existing = wishlist.places[index];
-    const place: WishlistPlace = {
-      provider: selection.provider,
-      poi_id: chosen.id,
-      city: '苏州',
-      name: chosen.name,
-      address: chosen.address,
-      sources: [
-        ...(existing?.sources ?? []).map((source) => ({ ...source })),
-        { ...review.source },
-      ],
-    };
-    if (existing) wishlist.places[index] = place;
-    else wishlist.places.push(place);
+    const place = appendSource(wishlist, { selection, review, chosen });
     record.receipt = { selection, place };
     return place;
   }, BACKGROUND_CONTEXT);

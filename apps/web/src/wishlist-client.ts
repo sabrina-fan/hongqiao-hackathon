@@ -19,17 +19,6 @@ function post(body: unknown): RequestInit {
 export const importImagePath = (id: string) => `${importPath(id)}/image`;
 export const getWishlist = (signal?: AbortSignal) =>
   requestJson('/api/v1/wishlist', {}, wishlistValidator.check, signal);
-export function uploadImage(file: File) {
-  const body = new FormData();
-  body.set('image', file);
-  return requestJson(
-    imports,
-    { method: 'POST', body },
-    importReviewValidator.check,
-    undefined,
-    45_000,
-  );
-}
 export function searchImport(query: string, id?: string) {
   return requestJson(
     `${id ? importPath(id) : imports}/search`,
