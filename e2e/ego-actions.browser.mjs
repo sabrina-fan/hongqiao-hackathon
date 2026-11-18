@@ -1,7 +1,9 @@
 // Executed by Ego Lite with settings supplied by apps/server/test/run-ego-actions.mjs.
 const assert = (await import('node:assert/strict')).default;
 const { writeFile } = await import('node:fs/promises');
-const task = await taskSpace(`NextStop actions ${new URL(settings.origin).hostname}`);
+const task = await taskSpace(
+  settings.space ?? `NextStop actions ${new URL(settings.origin).hostname}`,
+);
 const page = task.page('p1');
 const report = {
   sha: settings.sha,
@@ -734,7 +736,9 @@ async function runTrip() {
   await phase('UI-06 旅行删除经设置');
   await nav('settings');
   await click(byText('summary', '旅行数据'), '展开旅行数据');
-  const target = '.settings-list li';
+  const list = '.settings-row[open] .settings-list';
+  await text(list, '2026-11-20');
+  const target = `${list} li`;
   const index = await page.evaluate(
     (selector) =>
       [...document.querySelectorAll(selector)].findIndex((row) =>

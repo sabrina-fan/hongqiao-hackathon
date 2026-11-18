@@ -1,4 +1,4 @@
-// Run from the repository root after `pnpm build`: node --import tsx apps/server/test/run-ego-actions.mjs
+// Run from the repository root after building: node --import tsx apps/server/test/run-ego-actions.mjs [Ego space ID]
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -172,10 +172,12 @@ try {
   });
   const port = web.httpServer.address().port;
   const origin = `http://qa-actions-${randomBytes(4).toString('hex')}.localhost:${port}`;
+  const space = process.argv[2] ? Number(process.argv[2]) : null;
+  assert(space === null || Number.isSafeInteger(space));
   const source = await readFile(resolve('e2e/ego-actions.browser.mjs'), 'utf8');
   process.stdout.write(`Evidence directory: ${output}\n`);
   await browser(
-    `const settings = ${JSON.stringify({ sha, dirty, output, origin, time, files })};\n${source}`,
+    `const settings = ${JSON.stringify({ sha, dirty, output, origin, time, files, space })};\n${source}`,
     360_000,
   );
   const report = JSON.parse(await readFile(join(output, 'browser.json'), 'utf8'));
