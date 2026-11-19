@@ -59,6 +59,18 @@ function decodeVisionReply<T>(
   } catch {
     return { kind: 'failed', reason: 'json_rejected' };
   }
+  if (
+    value &&
+    typeof value === 'object' &&
+    'kind' in value &&
+    value.kind === 'guess' &&
+    'excerpt' in value &&
+    typeof value.excerpt === 'string'
+  ) {
+    // Providers sometimes attach a description to guesses. Only visible text can be evidence.
+    const { excerpt: _excerpt, ...guess } = value;
+    value = guess;
+  }
   try {
     if (check(value)) return { kind: 'extracted', value };
   } catch {

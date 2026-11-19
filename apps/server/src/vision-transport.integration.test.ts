@@ -159,6 +159,22 @@ it('uses the primary result when its SSE response is valid and emits no failure 
   });
 });
 
+it('accepts a landmark guess without retaining an unsolicited excerpt', async () => {
+  const guess = { kind: 'guess', name: '山塘街', confidence: 'medium' };
+  const withExcerpt = JSON.stringify({ ...guess, excerpt: '夜景照片中的水巷和灯笼' });
+  await withVision(
+    {
+      primary: (response) => finish(response, { delta: { content: withExcerpt } }),
+      fallback: success,
+    },
+    async (review, calls, diagnostics) => {
+      expect((await review.image('fixture', image)).extraction).toStrictEqual(guess);
+      expect(calls).toEqual(['primary']);
+      expect(diagnostics).toStrictEqual([]);
+    },
+  );
+});
+
 it.each(failures)(
   'tries the fallback and logs a bounded reason after %s',
   async (_name, reason, status, reply) => {
