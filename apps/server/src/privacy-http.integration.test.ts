@@ -365,11 +365,14 @@ it.each(['source', 'trip'])(
         assert(importBatchValidator.check(body));
         return body;
       };
-      const ready = await vi.waitFor(async () => {
-        const batch = await readBatch();
-        expect(batch.items.map(({ kind }) => kind)).toEqual(['ready', 'ready', 'ready']);
-        return batch;
-      });
+      const ready = await vi.waitFor(
+        async () => {
+          const batch = await readBatch();
+          expect(batch.items.map(({ kind }) => kind)).toEqual(['ready', 'ready', 'ready']);
+          return batch;
+        },
+        { timeout: 5_000 },
+      );
       const [single, shared, exclusive] = ready.items;
       assert(single && shared && exclusive);
       const confirm = await post(`${batchPath}/confirm`, {

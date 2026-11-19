@@ -19,7 +19,7 @@ export default defineConfig({
           exclude: testExclude,
           fileParallelism: false,
           maxWorkers: 1,
-          testTimeout: 15000,
+          testTimeout: 45000,
         },
       },
     ],

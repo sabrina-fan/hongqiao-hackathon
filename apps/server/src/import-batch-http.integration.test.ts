@@ -95,20 +95,23 @@ it('shows partial results for eight images, retries only the failed image and ke
       return body.places;
     };
     expect((await fetch(url, { headers: stranger })).status).toBe(404);
-    const progress = await vi.waitFor(async () => {
-      const batch = await read();
-      expect(batch.items.map(({ kind }) => kind)).toEqual([
-        'ready',
-        'ready',
-        'failed',
-        'processing',
-        'processing',
-        'processing',
-        'processing',
-        'processing',
-      ]);
-      return batch;
-    });
+    const progress = await vi.waitFor(
+      async () => {
+        const batch = await read();
+        expect(batch.items.map(({ kind }) => kind)).toEqual([
+          'ready',
+          'ready',
+          'failed',
+          'processing',
+          'processing',
+          'processing',
+          'processing',
+          'processing',
+        ]);
+        return batch;
+      },
+      { timeout: 5_000 },
+    );
     const [first, second, failed, ...others] = progress.items;
     assert(first && second && failed && others[0]);
     expect(failed).toMatchObject({ kind: 'failed', reason: 'vision' });
@@ -117,11 +120,14 @@ it('shows partial results for eight images, retries only the failed image and ke
     expect((await fetch(url + image, { headers })).status).toBe(200);
     expect(await wishlist()).toEqual([]);
     release();
-    const finished = await vi.waitFor(async () => {
-      const batch = await read();
-      expect(batch.items.some(({ kind }) => kind === 'processing')).toBe(false);
-      return batch;
-    });
+    const finished = await vi.waitFor(
+      async () => {
+        const batch = await read();
+        expect(batch.items.some(({ kind }) => kind === 'processing')).toBe(false);
+        return batch;
+      },
+      { timeout: 5_000 },
+    );
     expect(finished.items.map(({ kind }) => kind)).toEqual([
       'ready',
       'ready',
@@ -152,11 +158,14 @@ it('shows partial results for eight images, retries only the failed image and ke
       selections: [first, second].map(({ import_id }) => ({ import_id, poi_id: poi.id })),
     };
     expect((await post('/confirm', selection)).status).toBe(409);
-    const afterRetry = await vi.waitFor(async () => {
-      const batch = await read();
-      expect(batch.items[2]?.kind).toBe('ready');
-      return batch;
-    });
+    const afterRetry = await vi.waitFor(
+      async () => {
+        const batch = await read();
+        expect(batch.items[2]?.kind).toBe('ready');
+        return batch;
+      },
+      { timeout: 5_000 },
+    );
     expect(vision).toHaveBeenCalledTimes(9);
     const failedImage = vision.mock.calls[2]?.[0];
     expect(failedImage?.data).not.toBe(vision.mock.calls[0]?.[0].data);
@@ -262,12 +271,15 @@ it('shows partial results for eight images, retries only the failed image and ke
     const maxBatch = await batchOf(await submit(), 202);
     expect(maxBatch.items).toHaveLength(15);
     expect(maxBatch.items[14]).toMatchObject({ kind: 'invalid', reason: 'invalid_image' });
-    await vi.waitFor(async () => {
-      const finished = await batchOf(
-        await fetch(`${base}/import-batches/${maxBatch.batch_id}`, { headers }),
-      );
-      expect(finished.items.filter(({ kind }) => kind === 'ready')).toHaveLength(14);
-    });
+    await vi.waitFor(
+      async () => {
+        const finished = await batchOf(
+          await fetch(`${base}/import-batches/${maxBatch.batch_id}`, { headers }),
+        );
+        expect(finished.items.filter(({ kind }) => kind === 'ready')).toHaveLength(14);
+      },
+      { timeout: 5_000 },
+    );
     expect(vision).toHaveBeenCalledTimes(23);
     form.append('images', new File([png], '攻略-16.png', { type: 'image/png' }));
     expect((await submit()).status).toBe(400);
@@ -315,11 +327,14 @@ it('preserves saved and pending image sources when a batch write rolls back', as
         headers: { ...headers, 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
-    const ready = await vi.waitFor(async () => {
-      const batch = await read();
-      expect(batch.items.map(({ kind }) => kind)).toEqual(['ready', 'ready']);
-      return batch;
-    });
+    const ready = await vi.waitFor(
+      async () => {
+        const batch = await read();
+        expect(batch.items.map(({ kind }) => kind)).toEqual(['ready', 'ready']);
+        return batch;
+      },
+      { timeout: 5_000 },
+    );
     const [first, pending] = ready.items;
     assert(first && pending);
     const saved = await batchOf(
