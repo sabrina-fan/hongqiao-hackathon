@@ -44,9 +44,8 @@ export function createRadarModel({
   const stream = models.streamSimple.bind(models);
   models.streamSimple = (target, context, options) => {
     const [offered, extra] = getCurrentTools(context.messages);
-    // Query and proposal get 6s + 9s, leaving room between 15s map recall and the 32s client timeout.
     const budget = AbortSignal.timeout(
-      !extra && offered?.name === 'candidates_propose' ? 9000 : 6000,
+      !extra && offered?.name === 'candidates_propose' ? 12_000 : 6_000,
     );
     // This signal bounds the whole stream, including the body after headers.
     const signal = options?.signal ? AbortSignal.any([options.signal, budget]) : budget;

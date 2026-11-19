@@ -193,12 +193,13 @@ export function getRadarHistory(signal?: AbortSignal) {
 }
 
 export function createRadarSession(input: RadarRequest, signal?: AbortSignal): Promise<RadarView> {
+  // Allow 15s for maps, 6s for query, 12s for proposal, and 3s for local processing and HTTP.
   return requestJson(
     '/api/v1/radar/sessions',
     post(input),
     radarViewValidator.check,
     signal,
-    32_000,
+    36_000,
   );
 }
 

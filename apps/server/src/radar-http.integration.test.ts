@@ -649,7 +649,7 @@ describe('radar through HTTP and per-guest SQLite', () => {
       const finish = () => finishToolStream(response, calls);
       if (mode === 'slow' && !isQuery) {
         response.flushHeaders();
-        const timer = setTimeout(finish, 6500);
+        const timer = setTimeout(finish, 10_000);
         response.once('close', () => clearTimeout(timer));
       } else finish();
     });
@@ -712,6 +712,7 @@ describe('radar through HTTP and per-guest SQLite', () => {
   ] as const)('reports a redacted $reason in the $stage round', async ({ stage, reason }) => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     const offered: string[][] = [];
+    const streamClosed = vi.fn<() => void>();
     const failingTool = stage === 'query' ? 'candidates_query' : 'candidates_propose';
     const upstream = createServer(async (incoming, response) => {
       const body: unknown = await json(incoming);
@@ -722,6 +723,7 @@ describe('radar through HTTP and per-guest SQLite', () => {
       const names = body.tools.map((tool) => tool.function.name);
       offered.push(names);
       const failing = names.includes(failingTool);
+      if (failing) response.once('close', streamClosed);
       if (failing && reason === 'model_error') {
         response.writeHead(502).end('synthetic private upstream response');
         return;
@@ -743,11 +745,14 @@ describe('radar through HTTP and per-guest SQLite', () => {
     try {
       await listenWithRadar(upstream);
       const cookie = await guest();
+      const started = performance.now();
       await expectFault(
         await post('/radar/sessions', { origin_id: origin.id, available_min: 45 }, cookie),
         502,
         'RADAR_MODEL_UNAVAILABLE',
       );
+      expect(performance.now() - started).toBeLessThan(stage === 'query' ? 8_000 : 14_000);
+      await vi.waitFor(() => expect(streamClosed).toHaveBeenCalledOnce());
       expect(offered).toEqual(
         stage === 'query' ? [['candidates_query']] : [['candidates_query'], ['candidates_propose']],
       );

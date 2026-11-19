@@ -24,6 +24,43 @@ afterEach(() => {
   vi.resetModules();
 });
 
+it('allows a radar scan 36 seconds while honoring caller cancellation', async () => {
+  const { createRadarSession } = await import('./api.js');
+  const input = { origin_id: 'origin', available_min: 45 };
+  const fetcher = vi.fn<typeof fetch>((_path, init) => {
+    const signal = init?.signal;
+    if (!signal) throw new Error('Expected a radar request signal');
+    return new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    });
+  });
+  vi.stubGlobal('fetch', fetcher);
+  vi.useFakeTimers();
+  // Node's native AbortSignal timeout does not use Vitest's fake timer queue.
+  const timeout = vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new DOMException('Timed out', 'TimeoutError')), ms);
+    return controller.signal;
+  });
+  try {
+    const request = createRadarSession(input).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(35_999);
+    expect(fetcher.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetcher.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    await expect(request).resolves.toMatchObject({ code: 'TIMEOUT', status: 0 });
+
+    const caller = new AbortController();
+    const canceled = createRadarSession(input, caller.signal);
+    caller.abort();
+    await expect(canceled).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  } finally {
+    timeout.mockRestore();
+    vi.useRealTimers();
+  }
+});
+
 it('establishes the guest once, then reads with the existing cookie and recovers if it expires', async () => {
   const fetcher = vi
     .fn<typeof fetch>()
