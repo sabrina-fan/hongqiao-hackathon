@@ -151,6 +151,74 @@ describe('Amap walking evidence', () => {
     );
     expect(fetcher).toHaveBeenCalledTimes(sameAddress ? 4 : 3);
   });
+  it.each([true, false])('routes between a place and a geocoded address (%s)', async (outbound) => {
+    const address = '江苏省苏州市姑苏区东北街178号';
+    const entry = {
+      ...leg,
+      origin_id: '1',
+      dest_id: '1',
+    };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(ok({ pois: [destination] }))
+      .mockResolvedValueOnce(
+        ok({
+          geocodes: [
+            {
+              location: '120.65,31.32',
+              level: '门牌号',
+              adcode: '320508',
+              formatted_address: address,
+            },
+            {
+              location: '120.66,31.33',
+              level: '门址',
+              adcode: '320508',
+              formatted_address: address,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(ok({ results: [entry] }));
+    const map = createAmap({ key: 'unused', fetcher, now: () => 0 });
+    const result = outbound
+      ? await map.walkToAddress?.({ origin_id: destination.id, address })
+      : await map.walkFromAddress?.({ address, poi_id: destination.id });
+    expect(result).toMatchObject({ travel_min: 3, distance_m: 501 });
+    const urls = fetcher.mock.calls.map(([url]) => {
+      if (!(url instanceof URL)) throw new Error('Expected a URL');
+      return { path: url.pathname, ...Object.fromEntries(url.searchParams) };
+    });
+    expect(urls.map((url) => url.path)).toEqual([
+      '/v5/place/detail',
+      '/v3/geocode/geo',
+      '/v3/distance',
+    ]);
+    expect(urls[1]).toMatchObject({ address, city: '320500' });
+    expect(urls[2]).toMatchObject(
+      outbound
+        ? { origins: destination.location, destination: '120.66,31.33' }
+        : { origins: '120.66,31.33', destination: destination.location },
+    );
+  });
+  it('rejects an address that cannot be uniquely geocoded', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(ok({ pois: [destination] }))
+      .mockResolvedValueOnce(
+        ok({
+          geocodes: [
+            { location: '120.65,31.32', level: '门牌号', adcode: '320508' },
+            { location: '120.66,31.33', level: '门牌号', adcode: '320508' },
+          ],
+        }),
+      );
+    const map = createAmap({ key: 'unused', fetcher });
+    await expect(
+      map.walkToAddress?.({ origin_id: destination.id, address: '东北街178号' }),
+    ).rejects.toMatchObject({ code: 'FIXED_LOCATION_UNRESOLVED' });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
   it.each([
     { results: [{ ...leg, duration: '' }] },
     { results: [] },

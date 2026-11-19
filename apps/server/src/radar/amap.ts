@@ -28,6 +28,14 @@ export type RadarMap = {
     input: { candidate: WalkingEvidence; fixed: FixedStop },
     signal?: AbortSignal,
   ): Promise<WalkingEvidence>;
+  walkToAddress?(
+    input: { origin_id: string; address: string },
+    signal?: AbortSignal,
+  ): Promise<WalkingEvidence>;
+  walkFromAddress?(
+    input: { address: string; poi_id: string },
+    signal?: AbortSignal,
+  ): Promise<WalkingEvidence>;
 };
 
 export class MapFault extends Error {
@@ -280,6 +288,28 @@ export function createAmap({
     if (!origin) throw new MapFault('PLACE_NOT_FOUND');
     return { place: toOption(origin), point: amapPoint(origin.location) };
   }
+  async function geocodePoint(address: string, signal: AbortSignal): Promise<RoutePoint> {
+    const body = await request('/v3/geocode/geo', { address, city: '320500' }, signal);
+    if (!geocodes.check(body)) throw new MapFault('MAP_UNAVAILABLE');
+    const rows = body.geocodes;
+    const single = rows.length === 1 ? rows[0] : undefined;
+    let match = single && ['门牌号', '兴趣点'].includes(single.level) ? single : undefined;
+    if (rows.length === 2) {
+      const entrance = rows.find(({ level }) => level === '门址');
+      const streetNumber = rows.find(({ level }) => level === '门牌号');
+      // Amap may return a distinct entrance point alongside the same street number.
+      if (
+        typeof entrance?.formatted_address === 'string' &&
+        entrance.formatted_address.trim() &&
+        entrance.formatted_address === streetNumber?.formatted_address &&
+        entrance.adcode === streetNumber.adcode
+      )
+        match = entrance;
+    }
+    if (!match || !/^3205\d{2}$/.test(match.adcode))
+      throw new MapFault('FIXED_LOCATION_UNRESOLVED');
+    return amapPoint(match.location);
+  }
   return {
     resolveOrigin,
     async nearby({ point }, signal) {
@@ -358,29 +388,6 @@ export function createAmap({
     },
     async walkToFixed({ candidate, fixed }, signal = AbortSignal.timeout(6500)) {
       if (!candidate.markers) throw new MapFault('MAP_UNAVAILABLE');
-      const body = await request(
-        '/v3/geocode/geo',
-        { address: fixed.address, city: '320500' },
-        signal,
-      );
-      if (!geocodes.check(body)) throw new MapFault('MAP_UNAVAILABLE');
-      const rows = body.geocodes;
-      const single = rows.length === 1 ? rows[0] : undefined;
-      let match = single && ['门牌号', '兴趣点'].includes(single.level) ? single : undefined;
-      if (rows.length === 2) {
-        const entrance = rows.find(({ level }) => level === '门址');
-        const streetNumber = rows.find(({ level }) => level === '门牌号');
-        // Amap may return a distinct entrance point alongside the same street number.
-        if (
-          typeof entrance?.formatted_address === 'string' &&
-          entrance.formatted_address.trim() &&
-          entrance.formatted_address === streetNumber?.formatted_address &&
-          entrance.adcode === streetNumber.adcode
-        )
-          match = entrance;
-      }
-      if (!match || !/^3205\d{2}$/.test(match.adcode))
-        throw new MapFault('FIXED_LOCATION_UNRESOLVED');
       return routeBetween(
         candidate.destination,
         {
@@ -388,7 +395,36 @@ export function createAmap({
           name: fixed.name,
           address: fixed.address,
         },
-        { origin: candidate.markers.destination, destination: amapPoint(match.location) },
+        {
+          origin: candidate.markers.destination,
+          destination: await geocodePoint(fixed.address, signal),
+        },
+        signal,
+      );
+    },
+    async walkToAddress({ origin_id, address }, signal = AbortSignal.timeout(6500)) {
+      const [origin] = await detail([origin_id], signal);
+      if (!origin) throw new MapFault('PLACE_NOT_FOUND');
+      return routeBetween(
+        toOption(origin),
+        { id: address, name: address, address },
+        {
+          origin: amapPoint(origin.location),
+          destination: await geocodePoint(address, signal),
+        },
+        signal,
+      );
+    },
+    async walkFromAddress({ address, poi_id }, signal = AbortSignal.timeout(6500)) {
+      const [destination] = await detail([poi_id], signal);
+      if (!destination) throw new MapFault('PLACE_NOT_FOUND');
+      return routeBetween(
+        { id: address, name: address, address },
+        toOption(destination),
+        {
+          origin: await geocodePoint(address, signal),
+          destination: amapPoint(destination.location),
+        },
         signal,
       );
     },

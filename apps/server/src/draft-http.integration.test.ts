@@ -47,6 +47,14 @@ async function draftOf(response: Response) {
 
 it('shows two conflicts in a private draft and applies it only by confirmation, preserving the locked activity', async () => {
   let now = Date.parse('2026-11-18T01:00:00Z');
+  const placeAt = (address: string) => places.find((place) => place.address === address);
+  const walking = (from: (typeof places)[number], to: (typeof places)[number]) => ({
+    origin: from,
+    destination: to,
+    travel_min: 5,
+    distance_m: 350,
+    fetched_at: new Date(now).toISOString(),
+  });
   const map: RadarMap = {
     async walkToFixed() {
       throw new Error('Draft test does not use radar fixed-stop routing');
@@ -54,19 +62,25 @@ it('shows two conflicts in a private draft and applies it only by confirmation, 
     async search(query) {
       return places.filter((place) => place.name === query || place.address === query);
     },
+    async walkToAddress({ origin_id, address }) {
+      const origin = places.find(({ id }) => id === origin_id);
+      const destination = placeAt(address);
+      if (!origin || !destination) throw new Error('Unexpected walking request');
+      return walking(origin, destination);
+    },
+    async walkFromAddress({ address, poi_id }) {
+      const origin = placeAt(address);
+      const destination = places.find(({ id }) => id === poi_id);
+      if (!origin || !destination) throw new Error('Unexpected walking request');
+      return walking(origin, destination);
+    },
     async walk(input) {
       if (!('origin_id' in input)) throw new Error('Draft test requires a known origin');
       const { origin_id, poi_id } = input;
       const origin = places.find(({ id }) => id === origin_id);
       const destination = places.find(({ id }) => id === poi_id);
       if (!origin || !destination) throw new Error('Unexpected walking request');
-      return {
-        origin,
-        destination,
-        travel_min: 5,
-        distance_m: 350,
-        fetched_at: new Date(now).toISOString(),
-      };
+      return walking(origin, destination);
     },
   };
   const dataDir = await mkdtemp(join(tmpdir(), 'nextstop-draft-'));
