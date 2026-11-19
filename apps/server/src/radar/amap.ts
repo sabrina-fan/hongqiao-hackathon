@@ -93,7 +93,7 @@ const route = compile(
           {
             origin_id: lit('1'),
             dest_id: lit('1'),
-            info: lit('OK'),
+            info: opt(lit('OK')),
             distance: wholeNumber,
             duration: wholeNumber,
           },

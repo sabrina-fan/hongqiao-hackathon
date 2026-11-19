@@ -51,6 +51,16 @@ describe('Amap walking evidence', () => {
     });
     expect(fetcher.mock.calls[1]?.[1]?.redirect).toBe('error');
   });
+  it('accepts a successful walking leg without a per-leg info field', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(ok({ pois: [origin, destination] }))
+      .mockResolvedValueOnce(
+        ok({ results: [{ origin_id: '1', dest_id: '1', distance: '501', duration: '121' }] }),
+      );
+    const map = createAmap({ key: 'unused', fetcher });
+    await expect(map.walk(selection)).resolves.toMatchObject({ distance_m: 501, travel_min: 3 });
+  });
   it('converts the GPS origin once and uses the same GCJ-02 points for the markers and both legs', async () => {
     const gps = {
       system: 'wgs84',
