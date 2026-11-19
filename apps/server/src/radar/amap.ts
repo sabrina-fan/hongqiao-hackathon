@@ -132,7 +132,19 @@ function toOption(row: { id: string; name: string; address?: string | string[] }
 const converted = compile(obj({ locations: str() }, { open: true }));
 const geocodes = compile(
   obj(
-    { geocodes: arr(obj({ location: str(), level: str(), adcode: str() }, { open: true })) },
+    {
+      geocodes: arr(
+        obj(
+          {
+            location: str(),
+            level: str(),
+            adcode: str(),
+            formatted_address: optionalBusinessText(500),
+          },
+          { open: true },
+        ),
+      ),
+    },
     { open: true },
   ),
 );
@@ -352,13 +364,22 @@ export function createAmap({
         signal,
       );
       if (!geocodes.check(body)) throw new MapFault('MAP_UNAVAILABLE');
-      const match = body.geocodes[0];
-      if (
-        body.geocodes.length !== 1 ||
-        !match ||
-        !/^3205\d{2}$/.test(match.adcode) ||
-        !['门牌号', '兴趣点'].includes(match.level)
-      )
+      const rows = body.geocodes;
+      const single = rows.length === 1 ? rows[0] : undefined;
+      let match = single && ['门牌号', '兴趣点'].includes(single.level) ? single : undefined;
+      if (rows.length === 2) {
+        const entrance = rows.find(({ level }) => level === '门址');
+        const streetNumber = rows.find(({ level }) => level === '门牌号');
+        // Amap may return a distinct entrance point alongside the same street number.
+        if (
+          typeof entrance?.formatted_address === 'string' &&
+          entrance.formatted_address.trim() &&
+          entrance.formatted_address === streetNumber?.formatted_address &&
+          entrance.adcode === streetNumber.adcode
+        )
+          match = entrance;
+      }
+      if (!match || !/^3205\d{2}$/.test(match.adcode))
         throw new MapFault('FIXED_LOCATION_UNRESOLVED');
       return routeBetween(
         candidate.destination,

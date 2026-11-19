@@ -106,6 +106,51 @@ describe('Amap walking evidence', () => {
     });
     expect(onward.markers?.origin).toEqual(outbound.markers?.destination);
   });
+  it.each([true, false])('resolves only a same-address entrance pair (%s)', async (sameAddress) => {
+    const address = '江苏省苏州市姑苏区东北街178号';
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(ok({ pois: [origin, destination] }))
+      .mockResolvedValueOnce(ok({ results: [leg] }))
+      .mockResolvedValueOnce(
+        ok({
+          geocodes: [
+            {
+              location: '120.65,31.32',
+              level: '门牌号',
+              adcode: '320508',
+              formatted_address: sameAddress ? address : address.replace('178', '204'),
+            },
+            {
+              location: '120.66,31.33',
+              level: '门址',
+              adcode: '320508',
+              formatted_address: address,
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(ok({ results: [leg] }));
+    const map = createAmap({ key: 'unused', fetcher });
+    const candidate = await map.walk(selection);
+    const result = map.walkToFixed({
+      candidate,
+      fixed: {
+        arrangement_id: 'reservation',
+        name: '预约',
+        address,
+        starts_at: '2026-11-18T09:15:00.000Z',
+        time_zone: 'Asia/Shanghai',
+      },
+    });
+    const outcome = await result.catch((error: unknown) => error);
+    expect(outcome).toMatchObject(
+      sameAddress
+        ? { markers: { destination: { longitude: 120.66, latitude: 31.33 } } }
+        : { code: 'FIXED_LOCATION_UNRESOLVED' },
+    );
+    expect(fetcher).toHaveBeenCalledTimes(sameAddress ? 4 : 3);
+  });
   it.each([
     { results: [{ ...leg, duration: '' }] },
     { results: [] },
