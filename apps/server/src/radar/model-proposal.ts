@@ -7,7 +7,7 @@ import {
 } from '@earendil-works/pi-durable';
 import { obj, type Static } from '@earendil-works/pi-schema';
 import { ModelProposalInputSchema, modelProposalInputValidator } from '@nextstop/core';
-import type { RadarModel } from '@nextstop/model-gateway';
+import { RADAR_MODEL_TIMEOUT_DETAIL, type RadarModel } from '@nextstop/model-gateway';
 import type { UserRuntime } from '../runtime/open-user-runtime.js';
 import { RadarFault } from './evidence.js';
 import type { RecallSnapshot } from './recall-snapshot.js';
@@ -65,13 +65,28 @@ export const radarProposalTools = defineExtension({
   tools: [query, propose],
 });
 
-async function run(conversation: Conversation, content: string) {
+function failureReason(reason: string, detail: unknown) {
+  switch (reason) {
+    case 'model_error':
+      return detail === RADAR_MODEL_TIMEOUT_DETAIL ? 'model_timeout' : 'model_error';
+    case 'aborted':
+    case 'no_model':
+      return reason;
+    default:
+      return 'other_unanswered';
+  }
+}
+
+async function run(conversation: Conversation, stage: 'query' | 'propose', content: string) {
   const submission = await conversation.submit(
     { type: 'input', content, whenBusy: 'reject' },
     BACKGROUND_CONTEXT,
   );
   const result = await submission.wait(BACKGROUND_CONTEXT);
-  if (result.status !== 'done') throw new RadarFault('RADAR_MODEL_UNAVAILABLE');
+  if (result.status === 'done') return;
+  const reason = failureReason(result.reason, result.detail);
+  console.error(JSON.stringify({ event: 'radar_model_failed', stage, reason }));
+  throw new RadarFault('RADAR_MODEL_UNAVAILABLE');
 }
 
 export async function modelReasons(
@@ -103,10 +118,11 @@ export async function modelReasons(
       saved: candidate.sources.includes('wishlist'),
     }));
   }, BACKGROUND_CONTEXT);
-  await run(conversation, 'Call candidates_query exactly once.');
+  await run(conversation, 'query', 'Call candidates_query exactly once.');
   await conversation.configure({ modelTools: [propose] }, BACKGROUND_CONTEXT);
   await run(
     conversation,
+    'propose',
     'Call candidates_propose exactly once. Include each screened candidate exactly once.',
   );
   const draft = await runtime.harness.snapshot(Draft, conversation.id, key, BACKGROUND_CONTEXT);

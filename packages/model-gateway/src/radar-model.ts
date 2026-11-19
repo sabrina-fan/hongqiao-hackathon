@@ -7,6 +7,7 @@ import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completio
 import { createModels, createProvider } from '@earendil-works/pi-ai/models';
 
 export type RadarModel = ReturnType<typeof createRadarModel>;
+export const RADAR_MODEL_TIMEOUT_DETAIL = 'Radar model time budget exhausted';
 
 export function createRadarModel({
   modelId,
@@ -47,10 +48,11 @@ export function createRadarModel({
     const budget = AbortSignal.timeout(
       !extra && offered?.name === 'candidates_propose' ? 9000 : 6000,
     );
+    // This signal bounds the whole stream, including the body after headers.
+    const signal = options?.signal ? AbortSignal.any([options.signal, budget]) : budget;
     const upstream = stream(target, context, {
       ...options,
-      // This signal bounds the whole stream, including the body after headers.
-      signal: options?.signal ? AbortSignal.any([options.signal, budget]) : budget,
+      signal,
       maxRetries: 0,
       maxTokens: 512,
       cacheRetention: 'none',
@@ -61,10 +63,16 @@ export function createRadarModel({
       .result()
       .then((message) => {
         if (message.stopReason === 'error' || message.stopReason === 'aborted') {
+          const timedOut =
+            message.stopReason === 'aborted' && budget.aborted && signal.reason === budget.reason;
           result.push({
             type: 'error',
             reason: message.stopReason,
-            error: { ...message, content: [], errorMessage: 'Radar model unavailable' },
+            error: {
+              ...message,
+              content: [],
+              errorMessage: timedOut ? RADAR_MODEL_TIMEOUT_DETAIL : 'Radar model unavailable',
+            },
           });
           return;
         }

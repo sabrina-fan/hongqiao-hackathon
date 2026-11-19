@@ -3,11 +3,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
-import { createServer } from 'node:http';
+import { createServer, type Server, type ServerResponse } from 'node:http';
 import { json } from 'node:stream/consumers';
 import { arr, compile, nullable, obj, opt, str } from '@earendil-works/pi-schema';
 import { createRadarModel, type RadarModel } from '@nextstop/model-gateway';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   acceptReceiptValidator,
   importReviewValidator,
@@ -98,6 +98,40 @@ async function listen(radarModel: RadarModel | null = null) {
 async function close() {
   await new Promise<void>((resolve, reject) =>
     server.close((error) => (error ? reject(error) : resolve())),
+  );
+}
+async function listenWithRadar(upstream: Server) {
+  upstream.listen(0, '127.0.0.1');
+  await once(upstream, 'listening');
+  const address = upstream.address();
+  if (!address || typeof address === 'string') throw new Error('TCP port required');
+  await close();
+  await listen(
+    createRadarModel({
+      modelId: 'fixture',
+      apiKey: 'fixture',
+      baseUrl: `http://127.0.0.1:${address.port}`,
+    }),
+  );
+}
+async function closeUpstream(upstream: Server) {
+  upstream.closeAllConnections();
+  await new Promise<void>((resolve, reject) =>
+    upstream.close((error) => (error ? reject(error) : resolve())),
+  );
+}
+const toolRequest = compile(
+  obj(
+    {
+      tools: arr(obj({ function: obj({ name: str() }, { open: true }) }, { open: true })),
+      messages: arr(obj({ role: str(), content: opt(nullable(str())) }, { open: true })),
+    },
+    { open: true },
+  ),
+);
+function finishToolStream(response: ServerResponse, calls: unknown[]) {
+  response.end(
+    `data: ${JSON.stringify({ id: 'fixture', model: 'fixture', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: calls }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`,
   );
 }
 beforeEach(async () => {
@@ -565,15 +599,6 @@ describe('radar through HTTP and per-guest SQLite', () => {
     expect((await accept(cookie, view, 'fresh-option')).status).toBe(200);
   });
   it('runs only the two durable radar tools and rejects out-of-pool and mixed tool proposals', async () => {
-    const request = compile(
-      obj(
-        {
-          tools: arr(obj({ function: obj({ name: str() }, { open: true }) }, { open: true })),
-          messages: arr(obj({ role: str(), content: opt(nullable(str())) }, { open: true })),
-        },
-        { open: true },
-      ),
-    );
     const toolSurfaces: string[][] = [];
     const queryResults: string[] = [];
     let mode: 'valid' | 'outside' | 'mixed' | 'slow' | 'offline' = 'valid';
@@ -581,7 +606,7 @@ describe('radar through HTTP and per-guest SQLite', () => {
     farMinutes = 95;
     const upstream = createServer(async (incoming, response) => {
       const body: unknown = await json(incoming);
-      if (!request.check(body)) {
+      if (!toolRequest.check(body)) {
         response.writeHead(400).end();
         return;
       }
@@ -621,29 +646,15 @@ describe('radar through HTTP and per-guest SQLite', () => {
           function: { name: 'trip_write', arguments: '{}' },
         });
       response.writeHead(200, { 'content-type': 'text/event-stream' });
-      const finish = () =>
-        response.end(
-          `data: ${JSON.stringify({ id: 'fixture', model: 'fixture', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: calls }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`,
-        );
+      const finish = () => finishToolStream(response, calls);
       if (mode === 'slow' && !isQuery) {
         response.flushHeaders();
         const timer = setTimeout(finish, 6500);
         response.once('close', () => clearTimeout(timer));
       } else finish();
     });
-    upstream.listen(0, '127.0.0.1');
-    await once(upstream, 'listening');
     try {
-      const address = upstream.address();
-      if (!address || typeof address === 'string') throw new Error('TCP port required');
-      await close();
-      await listen(
-        createRadarModel({
-          modelId: 'fixture',
-          apiKey: 'fixture',
-          baseUrl: `http://127.0.0.1:${address.port}`,
-        }),
-      );
+      await listenWithRadar(upstream);
       const cookie = await guest();
       const scan = async () => {
         const response = await post(
@@ -690,10 +701,66 @@ describe('radar through HTTP and per-guest SQLite', () => {
         'RADAR_MODEL_UNAVAILABLE',
       );
     } finally {
-      upstream.closeAllConnections();
-      await new Promise<void>((resolve, reject) =>
-        upstream.close((error) => (error ? reject(error) : resolve())),
+      await closeUpstream(upstream);
+    }
+  });
+  it.each([
+    { stage: 'query', reason: 'model_error' },
+    { stage: 'propose', reason: 'model_error' },
+    { stage: 'query', reason: 'model_timeout' },
+    { stage: 'propose', reason: 'model_timeout' },
+  ] as const)('reports a redacted $reason in the $stage round', async ({ stage, reason }) => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const offered: string[][] = [];
+    const failingTool = stage === 'query' ? 'candidates_query' : 'candidates_propose';
+    const upstream = createServer(async (incoming, response) => {
+      const body: unknown = await json(incoming);
+      if (!toolRequest.check(body)) {
+        response.writeHead(400).end();
+        return;
+      }
+      const names = body.tools.map((tool) => tool.function.name);
+      offered.push(names);
+      const failing = names.includes(failingTool);
+      if (failing && reason === 'model_error') {
+        response.writeHead(502).end('synthetic private upstream response');
+        return;
+      }
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      if (failing) {
+        response.flushHeaders();
+        return;
+      }
+      finishToolStream(response, [
+        {
+          index: 0,
+          id: 'call-query',
+          type: 'function',
+          function: { name: 'candidates_query', arguments: '{}' },
+        },
+      ]);
+    });
+    try {
+      await listenWithRadar(upstream);
+      const cookie = await guest();
+      await expectFault(
+        await post('/radar/sessions', { origin_id: origin.id, available_min: 45 }, cookie),
+        502,
+        'RADAR_MODEL_UNAVAILABLE',
       );
+      expect(offered).toEqual(
+        stage === 'query' ? [['candidates_query']] : [['candidates_query'], ['candidates_propose']],
+      );
+      expect(await trip(cookie)).toBeNull();
+      expect(
+        await (await fetch(`${url}/radar/history`, { headers: { cookie } })).json(),
+      ).toBeNull();
+      expect(log.mock.calls).toEqual([
+        [JSON.stringify({ event: 'radar_model_failed', stage, reason })],
+      ]);
+    } finally {
+      log.mockRestore();
+      await closeUpstream(upstream);
     }
   });
   it('restores the same receipt across concurrent confirmation, expiry and a server restart', async () => {
