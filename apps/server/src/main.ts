@@ -18,7 +18,9 @@ const server = createApp({
       })
     : null,
   radarModel: configuredRadarModel(process.env),
-  vision: configuredVisionExtractor(process.env, visualExtractionValidator.check),
+  vision: configuredVisionExtractor(process.env, visualExtractionValidator.check, (failure) => {
+    console.error(JSON.stringify({ event: 'vision_attempt_failed', ...failure }));
+  }),
 });
 await new Promise<void>((resolve, reject) => {
   server.once('error', reject);
