@@ -196,6 +196,31 @@ it(
   },
 );
 
+it(
+  'accepts a complete fallback SSE reply that arrives after ten seconds',
+  { timeout: 25_000 },
+  async () => {
+    const lateSuccess: Reply = (response) => {
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      response.flushHeaders();
+      const release = setTimeout(() => {
+        response.end(
+          `${event({ delta: { content: json }, finish_reason: 'stop' })}data: [DONE]\n\n`,
+        );
+      }, 11_000);
+      response.once('close', () => clearTimeout(release));
+    };
+    await withVision(
+      { primary: unsupportedFormat, fallback: lateSuccess },
+      async (review, calls, diagnostics) => {
+        expect((await review.image('fixture', image)).extraction).toEqual(extraction);
+        expect(calls).toEqual(['primary', 'fallback']);
+        expect(diagnostics).toStrictEqual([diagnostic('primary', 'sdk_error')]);
+      },
+    );
+  },
+);
+
 it('classifies caller cancellation and does not start the fallback', async () => {
   const caller = new AbortController();
   await withVision(

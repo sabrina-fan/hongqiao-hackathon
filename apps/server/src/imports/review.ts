@@ -9,6 +9,17 @@ import type { RadarMap } from '../radar/amap.js';
 
 export type ImportVision = (image: VisionImage, signal?: AbortSignal) => Promise<VisualExtraction>;
 
+const landmarkSearchAliases = new Map([
+  ["humble administrator's garden", '拙政园'],
+  ["humble administrator's garden (suzhou)", '拙政园'],
+]);
+
+function imagePlaceQuery(name: string) {
+  const query = name.trim();
+  const alias = query.normalize('NFKC').replaceAll('’', "'").toLowerCase();
+  return landmarkSearchAliases.get(alias) ?? query;
+}
+
 export function emptyImageReview(id: string): ImportReview {
   return {
     import_id: id,
@@ -60,7 +71,7 @@ export function createImportReview(
       extraction,
       match:
         extraction.kind === 'text' || extraction.kind === 'guess'
-          ? await match(extraction.name, signal)
+          ? await match(imagePlaceQuery(extraction.name), signal)
           : initial.match,
     };
   }

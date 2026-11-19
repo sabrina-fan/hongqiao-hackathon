@@ -61,6 +61,8 @@ it('requires an explicit POI selection before saving an ambiguous screenshot, in
       );
     });
   });
+  const garden = { id: 'B020000003', name: '拙政园', address: '姑苏区东北街178号' };
+  const nearbyShop = { id: 'B020000004', name: '星巴克(苏州拙政园店)', address: '西北街' };
   const queries: string[] = [];
   const dataDir = await mkdtemp(join(tmpdir(), 'nextstop-import-'));
   const config = {
@@ -74,7 +76,14 @@ it('requires an explicit POI selection before saving an ambiguous screenshot, in
         return Response.json({
           status: '1',
           info: 'OK',
-          pois: query === '山塘街' ? [west, east] : [],
+          pois:
+            query === '山塘街'
+              ? [west, east]
+              : query === '拙政园'
+                ? [garden]
+                : query === "Humble Administrator's Garden (Suzhou)"
+                  ? [nearbyShop]
+                  : [],
         });
       },
     }),
@@ -219,6 +228,16 @@ it('requires an explicit POI selection before saving an ambiguous screenshot, in
     extraction = { kind: 'guess', name: '山塘街', confidence: 'low' };
     const guess = await reviewOf(await upload());
     expect(guess.extraction.kind).toBe('guess');
+    const gardenGuess = {
+      kind: 'guess',
+      name: "Humble Administrator's Garden (Suzhou)",
+      confidence: 'medium',
+    };
+    extraction = gardenGuess;
+    const gardenReview = await reviewOf(await upload());
+    expect(gardenReview.extraction).toEqual(gardenGuess);
+    expect(gardenReview.match).toEqual({ kind: 'results', candidates: [garden] });
+    expect(queries.at(-1)).toBe('拙政园');
     expect((await wishlist())[0]?.sources).toHaveLength(2);
   } finally {
     await close(server);
