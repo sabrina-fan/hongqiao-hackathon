@@ -576,8 +576,9 @@ describe('radar through HTTP and per-guest SQLite', () => {
     );
     const toolSurfaces: string[][] = [];
     const queryResults: string[] = [];
-    let mode: 'valid' | 'outside' | 'mixed' | 'offline' = 'valid';
+    let mode: 'valid' | 'outside' | 'mixed' | 'slow' | 'offline' = 'valid';
     const reason = '适合散步时顺道看看。';
+    farMinutes = 95;
     const upstream = createServer(async (incoming, response) => {
       const body: unknown = await json(incoming);
       if (!request.check(body)) {
@@ -586,12 +587,12 @@ describe('radar through HTTP and per-guest SQLite', () => {
       }
       const names = body.tools.map((tool) => tool.function.name);
       toolSurfaces.push(names);
-      if (mode === 'offline') {
+      const [name] = names;
+      const isQuery = name === 'candidates_query';
+      if (mode === 'offline' && !isQuery) {
         response.writeHead(502).end();
         return;
       }
-      const [name] = names;
-      const isQuery = name === 'candidates_query';
       const result = body.messages.find(({ role }) => role === 'tool')?.content;
       if (!isQuery && result) queryResults.push(result);
       const args = isQuery
@@ -620,9 +621,15 @@ describe('radar through HTTP and per-guest SQLite', () => {
           function: { name: 'trip_write', arguments: '{}' },
         });
       response.writeHead(200, { 'content-type': 'text/event-stream' });
-      response.end(
-        `data: ${JSON.stringify({ id: 'fixture', model: 'fixture', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: calls }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`,
-      );
+      const finish = () =>
+        response.end(
+          `data: ${JSON.stringify({ id: 'fixture', model: 'fixture', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: calls }, finish_reason: 'tool_calls' }] })}\n\ndata: [DONE]\n\n`,
+        );
+      if (mode === 'slow' && !isQuery) {
+        response.flushHeaders();
+        const timer = setTimeout(finish, 6500);
+        response.once('close', () => clearTimeout(timer));
+      } else finish();
     });
     upstream.listen(0, '127.0.0.1');
     await once(upstream, 'listening');
@@ -641,7 +648,7 @@ describe('radar through HTTP and per-guest SQLite', () => {
       const scan = async () => {
         const response = await post(
           '/radar/sessions',
-          { origin_id: origin.id, available_min: 45 },
+          { origin_id: origin.id, available_min: 105 },
           cookie,
         );
         expect(response.status).toBe(201);
@@ -659,11 +666,16 @@ describe('radar through HTTP and per-guest SQLite', () => {
       expect((await scan()).best.choice.reason_text).not.toBe(reason);
       mode = 'mixed';
       expect((await scan()).best.choice.reason_text).not.toBe(reason);
+      mode = 'slow';
+      expect((await scan()).best.choice).toMatchObject({
+        poi_id: destination.id,
+        reason_text: reason,
+      });
       expect(toolSurfaces).toEqual(
-        Array.from({ length: 3 }, () => [['candidates_query'], ['candidates_propose']]).flat(),
+        Array.from({ length: 4 }, () => [['candidates_query'], ['candidates_propose']]).flat(),
       );
       expect(queryResults).toEqual(
-        Array.from({ length: 3 }, () =>
+        Array.from({ length: 4 }, () =>
           JSON.stringify([
             { poi_id: destination.id, saved: false },
             { poi_id: saved.id, saved: false },
