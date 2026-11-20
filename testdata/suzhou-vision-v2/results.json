@@ -1,0 +1,35 @@
+{
+ "evaluated_at": "2026-11-20",
+ "target": "production 4026a80 (primary: vision model; fallback route)",
+ "method": "import-batches API, one batch of 15 + one batch of 9 + retry; each guest erased after use",
+ "summary": {
+  "items": 18,
+  "correct": 14,
+  "partial": 1,
+  "wrong": 2,
+  "degraded_safe": 2,
+  "vision_attempt_failed": 4,
+  "vision_requests": 26,
+  "failure_note": "2 requests hit primary timeout (15s) and fallback timeout (15s); one recovered on retry"
+ },
+ "results": {
+  "note-hanshansi.jpg": { "expected": "寒山寺", "observed": "寒山寺 | 枫桥路16号", "verdict": "correct" },
+  "note-huqiu.jpg": { "expected": "虎丘", "observed": "虎丘山风景区 | 山塘街898号", "verdict": "correct" },
+  "note-shizilin.jpg": { "expected": "狮子林", "observed": "狮子林 | 园林路23号", "verdict": "correct" },
+  "note-liuyuan.jpg": { "expected": "留园", "observed": "留园 | 阊门外留园路338号", "verdict": "correct" },
+  "note-wangshiyuan.jpg": { "expected": "网师园", "observed": "网师园 | 带城桥路阔家头巷11号", "verdict": "correct" },
+  "note-jinjihu.jpg": { "expected": "金鸡湖", "observed": "金鸡湖景区 | 苏州工业园区", "verdict": "correct" },
+  "note-two-places.jpg": { "expected": "平江路 + 山塘街", "observed": "平江路 only", "verdict": "partial" },
+  "note-qili.jpg": { "expected": "山塘街/七里山塘", "observed": "七里山塘景区 | 山塘街177号", "verdict": "correct" },
+  "note-szbwg.jpg": { "expected": "苏州博物馆本馆或西馆", "observed": "苏州博物馆(本馆) | 东北街204号", "verdict": "correct" },
+  "note-food.jpg": { "expected": "无具体地点或仅观前街", "observed": "观前街 | 太监弄49号", "verdict": "correct" },
+  "note-overview.jpg": { "expected": "城市级", "observed": "苏州市 | 姑苏区", "verdict": "degraded_safe" },
+  "note-hangzhou.jpg": { "expected": "杭州西湖", "observed": "西湖桥 | 吴中区", "verdict": "wrong" },
+  "note-blur.jpg": { "expected": "安全退化", "observed": "苏州市 | 姑苏区", "verdict": "degraded_safe" },
+  "note-english.jpg": { "expected": "拙政园", "observed": "拙政园 | 东北街178号", "verdict": "correct" },
+  "photo-museum-crop.jpg": { "expected": "苏州博物馆", "observed": "苏州博物馆(本馆)", "verdict": "correct" },
+  "photo-garden-rotate-blur.jpg": { "expected": "拙政园", "observed": "拙政园 | 东北街178号 (first attempt failed: both routes timeout 15s; retry ok)", "verdict": "correct" },
+  "photo-shantang-lowres.jpg": { "expected": "山塘街", "observed": "周庄古镇 | 全福路43号", "verdict": "wrong" },
+  "photo-collage-museum-garden.jpg": { "expected": "苏州博物馆或拙政园", "observed": "苏州博物馆(本馆)", "verdict": "correct" }
+ }
+}

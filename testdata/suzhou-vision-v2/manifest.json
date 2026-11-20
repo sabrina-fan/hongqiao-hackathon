@@ -1,0 +1,132 @@
+{
+ "version": 1,
+ "count": 18,
+ "items": {
+  "note-hanshansi.jpg": {
+   "expected": "single",
+   "note": "expect: hit 寒山寺; 不接受其他寺庙",
+   "source": "synthetic",
+   "sha256": "79623d2c9a4a4db848b66de2e086830e2839272fa161f755a0f19dea7bfc46de",
+   "size": 65675
+  },
+  "note-huqiu.jpg": {
+   "expected": "single",
+   "note": "expect: hit 虎丘; 可含虎丘塔",
+   "source": "synthetic",
+   "sha256": "b898384da0b090ce5cff812cf024da6b5a06e4fc90e1b639d3abbb86e12153dc",
+   "size": 57836
+  },
+  "note-shizilin.jpg": {
+   "expected": "single",
+   "note": "expect: hit 狮子林",
+   "source": "synthetic",
+   "sha256": "8108112b5a2800a089e51423a9d0cc67f3da55b81597b15ee64e72eebd839265",
+   "size": 54448
+  },
+  "note-liuyuan.jpg": {
+   "expected": "single",
+   "note": "expect: hit 留园",
+   "source": "synthetic",
+   "sha256": "e9643ee2f95a3ca830fd50679bdd18069517f447bc4f17aade70b208300b8957",
+   "size": 55018
+  },
+  "note-wangshiyuan.jpg": {
+   "expected": "single",
+   "note": "expect: hit 网师园",
+   "source": "synthetic",
+   "sha256": "91067c3d8e76316e35813a78ba019846c515a0fa2297fc2e9e776d2ce8865743",
+   "size": 51133
+  },
+  "note-jinjihu.jpg": {
+   "expected": "single",
+   "note": "expect: hit 金鸡湖; 可含东方之门",
+   "source": "synthetic",
+   "sha256": "aa163e40b0dc02c307ec81ab62fce58ba29436dce071baf9c9f04f48ecf481b5",
+   "size": 53767
+  },
+  "note-two-places.jpg": {
+   "expected": "multi",
+   "note": "expect: 应识别平江路与山塘街两地，需用户选择或返回多个候选",
+   "source": "synthetic",
+   "sha256": "fdb02f8a60abdeb2bd990aec92fd1bfc2018ed7016775538048fb09987a903fa",
+   "size": 62876
+  },
+  "note-qili.jpg": {
+   "expected": "ambiguous",
+   "note": "expect: 山塘街/七里山塘均可接受",
+   "source": "synthetic",
+   "sha256": "8f8f6e2b80bf2dd2882f49f2766e7c05823aff4ef09cc97f124df9d474317e4d",
+   "size": 49029
+  },
+  "note-szbwg.jpg": {
+   "expected": "ambiguous",
+   "note": "expect: 苏州博物馆本馆或西馆均可接受，需区分",
+   "source": "synthetic",
+   "sha256": "11ca77e0e2e4db6b04ee51d9a796550a4faadc4b1bc90dcb9ae31ab8f3944d45",
+   "size": 57911
+  },
+  "note-food.jpg": {
+   "expected": "no_place",
+   "note": "expect: not_searched 或空候选；不应凭美食名生成 POI",
+   "source": "synthetic",
+   "sha256": "24941c0d0aed6be3c3373b9314673340d6b016962c611ae0330710f52dfce682",
+   "size": 55099
+  },
+  "note-overview.jpg": {
+   "expected": "city",
+   "note": "expect: 城市级内容；不应强行匹配单个景点",
+   "source": "synthetic",
+   "sha256": "85fb94baa411a25e4c03a8bbc16d9382dff6a2bb0beb1c27bfac0393e706b52c",
+   "size": 59486
+  },
+  "note-hangzhou.jpg": {
+   "expected": "wrong_city",
+   "note": "expect: 杭州西湖；不应匹配为苏州景点",
+   "source": "synthetic",
+   "sha256": "35eb4ad7b7f8607538ff2edf8714f610535c9141edfcdcffb85ab5f70d975a77",
+   "size": 52951
+  },
+  "note-blur.jpg": {
+   "expected": "degraded",
+   "note": "expect: 模糊低对比；安全退化或城市级",
+   "source": "synthetic",
+   "sha256": "7d7007bb840b71b394379273d6a013905199c19848589ac0818f044b4a17bc69",
+   "size": 35309
+  },
+  "note-english.jpg": {
+   "expected": "english",
+   "note": "expect: 拙政园 (Humble Administrator's Garden)",
+   "source": "synthetic",
+   "sha256": "6ae60e6471223fbfa97c11eab37816df76d056440968c5bd22d99cc8ea9dff8a",
+   "size": 60116
+  },
+  "photo-museum-crop.jpg": {
+   "expected": "photo",
+   "note": "expect: hit 苏州博物馆",
+   "source": "derived from museum.jpg (CC BY-SA 4.0 / CC BY 4.0, Wikimedia Commons)",
+   "sha256": "689db531c1139d12a4240b82e35eeba57439de391a3600a9a5a29b550e6df680",
+   "size": 35434
+  },
+  "photo-garden-rotate-blur.jpg": {
+   "expected": "photo",
+   "note": "expect: hit 拙政园",
+   "source": "derived from garden.jpg (CC BY-SA 4.0 / CC BY 4.0, Wikimedia Commons)",
+   "sha256": "46917a4c336fc0e13dfdc2ee44c9ad59884a18cdba96b5663ddc6f525bcfbeab",
+   "size": 142012
+  },
+  "photo-shantang-lowres.jpg": {
+   "expected": "photo",
+   "note": "expect: hit 山塘街",
+   "source": "derived from shantang.jpg (CC BY-SA 4.0 / CC BY 4.0, Wikimedia Commons)",
+   "sha256": "f8a37d96ed686f1e94bc7375ef26d6f09d6cd559094619a7b909e9046af4abc8",
+   "size": 90917
+  },
+  "photo-collage-museum-garden.jpg": {
+   "expected": "multi_photo",
+   "note": "expect: 苏州博物馆与拙政园至少其一是候选；两地点拼贴",
+   "source": "derived from CC BY-SA 4.0 photos",
+   "sha256": "86d736b70a70224c1580e2aa9c1830d8348869b65963cd9f87efb6e120735a5a",
+   "size": 434041
+  }
+ }
+}
