@@ -1,0 +1,68 @@
+{
+ "count": 9,
+ "items": {
+  "note-ticket.jpg": {
+   "expected": "ticket",
+   "note": "expect: 拙政园",
+   "source": "synthetic",
+   "sha256": "d86698aafe6c5551b221f884f1abd218197408cbc386dc538e52b722d47c24fb",
+   "size": 77288
+  },
+  "note-address-only.jpg": {
+   "expected": "address",
+   "note": "expect: 山塘街/七里山塘",
+   "source": "synthetic",
+   "sha256": "3225160fa6ff27498cc8af138f0e4d9d87989de5fba6a028e0ff5cd311332d91",
+   "size": 52246
+  },
+  "note-english2.jpg": {
+   "expected": "english",
+   "note": "expect: 留园 (Lingering Garden)",
+   "source": "synthetic",
+   "sha256": "793907e5ddad158e5a358b2f5db9b6a51fa0ac6f0df0b7048eb85414f73d7162",
+   "size": 55890
+  },
+  "note-map.jpg": {
+   "expected": "map",
+   "note": "expect: 苏州博物馆",
+   "source": "synthetic",
+   "sha256": "fb0c37271ba339c801ee91eb62e4101de538a205016b6a90722f8429d53e128a",
+   "size": 81201
+  },
+  "note-two-places-2.jpg": {
+   "expected": "multi",
+   "note": "expect: 虎丘与留园两地；单图只取一地也属已知限制",
+   "source": "synthetic",
+   "sha256": "d3063fe059fa1e00d9496b057519f8e95ff706b6d6c66107ee714b7ecd4add29",
+   "size": 48094
+  },
+  "note-west-hall.jpg": {
+   "expected": "ambiguous",
+   "note": "expect: 苏州博物馆西馆或本馆，需按地址区分",
+   "source": "synthetic",
+   "sha256": "f2360b18237036a7cfd2f1d1f1ca9fd644dcbdffcf3c2bcfdebcacb75808af4e",
+   "size": 54771
+  },
+  "note-noisy.jpg": {
+   "expected": "degraded",
+   "note": "expect: 噪声下仍识别网师园或安全退化",
+   "source": "synthetic",
+   "sha256": "0652f2c598f7a0fe69e42222dbf02a2eeb6aa7c0dc649e2433cce7494e264952",
+   "size": 649750
+  },
+  "note-lowcontrast.jpg": {
+   "expected": "degraded",
+   "note": "expect: 低对比仍识别狮子林或安全退化",
+   "source": "synthetic",
+   "sha256": "736472f9bde40145d4afb135a5bba69907c6516c6350f0641c2fa10c50215e74",
+   "size": 36229
+  },
+  "note-rotated.jpg": {
+   "expected": "degraded",
+   "note": "expect: 倾斜后仍识别寒山寺",
+   "source": "synthetic",
+   "sha256": "a41920894afbad6bec31333238659d971fc2a4d93501359a19bab6fbf8a471af",
+   "size": 71790
+  }
+ }
+}

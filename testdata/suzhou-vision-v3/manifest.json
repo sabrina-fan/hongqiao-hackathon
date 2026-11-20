@@ -1,0 +1,212 @@
+{
+ "version": 3,
+ "count": 20,
+ "items": {
+  "photo-humble-garden.jpg": {
+   "expected": "拙政园",
+   "note": "expect: 拙政园 / Humble Administrator Garden",
+   "source": "Wikimedia Commons: File:拙政园见山楼2024.11 (2).jpg",
+   "sha256": "09cfb666295fe87df2b715a5db0c8e46f3b782aaca686d68f9cca107eb3e5d29",
+   "size": 886808,
+   "license": "CC BY-SA 4.0",
+   "artist": "ScareCriterion12",
+   "credit": "Own work",
+   "page": "https://commons.wikimedia.org/wiki/File:%E6%8B%99%E6%94%BF%E5%9B%AD%E8%A7%81%E5%B1%B1%E6%A5%BC2024.11_(2).jpg",
+   "width": 7948,
+   "height": 5232
+  },
+  "photo-tiger-hill.jpg": {
+   "expected": "虎丘",
+   "note": "expect: 虎丘 / 虎丘塔",
+   "source": "Wikimedia Commons: File:Yunyan Pagoda 20160514 (1).jpg",
+   "sha256": "f6c4c75483611fcfd6a73a959bf9326067ae33643dd7e78cdba8d4e9db73e211",
+   "size": 1068164,
+   "license": "CC BY-SA 4.0",
+   "artist": "Siyuwj",
+   "credit": "Own work",
+   "page": "https://commons.wikimedia.org/wiki/File:Yunyan_Pagoda_20160514_(1).jpg",
+   "width": 4016,
+   "height": 6016
+  },
+  "photo-lion-grove.jpg": {
+   "expected": "狮子林",
+   "note": "expect: 狮子林",
+   "source": "Wikimedia Commons: File:Lion Grove Garden Suzhou November 2017 007.jpg",
+   "sha256": "8aa15f3398452f23e9cf0d36b954d4547a1ef4da3414c66152fc1ce1d5d02f73",
+   "size": 842224,
+   "license": "CC BY-SA 4.0",
+   "artist": "King of Hearts",
+   "credit": "Own work",
+   "page": "https://commons.wikimedia.org/wiki/File:Lion_Grove_Garden_Suzhou_November_2017_007.jpg",
+   "width": 6016,
+   "height": 4016
+  },
+  "photo-lingering-garden.jpg": {
+   "expected": "留园",
+   "note": "expect: 留园",
+   "source": "Wikimedia Commons: File:Lingering Garden2.jpg",
+   "sha256": "b7b3416c874333ba4b3a6d64adc9460ea153079f2ee342d4935bc68bc7c2bb9a",
+   "size": 1194377,
+   "license": "CC BY-SA 4.0",
+   "artist": "钉钉",
+   "credit": "Own work",
+   "page": "https://commons.wikimedia.org/wiki/File:Lingering_Garden2.jpg",
+   "width": 4000,
+   "height": 3000
+  },
+  "photo-hanshan-temple.jpg": {
+   "expected": "寒山寺",
+   "note": "expect: 寒山寺",
+   "source": "Wikimedia Commons: File:寒山寺鐘樓.jpg",
+   "sha256": "897e390fe11ecdd1c7d14e245d26c55a17e33b26627c2d9276a919ac2a4e7d89",
+   "size": 1451407,
+   "license": "CC BY-SA 4.0",
+   "artist": "Outlookxp",
+   "credit": "Own work",
+   "page": "https://commons.wikimedia.org/wiki/File:%E5%AF%92%E5%B1%B1%E5%AF%BA%E9%90%98%E6%A8%93.jpg",
+   "width": 3024,
+   "height": 4032
+  },
+  "photo-pingjiang-road.jpg": {
+   "expected": "平江路",
+   "note": "expect: 平江路",
+   "source": "Wikimedia Commons: File:A gallery bridge in Pingjiang Road, Gusu, Suzhou, Jiangsu, China, 215000.jpg",
+   "sha256": "65573a9244dd603bc8952eca3a643dc66075348eb49d6fafe188f0922a4d9958",
+   "size": 771576,
+   "license": "CC BY 3.0",
+   "artist": "song songroov",
+   "credit": "https://web.archive.org/web/20161031165348/http://www.panoramio.com/photo/129626303",
+   "page": "https://commons.wikimedia.org/wiki/File:A_gallery_bridge_in_Pingjiang_Road,_Gusu,_Suzhou,_Jiangsu,_China,_215000.jpg",
+   "width": 5312,
+   "height": 2988
+  },
+  "photo-shantang-street.jpg": {
+   "expected": "山塘街",
+   "note": "expect: 山塘街 / 七里山塘",
+   "source": "Wikimedia Commons: File:夜·山塘街 01.jpg",
+   "sha256": "34c32ac4fce66ceb4dd61db01408cc189a16d0ab7f44aca5d19898da0347b38e",
+   "size": 768501,
+   "license": "CC BY-SA 4.0",
+   "artist": "Liuxingy",
+   "credit": "Own work",
+   "page": "https://commons.wikimedia.org/wiki/File:%E5%A4%9C%C2%B7%E5%B1%B1%E5%A1%98%E8%A1%97_01.jpg",
+   "width": 2976,
+   "height": 3968
+  },
+  "photo-museum.jpg": {
+   "expected": "苏州博物馆",
+   "note": "expect: 苏州博物馆",
+   "source": "Wikimedia Commons: File:苏州博物馆·苏州·西南向东北.jpg",
+   "sha256": "971c1713abd82e9c27504ef002a302ab507551c67242255e09c6de4390c94117",
+   "size": 1287062,
+   "license": "CC BY-SA 4.0",
+   "artist": "Legolas1024",
+   "credit": "Own work",
+   "page": "https://commons.wikimedia.org/wiki/File:%E8%8B%8F%E5%B7%9E%E5%8D%9A%E7%89%A9%E9%A6%86%C2%B7%E8%8B%8F%E5%B7%9E%C2%B7%E8%A5%BF%E5%8D%97%E5%90%91%E4%B8%9C%E5%8C%97.jpg",
+   "width": 6144,
+   "height": 4605
+  },
+  "photo-master-nets.jpg": {
+   "expected": "网师园",
+   "note": "expect: 网师园",
+   "source": "Wikimedia Commons: File:Master of the Nets Garden 网师园 Main Pond photo by Christian Gänshirt.JPG",
+   "sha256": "c872cb434daa81f135f0b60e74d9080099866837e1dff5bb107683679a18f07d",
+   "size": 1097901,
+   "license": "CC BY-SA 4.0",
+   "artist": "Christian Gänshirt",
+   "credit": "Own work",
+   "page": "https://commons.wikimedia.org/wiki/File:Master_of_the_Nets_Garden_%E7%BD%91%E5%B8%88%E5%9B%AD_Main_Pond_photo_by_Christian_G%C3%A4nshirt.JPG",
+   "width": 4000,
+   "height": 3000
+  },
+  "photo-jinji-lake.jpg": {
+   "expected": "金鸡湖",
+   "note": "expect: 金鸡湖",
+   "source": "Wikimedia Commons: File:Jinji Lake Suzhou November 2017 001.jpg",
+   "sha256": "ca6a3d48771025f723bee1fb5255dfaadd0283698f74d1fa9a29a0792c2e797e",
+   "size": 510177,
+   "license": "CC BY-SA 4.0",
+   "artist": "King of Hearts",
+   "credit": "Own work",
+   "page": "https://commons.wikimedia.org/wiki/File:Jinji_Lake_Suzhou_November_2017_001.jpg",
+   "width": 5600,
+   "height": 3150
+  },
+  "photo-hangzhou-westlake.jpg": {
+   "expected": "杭州西湖",
+   "note": "expect: 杭州西湖；不应匹配苏州景点",
+   "source": "Wikimedia Commons: File:West Lake 20240729.jpg",
+   "sha256": "b9ad23b3212650b92bd5cd245be34354139d053abf0f763c9d809d605e46214b",
+   "size": 854011,
+   "license": "CC BY-SA 4.0",
+   "artist": "HoweyYuan",
+   "credit": "Own work",
+   "page": "https://commons.wikimedia.org/wiki/File:West_Lake_20240729.jpg",
+   "width": 8192,
+   "height": 6144
+  },
+  "note-ticket.jpg": {
+   "expected": "ticket",
+   "note": "expect: 拙政园",
+   "source": "synthetic",
+   "sha256": "d86698aafe6c5551b221f884f1abd218197408cbc386dc538e52b722d47c24fb",
+   "size": 77288
+  },
+  "note-address-only.jpg": {
+   "expected": "address",
+   "note": "expect: 山塘街/七里山塘",
+   "source": "synthetic",
+   "sha256": "3225160fa6ff27498cc8af138f0e4d9d87989de5fba6a028e0ff5cd311332d91",
+   "size": 52246
+  },
+  "note-english2.jpg": {
+   "expected": "english",
+   "note": "expect: 留园 (Lingering Garden)",
+   "source": "synthetic",
+   "sha256": "793907e5ddad158e5a358b2f5db9b6a51fa0ac6f0df0b7048eb85414f73d7162",
+   "size": 55890
+  },
+  "note-map.jpg": {
+   "expected": "map",
+   "note": "expect: 苏州博物馆",
+   "source": "synthetic",
+   "sha256": "fb0c37271ba339c801ee91eb62e4101de538a205016b6a90722f8429d53e128a",
+   "size": 81201
+  },
+  "note-two-places-2.jpg": {
+   "expected": "multi",
+   "note": "expect: 虎丘与留园两地；单图只取一地也属已知限制",
+   "source": "synthetic",
+   "sha256": "d3063fe059fa1e00d9496b057519f8e95ff706b6d6c66107ee714b7ecd4add29",
+   "size": 48094
+  },
+  "note-west-hall.jpg": {
+   "expected": "ambiguous",
+   "note": "expect: 苏州博物馆西馆或本馆，需按地址区分",
+   "source": "synthetic",
+   "sha256": "f2360b18237036a7cfd2f1d1f1ca9fd644dcbdffcf3c2bcfdebcacb75808af4e",
+   "size": 54771
+  },
+  "note-noisy.jpg": {
+   "expected": "degraded",
+   "note": "expect: 噪声下仍识别网师园或安全退化",
+   "source": "synthetic",
+   "sha256": "0652f2c598f7a0fe69e42222dbf02a2eeb6aa7c0dc649e2433cce7494e264952",
+   "size": 649750
+  },
+  "note-lowcontrast.jpg": {
+   "expected": "degraded",
+   "note": "expect: 低对比仍识别狮子林或安全退化",
+   "source": "synthetic",
+   "sha256": "736472f9bde40145d4afb135a5bba69907c6516c6350f0641c2fa10c50215e74",
+   "size": 36229
+  },
+  "note-rotated.jpg": {
+   "expected": "degraded",
+   "note": "expect: 倾斜后仍识别寒山寺",
+   "source": "synthetic",
+   "sha256": "a41920894afbad6bec31333238659d971fc2a4d93501359a19bab6fbf8a471af",
+   "size": 71790
+  }
+ }
+}

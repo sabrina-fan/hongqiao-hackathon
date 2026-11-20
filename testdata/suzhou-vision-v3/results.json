@@ -1,0 +1,115 @@
+{
+ "evaluated_at": "2026-11-20",
+ "target": "production 4026a80 (归一化 1800 像素，修复前基线)",
+ "method": "import-batches API，两批（15 + 5），访客用后擦除",
+ "summary": {
+  "items": 20,
+  "correct": 11,
+  "partial": 2,
+  "wrong": 1,
+  "failed": 6,
+  "failure_note": "6 张 1800 像素照片主备两路均 15 秒超时（vision_unavailable），触发 4ff306c 的 1280 像素修复"
+ },
+ "results": {
+  "note-address-only.jpg": {
+   "expected": "山塘街",
+   "observed": "山塘街 / 七里山塘景区 山塘街177号",
+   "verdict": "correct"
+  },
+  "note-english2.jpg": {
+   "expected": "留园",
+   "observed": "留园-又一村 等园内子地点，无主 POI",
+   "verdict": "partial"
+  },
+  "note-lowcontrast.jpg": {
+   "expected": "狮子林",
+   "observed": "狮子林 园林路23号",
+   "verdict": "correct"
+  },
+  "note-map.jpg": {
+   "expected": "苏州博物馆",
+   "observed": "苏州博物馆(本馆) 东北街204号",
+   "verdict": "correct"
+  },
+  "note-noisy.jpg": {
+   "expected": "网师园",
+   "observed": "网师园 带城桥路阔家头巷11号",
+   "verdict": "correct"
+  },
+  "note-rotated.jpg": {
+   "expected": "寒山寺",
+   "observed": "寒山寺 枫桥路16号",
+   "verdict": "correct"
+  },
+  "note-ticket.jpg": {
+   "expected": "拙政园",
+   "observed": "拙政园 东北街178号",
+   "verdict": "correct"
+  },
+  "note-two-places-2.jpg": {
+   "expected": "虎丘与留园",
+   "observed": "虎丘山风景区 only",
+   "verdict": "partial"
+  },
+  "note-west-hall.jpg": {
+   "expected": "苏州博物馆西馆",
+   "observed": "苏州博物馆西馆 长江路399号",
+   "verdict": "correct"
+  },
+  "photo-hangzhou-westlake.jpg": {
+   "expected": "杭州西湖",
+   "observed": "guess 杭州西湖；候选全为苏州西湖农贸市场/苏州西湖湾公园",
+   "verdict": "wrong"
+  },
+  "photo-hanshan-temple.jpg": {
+   "expected": "寒山寺",
+   "observed": "vision_unavailable（主备均 15s 超时）",
+   "verdict": "failed"
+  },
+  "photo-humble-garden.jpg": {
+   "expected": "拙政园",
+   "observed": "vision_unavailable（主备均 15s 超时）",
+   "verdict": "failed"
+  },
+  "photo-jinji-lake.jpg": {
+   "expected": "金鸡湖",
+   "observed": "vision_unavailable（主备均 15s 超时）",
+   "verdict": "failed"
+  },
+  "photo-lingering-garden.jpg": {
+   "expected": "留园",
+   "observed": "vision_unavailable（主备均 15s 超时）",
+   "verdict": "failed"
+  },
+  "photo-lion-grove.jpg": {
+   "expected": "狮子林",
+   "observed": "狮子林 园林路23号（guess, medium）",
+   "verdict": "correct"
+  },
+  "photo-master-nets.jpg": {
+   "expected": "网师园",
+   "observed": "网师园 带城桥路阔家头巷11号（guess, medium）",
+   "verdict": "correct"
+  },
+  "photo-museum.jpg": {
+   "expected": "苏州博物馆",
+   "observed": "苏州博物馆(本馆) 东北街204号（guess, high）",
+   "verdict": "correct"
+  },
+  "photo-pingjiang-road.jpg": {
+   "expected": "平江路",
+   "observed": "vision_unavailable（主备均 15s 超时）",
+   "verdict": "failed"
+  },
+  "photo-shantang-street.jpg": {
+   "expected": "山塘街",
+   "observed": "vision_unavailable（主备均 15s 超时）",
+   "verdict": "failed"
+  },
+  "photo-tiger-hill.jpg": {
+   "expected": "虎丘",
+   "observed": "虎丘塔 山门内8号（guess, high）",
+   "verdict": "correct"
+  }
+ }
+}
