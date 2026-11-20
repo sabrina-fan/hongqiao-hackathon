@@ -92,8 +92,10 @@ export async function prepareImportImage(file: File) {
   const prepared = await (
     await processor
   ).prepare(Uint8Array.from(original), file.type, {
-    maxWidth: 1800,
-    maxHeight: 3000,
+    // The normalized copy feeds the vision model, whose providers time out on
+    // multi-megabyte uploads; 1280 keeps note text legible at a fraction of the bytes.
+    maxWidth: 1280,
+    maxHeight: 1280,
     maxBytes: 2 * 1024 * 1024,
   });
   if (!prepared || (prepared.mimeType !== 'image/jpeg' && prepared.mimeType !== 'image/png'))
